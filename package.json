@@ -1,0 +1,24 @@
+{
+  "name": "ghl-pipeline-maestro-tool",
+  "version": "1.0.0",
+  "description": "Herramienta para crear y distribuir contactos al Pipeline Maestro de GoHighLevel",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node webhook_server.js",
+    "cli": "node index.js",
+    "create": "node pipeline_manager.js",
+    "distribute": "node distribute_contacts.js"
+  },
+  "keywords": [
+    "ghl",
+    "pipeline",
+    "opportunities",
+    "crm"
+  ],
+  "author": "Antigravity AI",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
