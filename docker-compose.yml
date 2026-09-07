@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  loa-engine:
+    build: .
+    container_name: loa-engine-core
+    restart: always
+    ports:
+      # Expone el puerto 3000 para uso local.
+      # En la nube (Render/GCP), la plataforma inyectará process.env.PORT automáticamente.
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    # Los volúmenes locales se mantienen opcionales para pruebas en tu Mac Mini.
+    # En la nube, los datos temporales vivirán en el MemoryQueue del LOA Engine.
+    volumes:
+      - ./counters.json:/app/counters.json
+      - ./stats.json:/app/stats.json
+    env_file:
+      - .env

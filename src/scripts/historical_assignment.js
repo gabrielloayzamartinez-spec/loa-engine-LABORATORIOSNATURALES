@@ -1,4 +1,4 @@
-import { GHL_CONFIG, PAGE_TAG_MAP, PALACIOS_USERS } from './config.js';
+import { GHL_CONFIG, PAGE_TAG_MAP, PALACIOS_USERS } from '../config/index.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 

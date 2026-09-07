@@ -2,13 +2,19 @@
   "name": "ghl-pipeline-maestro-tool",
   "version": "1.0.0",
   "description": "Herramienta para crear y distribuir contactos al Pipeline Maestro de GoHighLevel",
-  "main": "index.js",
+  "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "start": "node webhook_server.js",
-    "cli": "node index.js",
-    "create": "node pipeline_manager.js",
-    "distribute": "node distribute_contacts.js"
+    "start": "node src/server.js",
+    "start:all": "concurrently \"npm run start:node\" \"npm run start:python\"",
+    "start:node": "node src/server.js",
+    "start:python": "python vtiger_bridge/vtiger_watcher.py",
+    "start:healer": "node src/scripts/historial_healer.js",
+    "sweep:unread": "node src/agents/master_batch_runner.js --unread",
+    "sweep:all": "node src/agents/master_batch_runner.js",
+    "cli": "node src/cli.js",
+    "create": "node src/scripts/pipeline_manager.js",
+    "distribute": "node src/services/distribute_contacts.js"
   },
   "keywords": [
     "ghl",
@@ -19,6 +25,12 @@
   "author": "Antigravity AI",
   "license": "ISC",
   "dependencies": {
-    "express": "^5.2.1"
+    "concurrently": "^10.0.5",
+    "csv-parser": "^3.2.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "node-cron": "^4.6.0",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1"
   }
 }

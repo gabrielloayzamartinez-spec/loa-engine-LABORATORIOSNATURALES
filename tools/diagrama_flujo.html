@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagrama de Flujo - LOA ENGINE</title>
+    <!-- Incluir Mermaid JS -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            text-align: center;
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+        }
+        .diagram-container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🧠 Diagrama de Flujo del Ecosistema Automatizado</h1>
+    <p>Operación en vivo entre vTiger, LOA ENGINE y GoHighLevel</p>
+    
+    <div class="diagram-container">
+        <div class="mermaid">
+        flowchart TD
+            %% Estilos
+            classDef vtiger fill:#1e40af,stroke:#60a5fa,color:#fff,stroke-width:2px;
+            classDef ghl fill:#047857,stroke:#34d399,color:#fff,stroke-width:2px;
+            classDef nodejs fill:#b45309,stroke:#fbbf24,color:#fff,stroke-width:2px;
+            classDef python fill:#4338ca,stroke:#818cf8,color:#fff,stroke-width:2px;
+            classDef user fill:#374151,stroke:#9ca3af,color:#fff,stroke-width:2px;
+
+            %% Actores Externos
+            VT(vTiger CRM):::vtiger
+            GHL(GoHighLevel CRM):::ghl
+            SALES(Equipo de Redes / Ventas):::user
+
+            %% Ecosistema LOA ENGINE
+            subgraph LOA ENGINE [LOA ENGINE - Ecosistema Central]
+                
+                subgraph Modulo_Sync [1. Vigilante Bidireccional (Python)]
+                    WATCHER(Monitor de Leads):::python
+                    TRANSFORMER(Formateador a 23 Campos):::python
+                end
+
+                subgraph Modulo_Ruteo [2. Motor de Asignación Automática (Node.js)]
+                    SERVER(Servidor Receptor de Alertas):::nodejs
+                    ROUTER(Ruteador / Distribuidor de Leads):::nodejs
+                end
+            end
+
+            %% Flujo 1: Entrada de datos desde vTiger
+            VT -- "1. Entra Lead Nuevo a vTiger" --> WATCHER
+            WATCHER -- "2. Normaliza el Contacto" --> TRANSFORMER
+            TRANSFORMER -- "3. Lo Inyecta a GHL" --> GHL
+
+            %% Flujo 2: Asignación Comercial
+            GHL -- "4. Alerta: ¡Llegó nuevo Lead!" --> SERVER
+            SERVER -- "5. Envía a Motor" --> ROUTER
+            ROUTER -- "6. Asigna Vendedor y Crea Oportunidad" --> GHL
+            
+            %% Flujo 3: Operativa del Equipo
+            GHL -- "7. Notifica al Vendedor" --> SALES
+            SALES -. "8. Vendedor Cierra Venta en GHL" .-> GHL
+
+            %% Flujo 4: Retorno Bidireccional
+            GHL -. "9. GHL le avisa al Vigilante" .-> WATCHER
+            WATCHER -. "10. Vigilante actualiza el estado en vTiger" .-> VT
+        </div>
+    </div>
+
+</body>
+</html>

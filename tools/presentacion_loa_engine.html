@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Presentación Ejecutiva - LOA ENGINE</title>
+    <!-- Tailwind CSS para el diseño premium -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Mermaid JS -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: {
+            primaryColor: '#ffffff',
+            primaryTextColor: '#1e293b',
+            primaryBorderColor: '#cbd5e1',
+            lineColor: '#64748b',
+            secondaryColor: '#f1f5f9',
+            tertiaryColor: '#e2e8f0'
+        }});
+    </script>
+    <style>
+        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased p-8 min-h-screen flex flex-col items-center">
+
+    <!-- Header / Título -->
+    <div class="max-w-6xl w-full text-center mb-10">
+        <h1 class="text-4xl font-extrabold tracking-tight text-slate-900 mb-3">LOA ENGINE: Arquitectura Comercial</h1>
+        <p class="text-lg text-slate-500 max-w-3xl mx-auto">Visión integral del ecosistema automatizado de sincronización, enrutamiento inteligente de leads, auditoría anti-fraude y retroalimentación con pautas publicitarias (Meta).</p>
+    </div>
+
+    <!-- Contenedor Principal (Diagrama) -->
+    <div class="max-w-6xl w-full glass-panel rounded-2xl p-8 mb-8">
+        
+        <div class="mermaid flex justify-center">
+        graph LR
+            %% Estilos Modernos
+            classDef disabled fill:#9ca3af,stroke:#6b7280,color:#fff,stroke-width:2px;
+            classDef active fill:#cbd5e1,stroke:#94a3b8,color:#000,stroke-width:2px;
+            classDef engine fill:#0369a1,stroke:#075985,color:#fff,stroke-width:3px;
+
+            %% Nodos Principales (Círculos y formas) con comillas para evitar errores de sintaxis
+            TIKTOK(("TIKTOK<br>(NO HABILITADO)")):::disabled
+            META(("META")):::active
+            WHATSAPP(("WHATSAPP<br>(NO HABILITADO)")):::disabled
+            
+            GHL(("GHL")):::active
+            VTIGER(("VTIGER")):::active
+            
+            %% Nodo LOA (Hexágono)
+            LOA{{"LOA"}}:::engine
+
+            %% Diseño
+            subgraph Redes ["Fuentes de Tráfico"]
+                TIKTOK
+                META
+                WHATSAPP
+            end
+
+            %% Conexiones Principales
+            META -->|"Conexion por integracion ghl"| GHL
+            META -->|"Conexion por MAPI"| GHL
+            
+            GHL <--> VTIGER
+            
+            %% Conexiones de Monitoreo/Control de LOA (Punteadas)
+            LOA -.-> META
+            LOA -.-> GHL
+            LOA -.-> VTIGER
+        </div>
+    </div>
+
+    <!-- Leyenda / Explicación Rápida -->
+    <div class="max-w-6xl w-full grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <div class="glass-panel p-6 rounded-xl">
+            <div class="flex items-center mb-3">
+                <div class="w-4 h-4 rounded-full bg-[#cbd5e1] mr-3"></div>
+                <h3 class="font-bold text-lg text-slate-800">1. Fuentes y Destinos</h3>
+            </div>
+            <p class="text-sm text-slate-600 leading-relaxed">Meta envía tráfico a GHL por dos vías (Integración nativa y API). GHL y vTiger mantienen una sincronización bidireccional continua de la data.</p>
+        </div>
+
+        <div class="glass-panel p-6 rounded-xl">
+            <div class="flex items-center mb-3">
+                <div class="w-4 h-4 rounded-full bg-[#0369a1] mr-3"></div>
+                <h3 class="font-bold text-lg text-slate-800">2. El Motor (LOA)</h3>
+            </div>
+            <p class="text-sm text-slate-600 leading-relaxed">Actúa como el orquestador subyacente. No almacena datos, sino que monitorea e inyecta reglas de negocio entre Meta, GHL y vTiger.</p>
+        </div>
+
+        <div class="glass-panel p-6 rounded-xl">
+            <div class="flex items-center mb-3">
+                <div class="w-4 h-4 rounded-full bg-[#9ca3af] mr-3"></div>
+                <h3 class="font-bold text-lg text-slate-800">3. Escalabilidad</h3>
+            </div>
+            <p class="text-sm text-slate-600 leading-relaxed">El modelo está preparado para activar WhatsApp y TikTok en el futuro, integrándolos al mismo embudo hacia GHL bajo la vigilancia de LOA.</p>
+        </div>
+
+    </div>
+
+</body>
+</html>

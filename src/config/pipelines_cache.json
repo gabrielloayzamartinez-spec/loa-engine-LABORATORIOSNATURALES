@@ -1,0 +1,102 @@
+{
+  "master": {
+    "pipelineId": "VRjjLC7yiQzI549NrKnL",
+    "pipelineName": "🎯 Pipeline Maestro - Call Center USA",
+    "stages": [
+      {
+        "id": "99c9e26a-c02a-48ac-9177-73250cd9f9d1",
+        "name": "💬 Precalificado (Sin Teléfono / En Chat)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 1,
+        "stageWinProbability": 16.67
+      },
+      {
+        "id": "66af4860-1307-4404-beef-eb6f48572c1a",
+        "name": "📞 Lead Calificado (Con Teléfono / Listo para Llamar)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 2,
+        "stageWinProbability": 33.33
+      },
+      {
+        "id": "4a3cc1fa-7efc-4369-84ed-beb272192167",
+        "name": "⏳ En Llamada / Negociación",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 3,
+        "stageWinProbability": 50
+      },
+      {
+        "id": "aac7da36-fe5b-4890-a384-4b1b290f2d29",
+        "name": "🎉 Venta Cerrada (Ganado)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 4,
+        "stageWinProbability": 66.67
+      },
+      {
+        "id": "acc6e063-872d-4d79-bc64-320b9085f6d5",
+        "name": "❌ No Contesta / Descalificado",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 5,
+        "stageWinProbability": 83.33
+      }
+    ],
+    "stagePrecalificadoId": "99c9e26a-c02a-48ac-9177-73250cd9f9d1",
+    "stageCalificadoId": "66af4860-1307-4404-beef-eb6f48572c1a"
+  },
+  "audit": {
+    "pipelineId": "vRUakzOLve6usJwoCWNP",
+    "pipelineName": "📊 Radar de Pauta & Auditoría Multi-Touch",
+    "stages": [
+      {
+        "id": "50f5bae7-1287-46b5-91a4-fb997752c131",
+        "name": "📥 Intake / Base Completa (Por Auditar & Distribuir)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 1,
+        "stageWinProbability": 16.67
+      },
+      {
+        "id": "88fa71ab-da2a-4a54-8b1f-f2bea66d0ab2",
+        "name": "🟢 1er Clic (Lead Nuevo / X1)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 2,
+        "stageWinProbability": 33.33
+      },
+      {
+        "id": "ee773cb2-f337-423a-a8ad-31a9f8eacb8c",
+        "name": "🟡 2do Clic (Reingreso / X2 - Descuento 1)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 3,
+        "stageWinProbability": 50
+      },
+      {
+        "id": "ca3c789f-606e-4f08-8d7d-ab96388235e9",
+        "name": "🟠 3er Clic (Reingreso / X3 - Descuento 2)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 4,
+        "stageWinProbability": 66.67
+      },
+      {
+        "id": "da815bf3-2c20-4bf6-9f1f-c2e0adb4a908",
+        "name": "🔴 4to Clic+ (Saturación / X4+)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 5,
+        "stageWinProbability": 83.33
+      }
+    ],
+    "stageIntakeId": "50f5bae7-1287-46b5-91a4-fb997752c131",
+    "stageX1Id": "88fa71ab-da2a-4a54-8b1f-f2bea66d0ab2",
+    "stageX2Id": "ee773cb2-f337-423a-a8ad-31a9f8eacb8c",
+    "stageX3Id": "ca3c789f-606e-4f08-8d7d-ab96388235e9",
+    "stageX4Id": "da815bf3-2c20-4bf6-9f1f-c2e0adb4a908"
+  },
+  "updatedAt": "2026-09-02T22:11:50.381Z"
+}

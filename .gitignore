@@ -1,2 +1,34 @@
 node_modules/
 .env
+.env.*
+!.env.example
+
+# State & Logs
+*.log
+counters.json
+stats.json
+healer_state.json
+last_sync_state.json
+
+# Databases & SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Binaries & Executables
+cloudflared.exe
+*.exe
+
+# Reports & Temporary Data
+*.csv
+scratch/
+.agents/
+
+# Python cache & data
+__pycache__/
+*.pyc
+vtiger_bridge/__pycache__/
+vtiger_bridge/logs/
+vtiger_bridge/data/
+vtiger_bridge/output/
+vtiger_bridge/checkpoint.db

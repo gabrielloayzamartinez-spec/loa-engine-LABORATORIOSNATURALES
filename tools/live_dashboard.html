@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Tracker: Mudanza vTiger</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #e2e8f0; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .row-enter { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="min-h-screen p-8">
+    <div class="max-w-6xl mx-auto">
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h1 class="text-3xl font-bold text-white flex items-center gap-3">
+                    🚀 Live Tracker: Rescate vTiger
+                    <span class="flex h-3 w-3 relative">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                    </span>
+                </h1>
+                <p class="text-slate-400 mt-2">Monitoreo en tiempo real de los infiltrados siendo mudados al Archivo Histórico.</p>
+            </div>
+            <div class="glass px-6 py-4 rounded-xl text-center">
+                <p class="text-sm text-slate-400 uppercase font-semibold tracking-wider">Total Rescatados</p>
+                <p class="text-4xl font-bold text-emerald-400" id="total-count">0</p>
+            </div>
+        </div>
+
+        <div class="glass rounded-xl overflow-hidden shadow-2xl">
+            <div class="overflow-x-auto max-h-[700px] overflow-y-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="sticky top-0 bg-slate-800/90 backdrop-blur z-10 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                        <tr>
+                            <th class="px-6 py-4 font-semibold">Hora</th>
+                            <th class="px-6 py-4 font-semibold">Nombre Corregido</th>
+                            <th class="px-6 py-4 font-semibold text-right">Monto Restaurado</th>
+                            <th class="px-6 py-4 font-semibold">Pipeline Origen</th>
+                            <th class="px-6 py-4 font-semibold text-center">Estatus</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-slate-700/50">
+                        <!-- Rows will be injected here -->
+                    </tbody>
+                </table>
+            </div>
+            <div id="loading-state" class="p-12 text-center text-slate-500">
+                <p>Esperando a que el escáner detecte infiltrados...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let processedCount = 0;
+        
+        async function fetchLogs() {
+            try {
+                // Add timestamp to prevent caching
+                const response = await fetch(`data/logs/mudanza_live.jsonl?t=${Date.now()}`);
+                if (!response.ok) return;
+                
+                const text = await response.text();
+                if (!text.trim()) return;
+
+                const lines = text.trim().split('\n');
+                if (lines.length === processedCount) return; // No new lines
+
+                const newLines = lines.slice(processedCount);
+                const tbody = document.getElementById('table-body');
+                const loading = document.getElementById('loading-state');
+                
+                if (loading && newLines.length > 0) loading.style.display = 'none';
+
+                newLines.forEach(line => {
+                    if(!line.trim()) return;
+                    try {
+                        const data = JSON.parse(line);
+                        
+                        if (data.status === 'scanning') {
+                            const loadingState = document.getElementById('loading-state');
+                            if (loadingState) {
+                                loadingState.innerHTML = `<p class="animate-pulse text-indigo-400 font-semibold">🔍 Escaneando pipeline: ${data.old_pipeline}... <br><span class="text-xs text-slate-500 mt-2 block">Revisando tarjeta: ${data.original_name}</span></p>`;
+                                loadingState.style.display = 'block';
+                            }
+                            return; // Don't add to table
+                        }
+                        
+                        const tr = document.createElement('tr');
+                        tr.className = 'row-enter hover:bg-slate-800/50 transition-colors';
+                        
+                        const time = new Date(data.timestamp).toLocaleTimeString();
+                        const statusColor = data.status === 'won' ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' : 'text-blue-400 bg-blue-400/10 border-blue-400/20';
+                        const statusText = data.status === 'won' ? 'Venta Ganada' : 'Remarketing';
+
+                        tr.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-400">${time}</td>
+                            <td class="px-6 py-4">
+                                <div class="text-sm font-medium text-white">${data.new_name}</div>
+                                <div class="text-xs text-slate-500 line-through mt-1">${data.original_name}</div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-emerald-400">
+                                $${data.monto.toFixed(2)}
+                            </td>
+                            <td class="px-6 py-4 text-sm text-slate-300">
+                                <span class="px-2.5 py-1 rounded-md bg-slate-700/50 border border-slate-600">${data.old_pipeline}</span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-center">
+                                <span class="px-3 py-1 text-xs font-semibold rounded-full border ${statusColor}">
+                                    ${statusText}
+                                </span>
+                            </td>
+                        `;
+                        // Insert at the top
+                        tbody.insertBefore(tr, tbody.firstChild);
+                    } catch(e) {}
+                });
+
+                processedCount = lines.length;
+                document.getElementById('total-count').textContent = processedCount;
+
+            } catch (error) {
+                console.error("Error fetching logs:", error);
+            }
+        }
+
+        // Poll every 2 seconds
+        setInterval(fetchLogs, 2000);
+        fetchLogs();
+    </script>
+</body>
+</html>
