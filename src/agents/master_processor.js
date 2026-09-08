@@ -258,56 +258,69 @@ export async function processMasterContact(contactInput, options = {}) {
     const isGhlWon = existingTags.includes('cliente-comprador') || existingTags.includes('venta-cerrada');
     const isWon = Boolean(isVtigerWon || isGhlWon);
 
-    // --- 3.5 REGLA DE COOLDOWN Y MUDANZA (TIEMPO DE GRACIA DE 4 DÍAS / 96 HORAS) ---
+    // --- 3.5 REGLA DE COOLDOWN Y MUDANZA (4 DÍAS SIN VENTA / 30 DÍAS CON VENTA) ---
     let cooldownBlocked = false;
     let cooldownNote = null;
-    const GRACE_PERIOD_HOURS = 96; // 4 días
+    const GRACE_PERIOD_LEAD_HOURS = 96; // 4 días para prospectos sin venta
+    const GRACE_PERIOD_WON_HOURS = 30 * 24; // 30 días (720 horas / 1 mes) para clientes con venta
 
     if (targetAdvisorId && contact.assignedTo && targetAdvisorId !== contact.assignedTo) {
-      if (isWon) {
-        // CASO 1: CLIENTE CON VENTA (CONVERTIDO) ➔ RESERVADO PERMANENTEMENTE PARA SU OFICINA DE VENTA
-        cooldownBlocked = true;
-        cooldownNote = `[🛡️ RESERVADO OFICINA VENTA] Intento de reasignación a ${detectedPageName} bloqueado. Este cliente tiene venta confirmada (CONVERTIDO) y pertenece exclusivamente a su oficina de venta.`;
-        targetAdvisorId = contact.assignedTo;
-        targetAdvisorName = 'Oficina de Venta (Cliente Reservado)';
-      } else {
-        // CASO 2: PROSPECTO SIN VENTA ➔ EVALUAR TIEMPO DE GRACIA DE 4 DÍAS
-        rawMessagesList.sort((a, b) => new Date(a.dateAdded) - new Date(b.dateAdded));
-        
-        let lastOldInteractionDate = null;
-        const now = new Date();
-        
-        for (let i = rawMessagesList.length - 1; i >= 0; i--) {
-          const msgDate = new Date(rawMessagesList[i].dateAdded);
-          const diffHours = (now - msgDate) / (1000 * 60 * 60);
-          if (diffHours > 2) {
-            lastOldInteractionDate = msgDate;
-            break;
-          }
+      rawMessagesList.sort((a, b) => new Date(a.dateAdded) - new Date(b.dateAdded));
+      
+      let lastOldInteractionDate = null;
+      const now = new Date();
+      
+      for (let i = rawMessagesList.length - 1; i >= 0; i--) {
+        const msgDate = new Date(rawMessagesList[i].dateAdded);
+        const diffHours = (now - msgDate) / (1000 * 60 * 60);
+        if (diffHours > 2) {
+          lastOldInteractionDate = msgDate;
+          break;
         }
-        
-        if (!lastOldInteractionDate && contact.dateAdded) {
-          const isOldVtiger = existingTags.some(t => String(t).startsWith('vtiger-202'));
-          if (isOldVtiger) {
-            lastOldInteractionDate = new Date('2020-01-01');
-          } else {
-            lastOldInteractionDate = new Date(contact.dateAdded);
-          }
-        }
-        
-        if (lastOldInteractionDate) {
-          const hoursSinceLastInteraction = (now - lastOldInteractionDate) / (1000 * 60 * 60);
-          
-          if (hoursSinceLastInteraction <= GRACE_PERIOD_HOURS) {
-            // Menor o igual a 4 días (96h): Bloquear mudanza para proteger la exclusividad de la sede actual
+      }
+      
+      // Fecha de referencia: fecha de última compra si es cliente, o interacción previa
+      let referenceDate = null;
+      if (isWon && vContact?.spl_fecha_ultima_compra) {
+        referenceDate = new Date(vContact.spl_fecha_ultima_compra);
+      } else if (isWon && vContact?.spl_fecha_primera_compra) {
+        referenceDate = new Date(vContact.spl_fecha_primera_compra);
+      } else if (lastOldInteractionDate) {
+        referenceDate = lastOldInteractionDate;
+      } else if (contact.dateAdded) {
+        const isOldVtiger = existingTags.some(t => String(t).startsWith('vtiger-202'));
+        referenceDate = isOldVtiger ? new Date('2020-01-01') : new Date(contact.dateAdded);
+      }
+
+      if (referenceDate) {
+        const hoursSinceRef = (now - referenceDate) / (1000 * 60 * 60);
+
+        if (isWon) {
+          // CASO 1: CLIENTE CON VENTA (CONVERTIDO) ➔ TIEMPO DE GRACIA PROLONGADO DE 1 MES (30 DÍAS)
+          if (hoursSinceRef <= GRACE_PERIOD_WON_HOURS) {
+            // Menor o igual a 30 días: Bloquear mudanza para proteger recompra en oficina de venta
             cooldownBlocked = true;
-            cooldownNote = `[🛡️ TIEMPO DE GRACIA 4 DÍAS] Intento de reasignación a ${detectedPageName} bloqueado. El lead está en gestión exclusiva de su sede actual (${Math.round(hoursSinceLastInteraction)}h transcurridas de 96h).`;
+            cooldownNote = `[🛡️ GRACIA 1 MES - CLIENTE VENDIDO] Intento de reasignación a ${detectedPageName} bloqueado. El cliente compró en su sede actual y tiene exclusividad de recompra durante 30 días (${Math.round(hoursSinceRef / 24)} días transcurridos).`;
+            targetAdvisorId = contact.assignedTo;
+            targetAdvisorName = 'Oficina de Venta (Gracia 1 Mes Activa)';
+          } else {
+            // Mayor a 30 días (1 mes) sin recompra: MUDANZA LEGÍTIMA A NUEVA SEDE
+            cooldownBlocked = false;
+            cooldownNote = `[🔄 MUDANZA LEGÍTIMA TRAS 1 MES] Cliente con venta transferido a ${detectedPageName} tras expirar el periodo de gracia de 30 días (${Math.round(hoursSinceRef / 24)} días sin recompra en la sede original).`;
+            // targetAdvisorId se mantiene como el nuevo asesor
+          }
+        } else {
+          // CASO 2: PROSPECTO SIN VENTA ➔ EVALUAR TIEMPO DE GRACIA DE 4 DÍAS (96 HORAS)
+          if (hoursSinceRef <= GRACE_PERIOD_LEAD_HOURS) {
+            // Menor o igual a 4 días (96h): Bloquear mudanza para proteger exclusividad
+            cooldownBlocked = true;
+            cooldownNote = `[🛡️ TIEMPO DE GRACIA 4 DÍAS] Intento de reasignación a ${detectedPageName} bloqueado. El lead está en gestión exclusiva de su sede actual (${Math.round(hoursSinceRef)}h transcurridas de 96h).`;
             targetAdvisorId = contact.assignedTo;
             targetAdvisorName = 'Asesor Actual (Protegido por Gracia 4 Días)';
           } else {
             // Mayor a 4 días (96h) sin venta: MUDANZA LEGÍTIMA AL NUEVO ENCARGADO
             cooldownBlocked = false;
-            cooldownNote = `[🔄 MUDANZA LEGÍTIMA] Transferido a ${detectedPageName} tras expirar los 4 días de gracia (${Math.round(hoursSinceLastInteraction)}h) sin venta en la sede anterior.`;
+            cooldownNote = `[🔄 MUDANZA LEGÍTIMA] Transferido a ${detectedPageName} tras expirar los 4 días de gracia (${Math.round(hoursSinceRef)}h) sin venta en la sede anterior.`;
             // targetAdvisorId se mantiene como el nuevo asesor
           }
         }

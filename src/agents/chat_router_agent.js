@@ -192,8 +192,9 @@ export async function routeChatByContact(contactId) {
     const existingTags = (contact.tags || []).map(t => String(t).toLowerCase());
     const isCustomerWon = existingTags.includes('cliente-comprador') || existingTags.includes('venta-cerrada');
 
-    // 4. REGLA DE TIEMPO DE GRACIA (4 DÍAS / 96H) Y RESERVA DE CLIENTES VENDIDOS
-    const GRACE_PERIOD_HOURS = 96; // 4 días
+    // 4. REGLA DE TIEMPO DE GRACIA (4 DÍAS SIN VENTA / 30 DÍAS CON VENTA)
+    const GRACE_PERIOD_HOURS_LEAD = 96; // 4 días para prospectos sin venta
+    const GRACE_PERIOD_HOURS_WON = 30 * 24; // 30 días (1 mes) para clientes convertidos
     let blockingMsg = null;
 
     if (newestMsg && fbMessages.length > 1) {
@@ -201,10 +202,12 @@ export async function routeChatByContact(contactId) {
         if (msg.pageId !== targetPageId) {
           const timeDiffHours = (newestMsg.timestamp - msg.timestamp) / (1000 * 60 * 60);
           if (isCustomerWon) {
-            // CLIENTE CON VENTA: Siempre bloqueado para mudanza (reservado para oficina vendedora)
-            blockingMsg = msg;
-            break;
-          } else if (timeDiffHours >= 0 && timeDiffHours <= GRACE_PERIOD_HOURS) {
+            // CLIENTE CON VENTA: Bloqueado dentro de sus 30 días (1 mes) de gracia de recompra
+            if (timeDiffHours >= 0 && timeDiffHours <= GRACE_PERIOD_HOURS_WON) {
+              blockingMsg = msg;
+              break;
+            }
+          } else if (timeDiffHours >= 0 && timeDiffHours <= GRACE_PERIOD_HOURS_LEAD) {
             // PROSPECTO SIN VENTA: Bloqueado dentro de sus 4 días de gracia
             blockingMsg = msg;
             break;
@@ -216,7 +219,7 @@ export async function routeChatByContact(contactId) {
     if (blockingMsg) {
       const blockingPageName = FB_PAGE_ID_MAP[blockingMsg.pageId] || blockingMsg.pageId;
       console.log(`[Agente 3] 🛡️ BLINDAJE DE SEDE ACTIVO para ${contactId}.`);
-      console.log(`El contacto acaba de escribir a [${targetPageName}], pero está protegido por [${blockingPageName}] (${isCustomerWon ? 'CLIENTE CON VENTA RESERVADO' : 'GRACIA 4 DÍAS ACTIVA'}).`);
+      console.log(`El contacto acaba de escribir a [${targetPageName}], pero está protegido por [${blockingPageName}] (${isCustomerWon ? 'GRACIA 1 MES DE RECOMPRA ACTIVA' : 'GRACIA 4 DÍAS ACTIVA'}).`);
       console.log(`-> Se aborta la reasignación para mantener la exclusividad de la sede.`);
       return;
     }
