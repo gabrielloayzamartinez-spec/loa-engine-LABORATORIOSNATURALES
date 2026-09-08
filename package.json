@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
+    "test": "node src/tests/test_audit_engine.js",
     "start": "node src/server.js",
     "start:all": "concurrently \"npm run start:node\" \"npm run start:python\"",
     "start:node": "node src/server.js",

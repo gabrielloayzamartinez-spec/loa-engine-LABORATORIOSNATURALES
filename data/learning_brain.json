@@ -1,0 +1,260 @@
+{
+  "version": "2.0.0",
+  "stats": {
+    "totalInferences": 18,
+    "learnedFromSales": 6,
+    "learnedFromAdvisors": 0,
+    "falsePositivesPenalized": 6,
+    "lastLearnedAt": "2026-09-08T19:00:29.549Z"
+  },
+  "treatments": [
+    "Potencia",
+    "Diabetes",
+    "Prostata",
+    "Colageno",
+    "Vision",
+    "Gastro",
+    "Artritis"
+  ],
+  "vocabularyWeights": {
+    "muestra gratis potencia": {
+      "Potencia": 25
+    },
+    "poder interior": {
+      "Potencia": 20
+    },
+    "fuerza intima": {
+      "Potencia": 20
+    },
+    "salud sexual": {
+      "Potencia": 15
+    },
+    "sexual": {
+      "Potencia": 8
+    },
+    "vigor": {
+      "Potencia": 68
+    },
+    "ereccion": {
+      "Potencia": 10
+    },
+    "potencia": {
+      "Potencia": 10
+    },
+    "libido": {
+      "Potencia": 8
+    },
+    "deseo sexual": {
+      "Potencia": 10
+    },
+    "rendimiento": {
+      "Potencia": 6
+    },
+    "energia masculina": {
+      "Potencia": 10
+    },
+    "testosterona": {
+      "Potencia": 10
+    },
+    "muestra gratis diabetes": {
+      "Diabetes": 25
+    },
+    "azucar alta": {
+      "Diabetes": 15
+    },
+    "glucosa": {
+      "Diabetes": 15
+    },
+    "diabetes": {
+      "Diabetes": 15
+    },
+    "azucar": {
+      "Diabetes": 8
+    },
+    "insulina": {
+      "Diabetes": 12
+    },
+    "nopal": {
+      "Diabetes": 10
+    },
+    "nopal plus": {
+      "Diabetes": 15
+    },
+    "hormigueo pies": {
+      "Diabetes": 10
+    },
+    "pies hinchados": {
+      "Diabetes": 8
+    },
+    "muestra gratis prostata": {
+      "Prostata": 25
+    },
+    "prostata": {
+      "Prostata": 15
+    },
+    "chorro debil": {
+      "Prostata": 15
+    },
+    "ardor al orinar": {
+      "Prostata": 12
+    },
+    "levantarse a orinar": {
+      "Prostata": 12
+    },
+    "prostata inflamada": {
+      "Prostata": 15
+    },
+    "prostatico": {
+      "Prostata": 12
+    },
+    "muestra gratis colageno": {
+      "Colageno": 25
+    },
+    "colageno": {
+      "Colageno": 15
+    },
+    "colageno hidrolizado": {
+      "Colageno": 20
+    },
+    "arrugas": {
+      "Colageno": 10
+    },
+    "caida de cabello": {
+      "Colageno": 10
+    },
+    "elasticidad": {
+      "Colageno": 8
+    },
+    "regenerador celular": {
+      "Colageno": 12
+    },
+    "muestra gratis vision": {
+      "Vision": 25
+    },
+    "vision": {
+      "Vision": 10
+    },
+    "vista": {
+      "Vision": 8
+    },
+    "catarata": {
+      "Vision": 15
+    },
+    "cataratas": {
+      "Vision": 15
+    },
+    "vista cansada": {
+      "Vision": 12
+    },
+    "vision borrosa": {
+      "Vision": 15
+    },
+    "ojos rojos": {
+      "Vision": 10
+    },
+    "muestra gratis gastro": {
+      "Gastro": 25
+    },
+    "gastritis": {
+      "Gastro": 15
+    },
+    "reflujo": {
+      "Gastro": 12
+    },
+    "acidez": {
+      "Gastro": 10
+    },
+    "colon": {
+      "Gastro": 10
+    },
+    "pesadez estomacal": {
+      "Gastro": 10
+    },
+    "digestion": {
+      "Gastro": 8
+    },
+    "muestra gratis artritis": {
+      "Artritis": 25
+    },
+    "artritis": {
+      "Artritis": 15
+    },
+    "articulaciones": {
+      "Artritis": 12
+    },
+    "articulacion": {
+      "Artritis": 10
+    },
+    "rodilla": {
+      "Artritis": 10
+    },
+    "rodillas": {
+      "Artritis": 10
+    },
+    "dolor de rodilla": {
+      "Artritis": 15
+    },
+    "cartilago": {
+      "Artritis": 12
+    },
+    "crujen": {
+      "Artritis": 8
+    },
+    "artrosis": {
+      "Artritis": 15
+    },
+    "reuma": {
+      "Artritis": 12
+    },
+    "vigor masculino": {
+      "Potencia": 60
+    },
+    "vigor masculino prueba": {
+      "Potencia": 60
+    },
+    "masculino": {
+      "Potencia": 60
+    },
+    "masculino prueba": {
+      "Potencia": 60
+    },
+    "masculino prueba fuego": {
+      "Potencia": 60
+    },
+    "prueba": {
+      "Potencia": 60
+    },
+    "prueba fuego": {
+      "Potencia": 60
+    },
+    "fuego": {
+      "Potencia": 60
+    }
+  },
+  "campaignWeights": {
+    "colageno": {
+      "Colageno": 20
+    },
+    "potencia": {
+      "Potencia": 20
+    },
+    "diabetes": {
+      "Diabetes": 20
+    },
+    "prostata": {
+      "Prostata": 20
+    },
+    "vision": {
+      "Vision": 20
+    },
+    "gastro": {
+      "Gastro": 20
+    },
+    "artritis": {
+      "Artritis": 20
+    },
+    "campana test potencia": {
+      "Potencia": 90
+    }
+  }
+}

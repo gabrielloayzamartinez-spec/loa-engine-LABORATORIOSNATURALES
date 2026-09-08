@@ -14,3 +14,17 @@ services:
         sync: false
       - key: GHL_LOCATION_ID
         sync: false
+      - key: VTIGER_URL
+        value: https://ventascallcenter.com
+      - key: VTIGER_USERNAME
+        value: GABRIEL
+      - key: VTIGER_ACCESS_KEY
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_AD_ACCOUNT_ID
+        sync: false
+      - key: META_PIXEL_ID
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        value: ghl_meta_secure_token_2026

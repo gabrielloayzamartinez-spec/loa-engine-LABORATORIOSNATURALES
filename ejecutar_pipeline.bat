@@ -15,17 +15,21 @@ echo   [2] Barrido Prioritario de Bandejas (Worker 2: De Hoy hacia Atrás, 300ms
 echo   [3] Auditoría Masiva Completa (Worker 3: Todo GHL + Reporte CSV)
 echo   [4] Abrir Dashboard en el Navegador (http://localhost:3000/health)
 echo   [5] Panel Interactivo CLI
-echo   [6] Salir
+echo   [6] Peinado Correctivo de Tratamientos (Sanar Artritis vs Potencia/Diabetes)
+echo   [7] Peinado de Notas y Doble Ingreso (Ficha Limpia + Multisede + Multiproducto)
+echo   [8] Salir
 echo.
-echo =======================================================================
-set /p OPCION="Elige una opción (1-6): "
+=======================================================================
+set /p OPCION="Elige una opción (1-8): "
 
 if "%OPCION%"=="1" goto SERVIDOR
 if "%OPCION%"=="2" goto BARRIDO_UNREAD
 if "%OPCION%"=="3" goto BARRIDO_MASIVO
 if "%OPCION%"=="4" goto DASHBOARD
 if "%OPCION%"=="5" goto CLI
-if "%OPCION%"=="6" goto SALIR
+if "%OPCION%"=="6" goto PEINADO
+if "%OPCION%"=="7" goto PEINADO_NOTAS
+if "%OPCION%"=="8" goto SALIR
 
 echo.
 echo Opción inválida. Intenta nuevamente...
@@ -86,6 +90,45 @@ goto MENU
 cls
 echo Abriendo Dashboard en tu navegador predeterminado...
 start http://localhost:3000/health
+goto MENU
+
+:PEINADO
+cls
+echo =======================================================================
+echo   🧹 PEINADO CORRECTIVO: TRATAMIENTOS Y FUENTES VTIGER...
+echo   • Audita contactos para remover falsos positivos de Artritis
+echo   • Corrige a Potencia, Diabetes, Próstata, Visión según chat real
+echo   • Actualiza etiquetas y campos personalizados en GHL
+echo =======================================================================
+echo.
+set /p LIMIT="¿Cuántos contactos recientes deseas auditar? (ej. 100): "
+if "%LIMIT%"=="" set LIMIT=100
+node src/scripts/peinado_correctivo_productos.js %LIMIT%
+echo.
+echo =======================================================================
+echo Peinado correctivo finalizado.
+echo =======================================================================
+pause
+goto MENU
+
+:PEINADO_NOTAS
+cls
+echo =======================================================================
+echo   🧹 PEINADO DE NOTAS Y DOBLE INGRESO (FICHA LIMPIA EJECUTIVA)...
+echo   • Sustituye notas de auditoría por Ficha Limpia de Ingreso
+echo   • Clasifica Doble Ingreso: Multiproducto, Multisede, Reactivación > 7d
+echo   • Detecta estatus comercial (Comprador vTiger, Prospecto, Curioso)
+echo   • Control de cuotas Token Bucket Queue y Blindaje de 15 min activo
+echo =======================================================================
+echo.
+set /p LIMIT_NOTAS="¿Cuántos contactos recientes deseas procesar? (ej. 100): "
+if "%LIMIT_NOTAS%"=="" set LIMIT_NOTAS=100
+node src/scripts/peinar_notas_doble_ingreso.js %LIMIT_NOTAS%
+echo.
+echo =======================================================================
+echo Peinado de notas y doble ingreso finalizado con éxito.
+echo =======================================================================
+pause
 goto MENU
 
 :SALIR

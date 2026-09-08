@@ -55,14 +55,18 @@ def transform_full_vtiger_record(v_data: dict, sales_orders: list = None) -> dic
     timezone = TIMEZONE_MAP.get(tz_raw, "America/New_York")
 
     # Sales & Financials
-    num_compras_raw = v_data.get("spl_num_compras") or "1"
-    num_compras = safe_int(num_compras_raw, 1)
+    estado_comercial = v_data.get("cf_1876") or "SIN VENTA"
+    is_converted = "CONVERTIDO" in estado_comercial.upper()
+
+    num_compras_raw = v_data.get("spl_num_compras")
+    num_compras = safe_int(num_compras_raw, 1 if is_converted else 0)
     
-    fecha_primera = v_data.get("spl_fecha_primera_compra") or (v_data.get("createdtime") or "")[:10]
-    fecha_ultima = v_data.get("spl_fecha_ultima_compra") or fecha_primera
+    # ÚNICAMENTE asignar fecha de compra si el contacto realmente compró (CONVERTIDO y spl_fecha_primera_compra existe)
+    fecha_primera = v_data.get("spl_fecha_primera_compra") if is_converted and num_compras > 0 else None
+    fecha_ultima = v_data.get("spl_fecha_ultima_compra") if is_converted and num_compras > 0 else fecha_primera
     
-    # Financial amounts from cf fields
-    monto_total = safe_float(v_data.get("cf_3392") or v_data.get("cf_3238"), 150.0)
+    # Montos financieros: 0.0 si es SIN VENTA
+    monto_total = safe_float(v_data.get("cf_3392") or v_data.get("cf_3238"), 150.0 if is_converted else 0.0)
     monto_inicial = safe_float(v_data.get("cf_3238"), monto_total)
 
     # Marketing & Campaign Metadata
@@ -70,7 +74,6 @@ def transform_full_vtiger_record(v_data: dict, sales_orders: list = None) -> dic
     canal_origen = v_data.get("cf_3507") or "FB-MSGR"
     metodo_entrada = v_data.get("cf_2572") or "CLICK2RING"
     campana_completa = v_data.get("cf_3472") or f"{metodo_entrada}-{canal_origen}-{condicion_producto}"
-    estado_comercial = v_data.get("cf_1876") or "CONVERTIDO"
     asesor = v_data.get("wcf_acf_atf_3390") or v_data.get("cf_3131") or "Central"
     contact_no = v_data.get("contact_no") or ""
     vtiger_id = str(v_data.get("id") or "")

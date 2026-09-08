@@ -1,6 +1,8 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS } from '../config/index.js';
-import { analyzeSymptoms, extractShippingData, buildVtigerSource } from './nlp_symptom_engine.js';
+import { analyzeSymptoms, extractShippingData, buildVtigerSource, inferTreatmentFromCampaignOrUtm } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
+import { findVTigerContact } from '../services/vtiger_api_service.js';
+import { learningBrain } from '../services/learning_brain.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -181,16 +183,31 @@ export async function routeChatByContact(contactId) {
       return;
     }
 
-    // 4. REGLA ANTI-VIVAZOS (Cooldown de 24 horas)
-    // Buscar si hay algún mensaje reciente hacia OTRA página
+    // 5. Cargar contacto de GHL para reasignación e inyección inteligente
+    const contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: HEADERS });
+    if (contactRes.status !== 200) return;
+
+    const contactData = await contactRes.json();
+    const contact = contactData.contact || contactData;
+    const existingTags = (contact.tags || []).map(t => String(t).toLowerCase());
+    const isCustomerWon = existingTags.includes('cliente-comprador') || existingTags.includes('venta-cerrada');
+
+    // 4. REGLA DE TIEMPO DE GRACIA (4 DÍAS / 96H) Y RESERVA DE CLIENTES VENDIDOS
+    const GRACE_PERIOD_HOURS = 96; // 4 días
     let blockingMsg = null;
+
     if (newestMsg && fbMessages.length > 1) {
       for (const msg of fbMessages) {
         if (msg.pageId !== targetPageId) {
           const timeDiffHours = (newestMsg.timestamp - msg.timestamp) / (1000 * 60 * 60);
-          if (timeDiffHours >= 0 && timeDiffHours < 24) {
+          if (isCustomerWon) {
+            // CLIENTE CON VENTA: Siempre bloqueado para mudanza (reservado para oficina vendedora)
             blockingMsg = msg;
-            break; // Encontramos un mensaje de otra página hace menos de 24h
+            break;
+          } else if (timeDiffHours >= 0 && timeDiffHours <= GRACE_PERIOD_HOURS) {
+            // PROSPECTO SIN VENTA: Bloqueado dentro de sus 4 días de gracia
+            blockingMsg = msg;
+            break;
           }
         }
       }
@@ -198,24 +215,16 @@ export async function routeChatByContact(contactId) {
 
     if (blockingMsg) {
       const blockingPageName = FB_PAGE_ID_MAP[blockingMsg.pageId] || blockingMsg.pageId;
-      console.log(`[Agente 3] 🛡️ REGLA ANTI-VIVAZOS ACTIVADA para ${contactId}.`);
-      console.log(`El contacto acaba de escribir a [${targetPageName}], pero hace menos de 24h le escribió a [${blockingPageName}].`);
-      console.log(`-> Se aborta la reasignación para mantener el orden interno.`);
+      console.log(`[Agente 3] 🛡️ BLINDAJE DE SEDE ACTIVO para ${contactId}.`);
+      console.log(`El contacto acaba de escribir a [${targetPageName}], pero está protegido por [${blockingPageName}] (${isCustomerWon ? 'CLIENTE CON VENTA RESERVADO' : 'GRACIA 4 DÍAS ACTIVA'}).`);
+      console.log(`-> Se aborta la reasignación para mantener la exclusividad de la sede.`);
       return;
     }
 
-    // 5. Cargar contacto de GHL para reasignación e inyección inteligente
-    const contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: HEADERS });
-    if (contactRes.status !== 200) return;
-
-    const contactData = await contactRes.json();
-    const contact = contactData.contact || contactData;
-
-    // 🛡️ CANDADO DE INTERACCIÓN ACTIVA (15 MINUTOS):
-    // Si el contacto ya tiene un asesor asignado en GHL y hubo cualquier actividad
-    // (mensaje entrante del cliente o saliente del asesor) en los últimos 15 minutos,
-    // CONGELAMOS la asignación en contact.assignedTo.
-    // Esto garantiza que el chat NUNCA desaparezca ni salte de la pantalla del asesor mientras atiende.
+    // 🛡️ ESCUDO TOTAL DE INTERACCIÓN ACTIVA (UX GUARD):
+    // Si el contacto YA está asignado a un asesor y la conversación está viva (actividad en los últimos 15 min),
+    // NUNCA realizamos un PUT ni modificamos el contacto por API.
+    // Esto evita que la interfaz de GHL parpadee, recargue o cause saltos de mensajes mientras el asesor atiende.
     if (contact.assignedTo) {
       let newestTimestamp = 0;
       for (const m of allMessages) {
@@ -228,12 +237,8 @@ export async function routeChatByContact(contactId) {
 
       const minutesSinceLastMsg = newestTimestamp > 0 ? (Date.now() - newestTimestamp) / (1000 * 60) : 999;
       if (minutesSinceLastMsg < 15) {
-        if (contact.assignedTo !== targetAdvisorId) {
-          console.log(`[Agente 3] ⏸️ CANDADO DE INTERACCIÓN ACTIVO para ${contactId}: Actividad reciente hace ${minutesSinceLastMsg.toFixed(1)}m. Se congela asignación en asesor actual (${contact.assignedTo}) para no interrumpir el chat.`);
-        }
-        targetAdvisorId = contact.assignedTo;
-        const currentAdvisor = Object.values(PALACIOS_USERS).find(u => u.id === contact.assignedTo);
-        if (currentAdvisor) targetAdvisorName = currentAdvisor.name;
+        console.log(`[Agente 3] 🛡️ ESCUDO ACTIVO para ${contactId}: Asesor atendiendo activamente (${minutesSinceLastMsg.toFixed(1)}m). Se aborta cualquier PUT para evitar saltos de mensajes en la interfaz del asesor.`);
+        return;
       }
     }
 
@@ -251,14 +256,10 @@ export async function routeChatByContact(contactId) {
     const currentTratamiento = existingCustomFields.find(f => f.id === TRATAMIENTO_FIELD && f.value)?.value;
     const currentVtigerNota = existingCustomFields.find(f => f.id === VTIGER_NOTAS_FIELD && f.value)?.value;
 
-    // 🧠 A. ANÁLISIS NLP INTELIGENTE DE SÍNTOMAS Y DATOS DE ENVÍO
-    const combinedText = allMessages.map(m => m.body || '').join(' \n ');
-    const nlpAnalysis = analyzeSymptoms(combinedText);
-    const shippingData = extractShippingData(combinedText);
-
-    // 🎯 B. FRESHNESS FIRST: DETECCIÓN DEL AD ID MÁS RECIENTE
+    // 🎯 A. FRESHNESS FIRST: DETECCIÓN DEL AD ID Y CAMPAÑA / UTM
     let latestAdId = null;
     let latestCampaign = null;
+    let latestMedium = null;
 
     // 1. Mensajes de Facebook más recientes (prioridad máxima)
     for (const m of allMessages) {
@@ -269,24 +270,79 @@ export async function routeChatByContact(contactId) {
       }
     }
 
-    // 2. Última Atribución registrada en GHL (isLast: true)
-    if (!latestAdId && contact.attributions && contact.attributions.length > 0) {
+    // 2. attributionSource nativo de GHL
+    if (contact.attributionSource) {
+      if (!latestAdId && contact.attributionSource.adId) latestAdId = String(contact.attributionSource.adId);
+      if (!latestCampaign) latestCampaign = contact.attributionSource.utmCampaign || contact.attributionSource.campaign;
+      if (!latestMedium) latestMedium = contact.attributionSource.utmMedium;
+    }
+
+    // 3. Última Atribución registrada en GHL (isLast: true)
+    if (contact.attributions && contact.attributions.length > 0) {
       const lastAttr = contact.attributions.find(a => a.isLast) || contact.attributions[contact.attributions.length - 1];
       if (lastAttr) {
-        if (lastAttr.utmAdId || lastAttr.adId) latestAdId = String(lastAttr.utmAdId || lastAttr.adId);
-        if (lastAttr.utmCampaign) latestCampaign = lastAttr.utmCampaign;
+        if (!latestAdId && (lastAttr.utmAdId || lastAttr.adId)) latestAdId = String(lastAttr.utmAdId || lastAttr.adId);
+        if (!latestCampaign && lastAttr.utmCampaign) latestCampaign = lastAttr.utmCampaign;
+        if (!latestMedium && lastAttr.utmMedium) latestMedium = lastAttr.utmMedium;
       }
     }
 
-    // 3. Fallback a lastAttributionSource nativo
-    if (!latestAdId && contact.lastAttributionSource?.adId) {
-      latestAdId = String(contact.lastAttributionSource.adId);
+    // 4. Fallback a lastAttributionSource nativo
+    if (contact.lastAttributionSource) {
+      if (!latestAdId && contact.lastAttributionSource.adId) latestAdId = String(contact.lastAttributionSource.adId);
+      if (!latestCampaign && contact.lastAttributionSource.utmCampaign) latestCampaign = contact.lastAttributionSource.utmCampaign;
+      if (!latestMedium && contact.lastAttributionSource.utmMedium) latestMedium = contact.lastAttributionSource.utmMedium;
     }
 
     let targetAdId = latestAdId || currentAdId || null;
-    let targetTratamiento = nlpAnalysis.primaryTreatment || currentTratamiento || null;
+
+    // 🧠 B. ANÁLISIS INTELIGENTE DE SÍNTOMAS (NLP + LEARNING BRAIN) Y DATOS DE ENVÍO
+    const combinedText = allMessages.map(m => m.body || '').join(' \n ');
+    const nlpAnalysis = analyzeSymptoms(combinedText, latestCampaign, latestMedium);
+    const shippingData = extractShippingData(combinedText, contact.phone);
+
+    // 🏢 C. GROUND TRUTH DE VTIGER CRM: Verdad Clínica y Comercial Confirmada
+    let vtigerTreatment = null;
+    try {
+      const vContact = await findVTigerContact(contact);
+      if (vContact) {
+        const vCond = vContact.cf_2610 || '';
+        vtigerTreatment = inferTreatmentFromCampaignOrUtm(vCond) || (vCond.length > 2 ? vCond : null);
+        if (vtigerTreatment) {
+          console.log(`[Agente 3] 🏢 Ground Truth vTiger para ${contact.id}: [${vtigerTreatment}]`);
+          learningBrain.learnFromVtigerSale({
+            treatment: vtigerTreatment,
+            chatText: combinedText,
+            campaignName: latestCampaign
+          });
+        }
+      }
+    } catch (vErr) {
+      // Continuar con NLP si vTiger no responde
+    }
+
+    // 🔬 D. Inferencia Clínica y de Pauta Ponderada:
+    // Prioridad 1: Ground Truth de Ventas vTiger CRM
+    // Prioridad 2: Síntomas clínicos y Cerebro de Aprendizaje (NLP)
+    // Prioridad 3: Campaña / Anuncio / UTM Medium (ej: "DOMINGOS - COLÁGENO...", "MUESTRA GRATIS POTENCIA")
+    // Prioridad 4: Tratamiento previo registrado
+    const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(latestMedium) ||
+                                  inferTreatmentFromCampaignOrUtm(latestCampaign) ||
+                                  inferTreatmentFromCampaignOrUtm(contact.attributionSource?.campaign) ||
+                                  inferTreatmentFromCampaignOrUtm(contact.attributionSource?.utmContent);
+
+    let targetTratamiento = vtigerTreatment || nlpAnalysis.primaryTreatment || utmInferredTreatment || currentTratamiento || 'General';
     let targetVtigerNota = currentVtigerNota || null;
     let duplicateCount = 1;
+
+    // ⚖️ E. Penalización Automática de Falsos Positivos en el Cerebro:
+    if ((contact.tags || []).includes('producto-artritis') && targetTratamiento !== 'Artritis') {
+      learningBrain.penalizeAssociation({
+        phrase: combinedText.slice(0, 100),
+        incorrectTreatment: 'Artritis',
+        correctTreatment: targetTratamiento
+      });
+    }
 
     // 🔍 C. FUZZY MATCHING FORENSE (Deduplicación Contextual de Historial)
     const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
@@ -318,9 +374,20 @@ export async function routeChatByContact(contactId) {
     }
 
     // 🏷️ D. PREPARACIÓN DE FUENTE ESTILO VTIGER: [SEDE]-[PROVEEDOR]-[CANAL]-[TRATAMIENTO]
+    const isPaidAd = Boolean(
+      targetAdId ||
+      contact.attributionSource?.sessionSource === 'Paid Social' ||
+      contact.attributionSource?.medium === 'facebook' ||
+      contact.attributionSource?.adId ||
+      contact.attributionSource?.utmCampaign ||
+      latestCampaign ||
+      (contact.tags || []).includes('meta-ads') ||
+      (contact.source || '').includes('CLICK2RING')
+    );
+
     const vtigerSource = buildVtigerSource({
       sedeName: targetPageName,
-      provider: targetAdId ? 'CLICK2RING' : 'IN_HOUSE',
+      provider: isPaidAd ? 'CLICK2RING' : 'IN_HOUSE',
       channel: 'FB-MSGR',
       treatment: targetTratamiento || 'General'
     });
@@ -335,10 +402,22 @@ export async function routeChatByContact(contactId) {
       newTagsSet.add(pageSlug);
     }
 
-    // Añadir todas las etiquetas de productos detectadas por NLP
+    // Añadir todas las etiquetas de productos detectadas por NLP o UTM
     nlpAnalysis.productTags.forEach(t => newTagsSet.add(t));
     if (targetTratamiento && !nlpAnalysis.productTags.includes(`producto-${targetTratamiento.toLowerCase()}`)) {
       newTagsSet.add(`producto-${targetTratamiento.toLowerCase()}`);
+    }
+
+    // 🧹 Limpieza quirúrgica de etiquetas de productos huérfanas / falsas:
+    // Si se identificó un producto claro (por NLP o UTM), eliminar etiquetas de otros productos
+    const ALL_PRODUCT_TAGS = ['producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 'producto-colageno', 'producto-vision', 'producto-gastro'];
+    const activeProductTag = targetTratamiento ? `producto-${targetTratamiento.toLowerCase()}` : null;
+    if (activeProductTag) {
+      for (const pTag of ALL_PRODUCT_TAGS) {
+        if (pTag !== activeProductTag && !nlpAnalysis.productTags.includes(pTag)) {
+          newTagsSet.delete(pTag);
+        }
+      }
     }
 
     // Alerta de Lead Caliente (Teléfono o Dirección)
@@ -358,13 +437,18 @@ export async function routeChatByContact(contactId) {
 
     // 📝 F. PREPARAR CUSTOM FIELDS (FULL DATA STACK)
     const customFieldsToUpdate = [];
-    if (targetAdId) customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, field_value: String(targetAdId) });
-    if (targetTratamiento) customFieldsToUpdate.push({ id: TRATAMIENTO_FIELD, field_value: targetTratamiento });
+    if (targetAdId) {
+      customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, field_value: String(targetAdId) });
+      customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, field_value: String(targetAdId) });
+    }
+    if (targetTratamiento && targetTratamiento !== 'General') {
+      customFieldsToUpdate.push({ id: TRATAMIENTO_FIELD, field_value: targetTratamiento });
+    }
     if (targetVtigerNota) customFieldsToUpdate.push({ id: VTIGER_NOTAS_FIELD, field_value: targetVtigerNota });
     
     // UTMs
     customFieldsToUpdate.push({ id: UTM_SOURCE_FIELD, field_value: 'facebook' });
-    customFieldsToUpdate.push({ id: UTM_MEDIUM_FIELD, field_value: targetAdId ? 'cpc' : 'messenger' });
+    customFieldsToUpdate.push({ id: UTM_MEDIUM_FIELD, field_value: isPaidAd ? 'cpc' : 'messenger' });
     if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, field_value: latestCampaign });
 
     // 📦 G. CONSTRUIR PAYLOAD ATÓMICO (1 SOLO PUT)
@@ -375,29 +459,66 @@ export async function routeChatByContact(contactId) {
       customFields: customFieldsToUpdate
     };
 
-    // Inyectar teléfono si el contacto no lo tenía y fue detectado en chat
+    // 🌍 INYECCIÓN AUTOMÁTICA DE "GENERAL INFO" (ESTRICTO USA)
+    // 1. Teléfono
     if (!contact.phone && shippingData.hasPhone) {
       updatePayload.phone = shippingData.phone;
     }
-    // Inyectar dirección si el contacto no la tenía y fue detectada en chat
-    if (!contact.address1 && shippingData.hasAddress) {
-      updatePayload.address1 = shippingData.address;
+
+    // 2. País (Siempre United States / US)
+    if (!contact.country || contact.country === '--') {
+      updatePayload.country = 'United States';
+    }
+
+    // 3. Dirección Postal (address1)
+    if (!contact.address1 && shippingData.address1) {
+      updatePayload.address1 = shippingData.address1;
+    }
+
+    // 4. Ciudad (city)
+    if (!contact.city && shippingData.city) {
+      updatePayload.city = shippingData.city;
+    }
+
+    // 5. Región / Estado (state: e.g. TX, FL, CA, NY)
+    if ((!contact.state || contact.state === '--') && shippingData.state) {
+      updatePayload.state = shippingData.state;
+    }
+
+    // 6. Código Postal (postalCode: e.g. 33135, 77002)
+    if (!contact.postalCode && shippingData.postalCode) {
+      updatePayload.postalCode = shippingData.postalCode;
+    }
+
+    // 7. Zona Horaria (timezone IANA: e.g. America/Chicago, America/New_York)
+    if ((!contact.timezone || contact.timezone === '--') && shippingData.timezone) {
+      updatePayload.timezone = shippingData.timezone;
     }
 
     // 🔍 Filtro Silencioso: Comprobar si realmente hay cambios antes de hacer PUT
     const isSameAdvisor = contact.assignedTo === targetAdvisorId;
     const isSameSource = contact.source === vtigerSource;
     const currentTags = (contact.tags || []).map(t => String(t).trim());
-    const hasNewTags = Array.from(newTagsSet).some(t => !currentTags.includes(t));
+    const tagsChanged = newTagsSet.size !== currentTags.length || Array.from(newTagsSet).some(t => !currentTags.includes(t));
     const currentCFs = contact.customFields || [];
     const hasCFChanges = customFieldsToUpdate.some(cf => {
+      // Solo comparar campos comerciales críticos para evitar bucles por UTMs
+      if (![ID_ANUNCIO_FIELD, AD_ID_ALT_FIELD, TRATAMIENTO_FIELD, VTIGER_NOTAS_FIELD].includes(cf.id)) {
+        return false;
+      }
       const existing = currentCFs.find(f => f.id === cf.id);
       return !existing || existing.value !== cf.field_value;
     });
     const hasPhoneUpdate = !contact.phone && shippingData.hasPhone;
-    const hasAddressUpdate = !contact.address1 && shippingData.hasAddress;
+    const hasCountryUpdate = (!contact.country || contact.country === '--');
+    const hasAddressUpdate = !contact.address1 && Boolean(shippingData.address1);
+    const hasCityUpdate = !contact.city && Boolean(shippingData.city);
+    const hasStateUpdate = (!contact.state || contact.state === '--') && Boolean(shippingData.state);
+    const hasZipUpdate = !contact.postalCode && Boolean(shippingData.postalCode);
+    const hasTzUpdate = (!contact.timezone || contact.timezone === '--') && Boolean(shippingData.timezone);
 
-    const hasChanges = !isSameAdvisor || !isSameSource || hasNewTags || hasCFChanges || hasPhoneUpdate || hasAddressUpdate;
+    const hasGeoUpdate = hasCountryUpdate || hasAddressUpdate || hasCityUpdate || hasStateUpdate || hasZipUpdate || hasTzUpdate;
+    const hasChanges = !isSameAdvisor || !isSameSource || tagsChanged || hasCFChanges || hasPhoneUpdate || hasGeoUpdate;
 
     if (!hasChanges) {
       console.log(`[Agente 3] ⚡ Contacto ${contactId} ya está 100% sincronizado. Omitiendo PUT para evitar parpadeos en pantalla.`);
@@ -414,7 +535,7 @@ export async function routeChatByContact(contactId) {
       if (global.pushLiveLog) {
         global.pushLiveLog(`⚡ Agente 3: ${contact.name || 'Lead'} -> ${targetAdvisorName} | Src: ${vtigerSource}`);
       }
-      console.log(`[Agente 3] ✅ ÉXITO: Contacto ${contactId} actualizado al 100% (Asesor: ${targetAdvisorName} | Source: ${vtigerSource}).`);
+      console.log(`[Agente 3] ✅ ÉXITO: ${contact.firstName || ''} ${contact.lastName || ''} (${contactId}) | Ad ID: ${targetAdId || 'N/A'} | Fuente: ${vtigerSource} | Estado: ${updatePayload.state || contact.state || '--'} | Actualizado OK.`);
 
       // 📌 H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA EN GHL SI HUBO CAMBIO DE AD ID O REINGRESO
       const shouldSaveNote = (latestAdId && currentAdId && latestAdId !== currentAdId) || 

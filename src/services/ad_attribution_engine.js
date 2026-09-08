@@ -1,4 +1,6 @@
 import { GHL_CONFIG, PAGE_TAG_MAP } from '../config/index.js';
+import { inferTreatmentFromCampaignOrUtm } from '../agents/nlp_symptom_engine.js';
+import { findVTigerContact } from './vtiger_api_service.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -159,66 +161,130 @@ export async function auditAdAttribution(contactId, options = {}) {
     // Ordenar cronológicamente (del más antiguo al más reciente)
     rawAdInteractions.sort((a, b) => a.date - b.date);
 
-    // 4. Construir Timeline Forense con Deltas de Tiempo
-    const touchpoints = [];
-    let hasSpamClicks = false;
+    // Inferencia de tratamiento de base
+    const existingTratamiento = (contact.customFields || []).find(f => f.id === 'WcrrCIL4A2203kIbeFsJ' && f.value)?.value;
+    const targetTratamiento = existingTratamiento || inferTreatmentFromCampaignOrUtm(contact.attributionSource?.utmCampaign) || inferTreatmentFromCampaignOrUtm(contact.attributionSource?.campaign) || 'General';
 
+    // 4. Construir Timeline Forense con Deduplicación de Ráfagas y Doble Ingreso
+    const distinctAdTouches = [];
     for (let i = 0; i < rawAdInteractions.length; i++) {
-      const current = rawAdInteractions[i];
-      let deltaMinutes = 0;
-      if (i > 0) {
-        const prev = rawAdInteractions[i - 1];
-        deltaMinutes = Math.round((current.date - prev.date) / (1000 * 60));
-        if (deltaMinutes <= 15) {
-          hasSpamClicks = true;
+      const t = rawAdInteractions[i];
+      t.treatment = inferTreatmentFromCampaignOrUtm(t.body) || 
+                    inferTreatmentFromCampaignOrUtm(t.adTitle) || 
+                    targetTratamiento || 'General';
+
+      if (distinctAdTouches.length === 0) {
+        t.isDoubleEntry = false;
+        t.entryType = 'FIRST_ENTRY';
+        t.reason = '1er Ingreso';
+        distinctAdTouches.push(t);
+      } else {
+        const last = distinctAdTouches[distinctAdTouches.length - 1];
+        const diffSec = (t.date - last.date) / 1000;
+        const diffMinutes = diffSec / 60;
+        const diffDays = diffMinutes / (60 * 24);
+
+        // 🛡️ Filtro de Ráfaga Técnica: Si llegan con menos de 15 minutos en la misma sede/anuncio, es la misma interacción
+        if (diffMinutes < 15 && t.pageName === last.pageName && (t.adId === last.adId || (!t.adId && !last.adId))) {
+          continue; // Omitir ráfagas instantáneas (ej. doble webhook de 2 seg)
+        }
+
+        // Criterio A: Multiproducto / Anuncio Diferente
+        const isDifferentProduct = (t.treatment !== 'General' && last.treatment !== 'General' && t.treatment !== last.treatment) ||
+                                  (t.adId && last.adId && String(t.adId) !== String(last.adId));
+
+        // Criterio B: Multisede Hermética
+        const isDifferentOffice = t.pageName && last.pageName && t.pageName !== last.pageName;
+
+        // Criterio C: Reactivación tras Tiempo Prolongado (7+ días)
+        const isTimeReactivation = diffDays >= 7;
+
+        if (isDifferentProduct) {
+          t.isDoubleEntry = true;
+          t.entryType = 'DOUBLE_PRODUCT';
+          t.reason = `Multiproducto / Diferente Anuncio (${t.treatment})`;
+          distinctAdTouches.push(t);
+        } else if (isDifferentOffice) {
+          t.isDoubleEntry = true;
+          t.entryType = 'DOUBLE_OFFICE';
+          t.reason = `Multisede Independiente (${t.pageName})`;
+          distinctAdTouches.push(t);
+        } else if (isTimeReactivation) {
+          t.isDoubleEntry = true;
+          t.entryType = 'DOUBLE_TIME';
+          t.reason = `Reactivación tras ${Math.round(diffDays)} días`;
+          distinctAdTouches.push(t);
+        } else if (diffMinutes >= 15) {
+          // Reingreso del mismo producto en corto plazo (< 7 días)
+          t.isDoubleEntry = false;
+          t.entryType = 'REENTRY';
+          t.reason = 'Reingreso Mismo Producto';
+          distinctAdTouches.push(t);
         }
       }
-
-      touchpoints.push({
-        touchNumber: i + 1,
-        messageId: current.messageId,
-        date: current.date,
-        pageName: current.pageName,
-        adId: current.adId,
-        adTitle: current.adTitle,
-        deltaMinutesFromPrevious: deltaMinutes,
-        bodySnippet: current.body
-      });
     }
 
-    const latestTouch = touchpoints[touchpoints.length - 1];
-    
-    // Regla de Negocio: Conteo por Sede/Página actual
-    const clicksForSameOffice = touchpoints.filter(t => t.pageName === latestTouch.pageName);
-    const totalAdClicks = clicksForSameOffice.length;
+    const latestTouch = distinctAdTouches[distinctAdTouches.length - 1] || { pageName: 'Sede Meta', date: new Date(), adTitle: 'Anuncio Meta' };
+    const doubleEntriesCount = distinctAdTouches.filter(t => t.isDoubleEntry).length;
+    const reentriesCount = distinctAdTouches.filter(t => t.entryType === 'REENTRY').length;
+    const totalAdClicks = Math.max(1, distinctAdTouches.length);
+    const hasDoubleEntry = doubleEntriesCount > 0;
     const isMultipleClick = totalAdClicks > 1;
-    const clicksToDiscount = Math.max(0, totalAdClicks - 1);
+    const clicksToDiscount = reentriesCount;
+
+    // 🏢 Detección del Estatus Comercial (vTiger CRM + GHL)
+    let commercialStatus = '💬 CURIOSO (En chat preliminar / Sin teléfono ni compra)';
+    try {
+      const vContact = await findVTigerContact(contact);
+      if (vContact) {
+        const numCompras = parseInt(vContact.spl_num_compras || '0', 10);
+        const montoTotal = parseFloat(vContact.cf_3392 || vContact.cf_3238 || '0');
+        const isWon = vContact.cf_1876 === 'CONVERTIDO' || numCompras > 0 || montoTotal > 0;
+        if (isWon) {
+          commercialStatus = `🛍️ CLIENTE COMPRADOR (${numCompras || 1} compra(s) en vTiger / $${montoTotal || 0})`;
+        } else if (contact.phone) {
+          commercialStatus = `📞 PROSPECTO CALIFICADO (Datos para envío / Sin compra aún)`;
+        }
+      } else if (contact.phone) {
+        commercialStatus = `📞 PROSPECTO CALIFICADO (Con teléfono)`;
+      }
+    } catch (e) {
+      if (contact.phone) commercialStatus = `📞 PROSPECTO CALIFICADO (Con teléfono)`;
+    }
+
+    // 🧬 Intereses Clínicos Acumulados
+    const treatmentSet = new Set();
+    if (targetTratamiento && targetTratamiento !== 'General') treatmentSet.add(targetTratamiento);
+    for (const t of distinctAdTouches) {
+      if (t.treatment && t.treatment !== 'General') treatmentSet.add(t.treatment);
+    }
+    const allTreatmentsList = Array.from(treatmentSet);
+    let treatmentsLabel = targetTratamiento || 'General';
+    if (allTreatmentsList.length === 1) {
+      treatmentsLabel = allTreatmentsList[0];
+    } else if (allTreatmentsList.length === 2) {
+      treatmentsLabel = `${allTreatmentsList[0]} + ${allTreatmentsList[1]} (Interés en 2 tratamientos)`;
+    } else if (allTreatmentsList.length >= 3) {
+      treatmentsLabel = `⚠️ MULTICONSULTA: ${allTreatmentsList.join(', ')} (${allTreatmentsList.length} tratamientos)`;
+    }
 
     // 5. Determinar Clasificación y Etiquetas
     let touchTag = 'pauta-clic-x1';
     let auditStageId = STAGE_X1_ID;
     let classificationLabel = 'Lead Nuevo X1';
 
-    if (hasSpamClicks && totalAdClicks === 2) {
-      touchTag = 'alerta-clic-spam';
-      auditStageId = STAGE_SPAM_ID;
-      classificationLabel = 'Doble Clic Spam (< 15 min)';
-    } else if (totalAdClicks === 1) {
+    if (hasDoubleEntry) {
+      touchTag = 'pauta-doble-ingreso';
+      auditStageId = STAGE_X2_ID;
+      classificationLabel = `⭐ DOBLE INGRESO VÁLIDO (${doubleEntriesCount} nuevo/s)`;
+    } else if (reentriesCount > 0) {
+      touchTag = `pauta-reingreso-x${totalAdClicks}`;
+      auditStageId = STAGE_X2_ID;
+      classificationLabel = `REINGRESO (Mismo Producto)`;
+    } else {
       touchTag = 'pauta-clic-x1';
       auditStageId = STAGE_X1_ID;
       classificationLabel = 'Lead Nuevo X1';
-    } else if (totalAdClicks === 2) {
-      touchTag = 'pauta-reingreso-x2';
-      auditStageId = STAGE_X2_ID;
-      classificationLabel = 'REINGRESO X2 (Desc. 1 Lead)';
-    } else if (totalAdClicks === 3) {
-      touchTag = 'pauta-reingreso-x3';
-      auditStageId = STAGE_X3_ID;
-      classificationLabel = 'REINGRESO X3 (Desc. 2 Leads)';
-    } else if (totalAdClicks >= 4) {
-      touchTag = `pauta-reingreso-x${totalAdClicks}`;
-      auditStageId = STAGE_X4_ID;
-      classificationLabel = `SATURACIÓN X${totalAdClicks} (Desc. ${clicksToDiscount} Leads)`;
     }
 
     if (!isSilent) {
@@ -232,7 +298,7 @@ export async function auditAdAttribution(contactId, options = {}) {
     const newTags = [];
     const tagsToRemove = currentTags.filter(tag => {
       const t = tag.toLowerCase();
-      const isOldXTag = (t.startsWith('pauta-reingreso-x') || t === 'pauta-clic-x1') && t !== touchTag;
+      const isOldXTag = (t.startsWith('pauta-reingreso-x') || t === 'pauta-clic-x1' || t === 'pauta-doble-ingreso') && t !== touchTag;
       return isOldXTag;
     });
 
@@ -250,13 +316,13 @@ export async function auditAdAttribution(contactId, options = {}) {
     if (!currentTags.includes('meta-ads')) {
       newTags.push('meta-ads');
     }
-    if (isMultipleClick && !currentTags.includes('alerta-reingreso-pauta')) {
+    if (hasDoubleEntry && !currentTags.includes('pauta-doble-ingreso')) {
+      newTags.push('pauta-doble-ingreso');
+    }
+    if (reentriesCount > 0 && !currentTags.includes('alerta-reingreso-pauta')) {
       newTags.push('alerta-reingreso-pauta');
     }
-    if (hasSpamClicks && !currentTags.includes('alerta-clic-spam')) {
-      newTags.push('alerta-clic-spam');
-    }
-    if (totalAdClicks >= 4 && !currentTags.includes('alerta-bloqueo-pauta')) {
+    if (reentriesCount >= 3 && !currentTags.includes('alerta-bloqueo-pauta')) {
       newTags.push('alerta-bloqueo-pauta');
     }
 
@@ -279,10 +345,16 @@ export async function auditAdAttribution(contactId, options = {}) {
       assignedTo: contact.assignedTo || null
     });
 
-    // 8. Inyección de Nota Forense de Auditoría Financiera
-    if (isMultipleClick) {
-      await injectAuditFinancialNote(contactId, fullName, totalAdClicks, clicksToDiscount, touchpoints);
-    }
+    // 8. Inyección de Ficha Limpia de Ingreso y Perfil del Cliente
+    await injectAuditFinancialNote(contactId, fullName, {
+      touchpoints: distinctAdTouches,
+      commercialStatus,
+      treatment: targetTratamiento,
+      treatmentsLabel,
+      pageName: latestTouch.pageName,
+      adTitle: latestTouch.adTitle,
+      adId: latestTouch.adId
+    });
 
     return {
       success: true,
@@ -291,12 +363,12 @@ export async function auditAdAttribution(contactId, options = {}) {
       totalAdClicks,
       clicksToDiscount,
       isMultipleClick,
-      hasSpamClicks,
+      hasDoubleEntry,
       classificationLabel,
       touchTag,
       latestPage: latestTouch.pageName,
       latestAd: latestTouch.adTitle,
-      touchpoints
+      touchpoints: distinctAdTouches
     };
 
   } catch (error) {
@@ -357,36 +429,58 @@ async function syncAuditPipelineOpportunity(contact, info) {
 }
 
 /**
- * Inyecta una nota forense enriquecida con la tabla de toques
+ * Inyecta o actualiza la Ficha Limpia de Ingreso y Perfil del Cliente
  */
-async function injectAuditFinancialNote(contactId, fullName, totalClicks, discountLeads, touchpoints) {
+async function injectAuditFinancialNote(contactId, fullName, info = {}) {
   try {
     const notesUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
     const notesRes = await fetchWithRetry(notesUrl, { headers: HEADERS_CONTACTS });
     const notesData = await notesRes.json();
     const existingNotes = notesData.notes || [];
 
-    const noteSignature = `AUDITORÍA MULTI-TOUCH (Total clics: ${totalClicks})`;
-    const alreadyNoted = existingNotes.some(n => n.body.includes(noteSignature));
+    const existingAuditNote = existingNotes.find(n => n.body && (n.body.includes('FICHA DE INGRESO') || n.body.includes('AUDITORÍA MULTI-TOUCH')));
 
-    if (!alreadyNoted) {
-      const breakdownText = touchpoints.map(t => {
-        const timeStr = `${t.date.toLocaleDateString('es-ES')} ${t.date.toLocaleTimeString('es-ES')}`;
-        const deltaStr = t.touchNumber > 1 ? ` (+${t.deltaMinutesFromPrevious}m)` : ' (Inicio)';
-        return `  • Toque #${t.touchNumber}: ${timeStr}${deltaStr} | Sede: ${t.pageName} | Anuncio: ${t.adTitle} | MsgID: ${t.messageId}`;
-      }).join('\n');
+    const touchpoints = info.touchpoints || [];
+    const historyLines = touchpoints.length > 0 ? touchpoints.map((t, idx) => {
+      const timeStr = `${t.date.toLocaleDateString('es-PE')} ${t.date.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}`;
+      const tagLabel = t.reason || (idx === 0 ? '1er Ingreso' : 'Reingreso');
+      return `  • ${idx + 1}º Ingreso: ${timeStr} ➔ ${t.treatment || 'General'} [${t.pageName || 'Sede'}] (${tagLabel})`;
+    }).join('\n') : '  • 1º Ingreso: Registrado en sistema.';
 
-      const noteContent = `📊 AUDITORÍA MULTI-TOUCH & FINANCIERA (Total clics: ${totalClicks})
-==================================================
+    const doubleEntries = touchpoints.filter(t => t.isDoubleEntry);
+    let statusSummary = '';
+    if (doubleEntries.length > 0) {
+      statusSummary = `⭐ DOBLE INGRESO VÁLIDO: Cliente con ${touchpoints.length} interacciones legítimas en campañas/sedes independientes. Todos los ingresos son válidos.`;
+    } else if (touchpoints.length > 1) {
+      statusSummary = `🟡 REINGRESO (Mismo Producto): El asesor continúa el seguimiento del caso original.`;
+    } else {
+      statusSummary = `🟢 LEAD NUEVO: Primer contacto directo desde anuncio publicitario. Sin ingresos previos.`;
+    }
+
+    const noteContent = `📌 FICHA DE INGRESO Y PERFIL DEL CLIENTE
+--------------------------------------------------
 👤 Cliente: ${fullName}
-🔢 Total de Clics Registrados: ${totalClicks}
-💰 DESCUENTO APLICABLE A LA AGENCIA: ${discountLeads} LEAD(S) REPETIDO(S)
+📍 Sede Actual: ${info.pageName || 'Sede Central'}
+💰 Estatus Comercial: ${info.commercialStatus || 'Sin compras previas'}
+🩺 Tratamiento Actual: ${info.treatment || 'General'}
+🧬 Intereses Clínicos: ${info.treatmentsLabel || 'General'}
+📣 Campaña Actual: ${info.adTitle || 'Directa / Chat'} ${info.adId && info.adId !== 'N/A' ? `(Ad ID: ${info.adId})` : ''}
 
-Línea de Tiempo Forense (IDs Únicos de Meta/GHL):
-${breakdownText}
+🔄 HISTORIAL DE INGRESOS:
+${historyLines}
 
-👉 Dictamen: 1 Lead Real Pagable. ${discountLeads} Clic(s) duplicados descontados automáticamente de la facturación.`;
+💡 ESTADO COMERCIAL:
+${statusSummary}`;
 
+    if (existingAuditNote) {
+      if (existingAuditNote.body !== noteContent) {
+        await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/notes/${existingAuditNote.id}`, {
+          method: 'PUT',
+          headers: HEADERS_CONTACTS,
+          body: JSON.stringify({ body: noteContent })
+        });
+      }
+    } else {
       await fetchWithRetry(notesUrl, {
         method: 'POST',
         headers: HEADERS_CONTACTS,

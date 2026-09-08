@@ -9,6 +9,11 @@ import { routeChatByContact, runChatRouterPoller, runInboxSedeCleaner } from './
 import { processMetaWebhook } from './agents/meta_webhook_agent.js';
 import { runSupervisorAuditor, auditorStats } from './agents/auditor_agent.js';
 import { setupAllPipelines } from './scripts/pipeline_manager.js';
+import { runPreFlightSanityCheck } from './tests/test_audit_engine.js';
+import { learningBrain } from './services/learning_brain.js';
+import { syncVtigerGroundTruthToBrain } from './services/vtiger_api_service.js';
+import { tokenBucketQueue } from './services/token_bucket_queue.js';
+import { runBackgroundCuratorCycle, getCuratorMetrics } from './services/background_curator.js';
 
 const app = express();
 app.use(express.json());
@@ -816,14 +821,81 @@ app.post('/webhook/meta', async (req, res) => {
   }
 });
 
-app.listen(PORT, async () => {
+// ==========================================
+// VTIGER CRM: Webhook Receptor & Sincronización
+// ==========================================
+app.post('/webhook/vtiger', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    res.status(200).send({ success: true, message: 'vTiger webhook payload recibido' });
+
+    const condition = payload.cf_2610 || payload.condicion || payload.treatment;
+    if (condition) {
+      learningBrain.learnFromVtigerSale({
+        treatment: condition,
+        chatText: `${payload.firstname || ''} ${payload.lastname || ''} ${payload.cf_3472 || ''}`,
+        campaignName: payload.cf_3472 || payload.campaign || ''
+      });
+      stats.vtigerSynced = (stats.vtigerSynced || 0) + 1;
+      stats.vtigerStatus = '🟢 Conectado y Aprendiendo';
+    }
+  } catch (err) {
+    console.error("[vTiger Webhook Error]:", err.message);
+  }
+});
+
+app.get('/api/vtiger/sync', async (req, res) => {
+  try {
+    const result = await syncVtigerGroundTruthToBrain(30);
+    stats.vtigerSynced = (stats.vtigerSynced || 0) + (result.trainedCount || 0);
+    stats.vtigerStatus = result.success ? '🟢 Conectado y Aprendiendo' : '⚠️ Error de Conexión';
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/brain/metrics', (req, res) => {
+  res.json({
+    learningBrain: learningBrain.getMetrics(),
+    tokenBucket: tokenBucketQueue.getMetrics(),
+    curator: getCuratorMetrics()
+  });
+});
+
+app.listen(PORT, '0.0.0.0', async () => {
+  // Ejecución obligatoria de pre-flight check antes de admitir tráfico
+  const isHealthy = runPreFlightSanityCheck();
+  if (!isHealthy) {
+    console.error('❌ ERROR FATAL: El motor no superó el Pre-Flight Sanity Check. Deteniendo para evitar datos corruptos.');
+    process.exit(1);
+  }
+
   console.log(`\n==========================================================`);
-  console.log(`🎯 LOA ENGINE 24/7 (WORKER 1: EN VIVO + DASHBOARD) INICIALIZADO`);
+  console.log(`🎯 LOA ENGINE 2.0 (AUTOAPRENDIZAJE + VTIGER + RADAR 24/7)`);
   console.log(`📡 Puerto: ${PORT} | Dashboard: http://localhost:${PORT}/health`);
-  console.log(`🛡️ Rate-Limit Shield: 500ms estricto entre peticiones (0% saturación)`);
+  console.log(`🛡️ Token Bucket Shield: 1.2s entre curaciones de fondo (0% saturación)`);
+  console.log(`🧠 Learning Brain: Memoria activa y feedback loop conectado a vTiger`);
   console.log(`⚡ Radar en Vivo: Escaneando tráfico de hoy cada 20 segundos`);
-  console.log(`🌐 Webhooks: Listos en /webhook/ghl-contact y /webhook/meta`);
+  console.log(`🌐 Webhooks: /webhook/ghl-contact, /webhook/meta, /webhook/vtiger`);
   console.log(`==========================================================\n`);
+
+  // Sincronización inicial suave de Ground Truth con vTiger CRM
+  setTimeout(() => {
+    syncVtigerGroundTruthToBrain(20).then(res => {
+      if (res && res.success) stats.vtigerStatus = '🟢 Conectado y Aprendiendo';
+    }).catch(e => console.log(`[Startup vTiger Sync]: ${e.message}`));
+  }, 3000);
+
+  // Demonio de Curación Asíncrona de Fondo (Cada 5 min, en lotes seguros de 20 contactos)
+  setInterval(() => {
+    runBackgroundCuratorCycle(20).catch(err => console.error('[Background Curator Error]:', err.message));
+  }, 5 * 60 * 1000);
+
+  // Calibración Periódica de vTiger (Cada 30 min)
+  setInterval(() => {
+    syncVtigerGroundTruthToBrain(25).catch(err => console.error('[Periodic vTiger Sync Error]:', err.message));
+  }, 30 * 60 * 1000);
 
   runExpressAssignment();
 });

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { VTIGER_CONFIG } from '../config/index.js';
+import { learningBrain } from './learning_brain.js';
 
 let currentSessionName = null;
 
@@ -132,3 +133,60 @@ export async function getSalesHistory(contactId) {
     return [];
   }
 }
+
+/**
+ * Consulta las compras/contactos confirmados más recientes en vTiger para alimentar el Cerebro de Autoaprendizaje.
+ */
+export async function fetchRecentConfirmedSales(limit = 25) {
+  try {
+    const q = `SELECT id, firstname, lastname, cf_2610, cf_3472, homephone, mobile, createdtime FROM Contacts ORDER BY createdtime DESC LIMIT 0, ${limit};`;
+    const contacts = await queryVTiger(q);
+    return contacts || [];
+  } catch (err) {
+    console.error(`[VTiger API] Error al obtener ventas recientes:`, err.message);
+    return [];
+  }
+}
+
+/**
+ * Sincroniza las ventas recientes de vTiger CRM directamente en el Cerebro de Autoaprendizaje como Ground Truth.
+ */
+export async function syncVtigerGroundTruthToBrain(limit = 25) {
+  try {
+    console.log(`[VTiger Sync] 🔄 Consultando últimas ${limit} ventas en vTiger para calibrar el Cerebro...`);
+    const recentContacts = await fetchRecentConfirmedSales(limit);
+    let trainedCount = 0;
+
+    for (const c of recentContacts) {
+      const rawCondition = c.cf_2610 || '';
+      const campaign = c.cf_3472 || '';
+
+      // Mapear condición a uno de los 7 tratamientos oficiales
+      let treatment = null;
+      const lower = rawCondition.toLowerCase();
+      if (lower.includes('potencia') || lower.includes('vigor') || lower.includes('sexual')) treatment = 'Potencia';
+      else if (lower.includes('diabet') || lower.includes('azucar') || lower.includes('nopal')) treatment = 'Diabetes';
+      else if (lower.includes('prostat')) treatment = 'Prostata';
+      else if (lower.includes('colagen') || lower.includes('piel')) treatment = 'Colageno';
+      else if (lower.includes('vision') || lower.includes('ojos')) treatment = 'Vision';
+      else if (lower.includes('gastro') || lower.includes('gastrit') || lower.includes('colon')) treatment = 'Gastro';
+      else if (lower.includes('artrit') || lower.includes('articul') || lower.includes('rodilla')) treatment = 'Artritis';
+
+      if (treatment) {
+        learningBrain.learnFromVtigerSale({
+          treatment,
+          chatText: `${c.firstname || ''} ${c.lastname || ''} ${campaign}`,
+          campaignName: campaign
+        });
+        trainedCount++;
+      }
+    }
+
+    console.log(`[VTiger Sync] ✅ Calibración completada: ${trainedCount} registros de vTiger entrenaron el Cerebro.`);
+    return { success: true, trainedCount };
+  } catch (err) {
+    console.error(`[VTiger Sync] ⚠️ Error en calibración de vTiger:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
