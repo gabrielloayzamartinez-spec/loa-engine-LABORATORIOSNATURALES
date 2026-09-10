@@ -15,7 +15,8 @@ export const COMMERCIAL_FIELD_IDS = {
   FECHA_ULTIMA_COMPRA: 'cyn0Ar7GMvmzYBKw0SJu',  // contact.vtiger_fecha_ultima_compra
   FECHA_ULTIMA_FACTURA: '1U0XzfuI9HUQDqQVMeSV', // contact.vtiger_fecha_ultima_factura
   PRECIO_VENTA: '5js0Lfbh5XDLq87SDgdT',     // contact.precio_venta
-  NUM_COMPRAS: '3L8KHJEp8fw8ELr081Kl'       // contact.spl_num_compras
+  NUM_COMPRAS: '3L8KHJEp8fw8ELr081Kl',      // contact.spl_num_compras
+  ESTADO_COMPRA_LISTA: 'jfaxRCXTLZQCuzsTl49v' // contact.estado_de_compra (Smart List Filter)
 };
 
 /**
@@ -27,17 +28,27 @@ export const COMMERCIAL_FIELD_IDS = {
 export function evaluateCommercialTruth(ghlContact = {}, vContact = null) {
   // 1. Verdad de Facturación en vTiger CRM
   const vSalesCount = parseInt(vContact?.spl_num_compras || '0', 10);
-  const vHasSale = vSalesCount > 0 || Boolean(vContact?.spl_fecha_primera_compra);
+  const totalSpent = parseFloat(vContact?.cf_3392 || vContact?.cf_3238 || '0');
+  
   const vStatus = String(vContact?.cf_994 || '').trim();
   const vStatusWon = ['vendido', 'cliente', 'cobrado'].some(s => vStatus.toLowerCase().includes(s));
-  const isVtigerWon = vHasSale || vStatusWon;
+  
+  // 🛡️ REGLA ESTRICTA: Una compra real DEBE tener monto mayor a 0 o estatus cobrado
+  const isVtigerWon = (vSalesCount > 0 && totalSpent > 0) || vStatusWon;
 
   // 2. Verdad Secundaria: Tags en GHL
   const existingTags = (ghlContact.tags || []).map(t => String(t).toLowerCase());
   const isGhlWon = existingTags.includes('cliente-comprador') || existingTags.includes('venta-cerrada');
 
-  // 3. Veredicto Final
-  const isWon = Boolean(isVtigerWon || isGhlWon);
+  // 3. Veredicto Final: AUTORIDAD DE VTIGER
+  let isWon = false;
+  if (vContact) {
+    // Si existe en vTiger, vTiger TIENE LA ÚLTIMA PALABRA. Cura las ventas falsas de $0 de GHL.
+    isWon = isVtigerWon;
+  } else {
+    // Si aún no está en vTiger, confiamos temporalmente en GHL.
+    isWon = isGhlWon;
+  }
 
   return {
     isWon,
@@ -46,7 +57,7 @@ export function evaluateCommercialTruth(ghlContact = {}, vContact = null) {
     realFirstPurchaseDate: isWon ? (vContact?.spl_fecha_primera_compra || null) : null,
     realLastPurchaseDate: isWon ? (vContact?.spl_fecha_ultima_compra || null) : null,
     salesCount: isWon ? vSalesCount : 0,
-    totalSpent: isWon ? parseFloat(vContact?.cf_3392 || vContact?.cf_3238 || '0') : 0
+    totalSpent: isWon ? totalSpent : 0
   };
 }
 
@@ -73,6 +84,13 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null)
     id: COMMERCIAL_FIELD_IDS.STATUS_CONTACTO,
     key: 'contact.vtiger_status_del_contacto',
     field_value: truth.contactStatus
+  });
+
+  // Campo personalizado para Listas Inteligentes
+  fields.push({
+    id: COMMERCIAL_FIELD_IDS.ESTADO_COMPRA_LISTA,
+    key: 'contact.estado_de_compra',
+    field_value: truth.isWon ? 'Comprador' : 'No Comprador'
   });
 
   if (!truth.isWon) {

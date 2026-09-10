@@ -6,6 +6,7 @@ import { tokenBucketQueue } from './token_bucket_queue.js';
 import { findVTigerContact } from './vtiger_api_service.js';
 import { learningBrain } from './learning_brain.js';
 import { evaluateCommercialTruth, buildSanitizedCommercialFields, COMMERCIAL_FIELD_IDS } from '../domain/commercial_engine.js';
+import { syncUnifiedPipelineOpportunity } from './ghl_opportunity_service.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -182,6 +183,10 @@ export async function auditAndCureContact(contact) {
       updatePayload.source = contact.source.replace(/Artritis/g, realTreatment);
     }
   }
+
+  // 6. Sincronización de Pipeline de GHL
+  const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+  await syncUnifiedPipelineOpportunity(contactId, contactName, isCustomerWon);
 
   // Encolar en Token Bucket Queue (Prioridad Baja)
   await tokenBucketQueue.enqueue(async () => {

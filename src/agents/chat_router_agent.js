@@ -3,7 +3,8 @@ import { analyzeSymptoms, extractShippingData, buildVtigerSource, inferTreatment
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
-import { buildSanitizedCommercialFields } from '../domain/commercial_engine.js';
+import { buildSanitizedCommercialFields, evaluateCommercialTruth } from '../domain/commercial_engine.js';
+import { syncUnifiedPipelineOpportunity } from '../services/ghl_opportunity_service.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -228,25 +229,26 @@ export async function routeChatByContact(contactId) {
     }
 
     // 🛡️ ESCUDO TOTAL DE INTERACCIÓN ACTIVA (UX GUARD):
-    // Si el contacto YA está asignado a un asesor y la conversación está viva (actividad en los últimos 15 min),
-    // CONGELAMOS la asignación (assignedTo no cambia de asesor) para que la conversación no desaparezca
-    // de la pantalla del asesor. Pero PERMITIMOS enriquecer la ficha y purgar datos falsos de compra.
+    // Si el contacto YA está asignado a un asesor y EL ASESOR ha respondido en los últimos 15 min,
+    // CONGELAMOS la asignación para no interrumpir una venta en vivo.
+    // NOTA: Solo miramos los mensajes salientes (outbound) para saber si el humano está chateando.
     let isLiveChatting = false;
     if (contact.assignedTo) {
-      let newestTimestamp = 0;
+      let newestOutboundTimestamp = 0;
       for (const m of allMessages) {
-        const t = new Date(m.dateAdded).getTime();
-        if (t > newestTimestamp) newestTimestamp = t;
-      }
-      if (newestTimestamp === 0 && newestMsg) {
-        newestTimestamp = newestMsg.timestamp;
+        if (m.direction === 'outbound' || m.type === 2) { // 2 suele ser outbound en GHL
+          const t = new Date(m.dateAdded).getTime();
+          if (t > newestOutboundTimestamp) newestOutboundTimestamp = t;
+        }
       }
 
-      const minutesSinceLastMsg = newestTimestamp > 0 ? (Date.now() - newestTimestamp) / (1000 * 60) : 999;
-      if (minutesSinceLastMsg < 15) {
-        isLiveChatting = true;
-        // Congelar asesor actual para no interrumpir
-        targetAdvisorId = contact.assignedTo;
+      if (newestOutboundTimestamp > 0) {
+        const minutesSinceLastAdvisorMsg = (Date.now() - newestOutboundTimestamp) / (1000 * 60);
+        if (minutesSinceLastAdvisorMsg < 15) {
+          isLiveChatting = true;
+          console.log(`[Agente 3] 🛡️ UX GUARD ACTIVO: El asesor actual está chateando activamente. Se congela la reasignación.`);
+          targetAdvisorId = contact.assignedTo;
+        }
       }
     }
 
@@ -465,11 +467,21 @@ export async function routeChatByContact(contactId) {
     if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, key: 'contact.utm_campaign', field_value: latestCampaign });
 
     // 🏢 G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO - DOMINIO AISLADO)
+    let isCustomerWon = false;
     try {
+      const truth = evaluateCommercialTruth(contact, vContact);
+      isCustomerWon = truth.isWon;
       const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact);
       customFieldsToUpdate.push(...sanitizedCommercialFields);
     } catch (commErr) {
       console.warn(`[Agente 3] ⚠️ No se pudo evaluar estado comercial en vivo para ${contactId}:`, commErr.message);
+    }
+
+    // 🚀 SINCRONIZACIÓN DE PIPELINE (Orquestación LOA)
+    try {
+      await syncUnifiedPipelineOpportunity(contactId, fullName, isCustomerWon);
+    } catch (oppErr) {
+      console.error(`[Agente 3] Error sincronizando pipeline para ${contactId}:`, oppErr.message);
     }
 
     // 📦 G. CONSTRUIR PAYLOAD ATÓMICO (1 SOLO PUT)

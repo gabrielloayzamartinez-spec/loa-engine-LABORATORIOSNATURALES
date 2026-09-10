@@ -58,6 +58,45 @@ export const AUDIT_PIPELINE_DEF = {
 };
 
 // ==========================================
+// 3.5. DEFINICIONES DEL PIPELINE UNIFICADO
+// ==========================================
+export const UNIFIED_PIPELINE_DEF = {
+  name: "🚀 Embudo Comercial (Redes)",
+  stages: [
+    { name: "💬 Prospecto Inicial (Sin Teléfono)", position: 1 },
+    { name: "📞 Contacto Capturado", position: 2 },
+    { name: "⏳ Seguimiento / Negociación", position: 3 },
+    { name: "🎉 Ganado (Compró)", position: 4 },
+    { name: "❌ Perdido / Sin Respuesta", position: 5 }
+  ]
+};
+
+// ==========================================
+// 3.6. CAMPOS PERSONALIZADOS (CUSTOM FIELDS) GHL
+// ==========================================
+export const CUSTOM_FIELDS_DEF = [
+  {
+    name: "Sede Asignada",
+    dataType: "SINGLE_OPTIONS",
+    options: ["Palacios", "Piura", "Roosevelt", "Benavides"]
+  },
+  {
+    name: "Estado de Compra",
+    dataType: "SINGLE_OPTIONS",
+    options: ["Comprador", "No Comprador"]
+  },
+  {
+    name: "Origen Lead",
+    dataType: "SINGLE_OPTIONS",
+    options: ["vTiger_Antiguo", "Messenger_Nuevo", "WhatsApp_Nuevo"]
+  },
+  {
+    name: "Ultima Interaccion",
+    dataType: "DATE"
+  }
+];
+
+// ==========================================
 // 4. MAPEO 1:1 DE FANPAGES Y ETIQUETAS DE SEDE
 // ==========================================
 export const PAGE_TAG_MAP = {

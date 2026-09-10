@@ -98,5 +98,56 @@
     "stageX3Id": "ca3c789f-606e-4f08-8d7d-ab96388235e9",
     "stageX4Id": "da815bf3-2c20-4bf6-9f1f-c2e0adb4a908"
   },
-  "updatedAt": "2026-09-02T22:11:50.381Z"
+  "unified": {
+    "pipelineId": "TetMBFc4R1p4cpNhRr2L",
+    "pipelineName": "🚀 Embudo Comercial (Redes)",
+    "stages": [
+      {
+        "id": "6c38e349-79d6-4ee4-be81-e16112f3c279",
+        "name": "💬 Prospecto Inicial (Sin Teléfono)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 1,
+        "stageWinProbability": 16.67
+      },
+      {
+        "id": "0da5ba47-8747-4edd-a271-2f927ccc3937",
+        "name": "📞 Contacto Capturado",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 2,
+        "stageWinProbability": 33.33
+      },
+      {
+        "id": "5ce95579-c5b3-4b36-a963-9936ee5ae996",
+        "name": "⏳ Seguimiento / Negociación",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 3,
+        "stageWinProbability": 50
+      },
+      {
+        "id": "3174c6f7-397e-42de-9ee7-780053c3920a",
+        "name": "🎉 Ganado (Compró)",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 4,
+        "stageWinProbability": 66.67
+      },
+      {
+        "id": "c35c57b1-a17c-432d-aa17-e1da89beb012",
+        "name": "❌ Perdido / Sin Respuesta",
+        "showInFunnel": false,
+        "showInPieChart": false,
+        "position": 5,
+        "stageWinProbability": 83.33
+      }
+    ],
+    "stageProspectoInicialId": "6c38e349-79d6-4ee4-be81-e16112f3c279",
+    "stageContactoCapturadoId": "0da5ba47-8747-4edd-a271-2f927ccc3937",
+    "stageSeguimientoId": "5ce95579-c5b3-4b36-a963-9936ee5ae996",
+    "stageGanadoId": "3174c6f7-397e-42de-9ee7-780053c3920a",
+    "stagePerdidoId": "c35c57b1-a17c-432d-aa17-e1da89beb012"
+  },
+  "updatedAt": "2026-09-10T22:25:05.765Z"
 }

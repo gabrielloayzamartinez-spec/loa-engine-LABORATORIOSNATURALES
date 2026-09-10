@@ -1,4 +1,4 @@
-import { GHL_CONFIG, MASTER_PIPELINE_DEF, AUDIT_PIPELINE_DEF } from '../config/index.js';
+import { GHL_CONFIG, MASTER_PIPELINE_DEF, AUDIT_PIPELINE_DEF, UNIFIED_PIPELINE_DEF } from '../config/index.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -144,14 +144,62 @@ function formatAuditPipelineResult(pipeline) {
   };
 }
 
+export async function getOrCreateUnifiedPipeline(existingPipelines = null) {
+  console.log("\n🔍 Verificando existencia del Pipeline Unificado...");
+  const pipelines = existingPipelines || await fetchPipelines();
+  
+  const found = pipelines.find(p => p.name === UNIFIED_PIPELINE_DEF.name);
+  if (found) {
+    console.log(`✅ Pipeline Unificado detectado: "${found.name}" (ID: ${found.id})`);
+    return formatUnifiedPipelineResult(found);
+  }
+
+  console.log(`🚀 Creando "${UNIFIED_PIPELINE_DEF.name}" con ${UNIFIED_PIPELINE_DEF.stages.length} etapas...`);
+  try {
+    const payload = {
+      name: UNIFIED_PIPELINE_DEF.name,
+      locationId: locationId,
+      stages: UNIFIED_PIPELINE_DEF.stages
+    };
+    const createRes = await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/pipelines`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify(payload)
+    });
+    const createData = await createRes.json();
+    const created = createData.pipeline || createData;
+    console.log(`🎉 ¡PIPELINE "${created.name}" CREADO CON ÉXITO! (ID: ${created.id})`);
+    return formatUnifiedPipelineResult(created);
+  } catch (err) {
+    console.error(`❌ Error creando Pipeline Unificado:`, err.message);
+    throw err;
+  }
+}
+
+function formatUnifiedPipelineResult(pipeline) {
+  const stages = pipeline.stages || [];
+  return {
+    pipelineId: pipeline.id,
+    pipelineName: pipeline.name,
+    stages: stages,
+    stageProspectoInicialId: stages.find(s => s.name.includes("Prospecto Inicial"))?.id,
+    stageContactoCapturadoId: stages.find(s => s.name.includes("Contacto Capturado"))?.id,
+    stageSeguimientoId: stages.find(s => s.name.includes("Seguimiento"))?.id,
+    stageGanadoId: stages.find(s => s.name.includes("Ganado"))?.id,
+    stagePerdidoId: stages.find(s => s.name.includes("Perdido"))?.id
+  };
+}
+
 export async function setupAllPipelines() {
   const allExisting = await fetchPipelines();
   const master = await getOrCreateMasterPipeline(allExisting);
   const audit = await getOrCreateAuditPipeline(allExisting);
+  const unified = await getOrCreateUnifiedPipeline(allExisting);
 
   const cacheData = {
     master,
     audit,
+    unified,
     updatedAt: new Date().toISOString()
   };
 

@@ -257,12 +257,20 @@ export function buildVtigerSource({ sedeName, provider = 'CLICK2RING', channel =
   let cleanSede = 'PALACIOS';
   const sUpper = (sedeName || '').toUpperCase();
 
-  if (sUpper.includes('BENAVIDES 2') || sUpper.includes('FUERZA')) cleanSede = 'BENAVIDES_2';
-  else if (sUpper.includes('BENAVIDES') || sUpper.includes('CORP')) cleanSede = 'BENAVIDES';
-  else if (sUpper.includes('ROOSEVELT') || sUpper.includes('ROOSVELT')) cleanSede = 'ROOSEVELT';
-  else if (sUpper.includes('PIURA')) cleanSede = 'PIURA';
-  else if (sUpper.includes('ULTRA')) cleanSede = 'PALACIOS_ULTRA';
-  else if (sUpper.includes('PALACIOS')) cleanSede = 'PALACIOS';
+  // Mapeo exacto por nombres de Fanpage para evitar caídas al valor por defecto
+  if (sUpper.includes('NATURAL BIO') || sUpper === 'BIONATURAL' || sUpper.includes('PIURA')) {
+    cleanSede = 'PIURA';
+  } else if (sUpper.includes('BENAVIDES 2') || sUpper.includes('FUERZA')) {
+    cleanSede = 'BENAVIDES_2';
+  } else if (sUpper.includes('BENAVIDES') || sUpper.includes('CORP') || sUpper === 'BIO NATURAL') {
+    cleanSede = 'BENAVIDES';
+  } else if (sUpper.includes('ROOSEVELT') || sUpper.includes('ROOSVELT') || sUpper.includes('BIO NATURALES') || sUpper.includes('BIONATURAL PLUS')) {
+    cleanSede = 'ROOSEVELT';
+  } else if (sUpper.includes('ULTRA')) {
+    cleanSede = 'PALACIOS_ULTRA';
+  } else if (sUpper.includes('PALACIOS') || sUpper.includes('NATURALES BIONATURAL') || sUpper.includes('LABORATORIOS NATURALES BIO')) {
+    cleanSede = 'PALACIOS';
+  }
 
   let cleanTreatment = treatment || 'General';
   // Si por error viene un código de 2 letras (como un estado 'AR', 'TX') o texto menor a 3 caracteres, fallback a 'General'
