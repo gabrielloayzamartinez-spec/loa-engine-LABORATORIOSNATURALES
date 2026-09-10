@@ -194,12 +194,6 @@ export async function auditAndCureContact(contact) {
 
   curatorStats.healedCount++;
   console.log(`[Curador 24/7] 🪄 Curado ${contact.firstName || ''} ${contact.lastName || contactId}: Estado=${isCustomerWon ? 'CONVERTIDO' : 'SIN VENTA'}, Fechas purgadas=${!isCustomerWon}`);
-  try {
-    const redis = (await import('../services/redisClient.js')).default;
-    redis.publish('lead_updates', JSON.stringify({ contactId, action: 'healed' }));
-  } catch (e) {
-    console.warn('Failed to publish WebSocket update:', e.message);
-  }
   return { status: 'healed', contactId };
 }
 
