@@ -13,20 +13,20 @@ const { apiKey, locationId } = GHL_CONFIG;
  */
 export async function saveAdHistoryNote(contactId, { newAdId, oldAdId, campaign, pageName, clickCount, source, treatment }) {
   const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
-  const noteBody = `📌 [SAVE PROCESS: Ruteo y Diagnóstico]
-• Fecha: ${dateStr} (EST)
-• Origen/Fuente Asignada: ${source || 'N/A'}
-• Tratamiento Detectado: ${treatment || 'General'}
-• Nuevo Ad ID: ${newAdId || 'Orgánico / Sin Ad'}
-• Anuncio / Campaña Previa: ${oldAdId || 'Ninguna previa'}
-• Fanpage de Entrada: ${pageName || 'N/A'}
-• Campaña Detectada: ${campaign || 'N/A'}
-• Interacción: Clic #${clickCount || 1}
+  const noteBody = `[SAVE PROCESS: Ruteo y Diagnostico]
+- Fecha: ${dateStr} (EST)
+- Origen/Fuente Asignada: ${source || 'N/A'}
+- Tratamiento Detectado: ${treatment || 'General'}
+- Nuevo Ad ID: ${newAdId || 'Organico / Sin Ad'}
+- Anuncio / Campana Previa: ${oldAdId || 'Ninguna previa'}
+- Fanpage de Entrada: ${pageName || 'N/A'}
+- Campana Detectada: ${campaign || 'N/A'}
+- Interaccion: Clic #${clickCount || 1}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━
-⚡ Powered by LOA Engine
-👤 Desarrollado por Gabriel Loayza
-🏢 Marketing GHL Solutions`;
+----------------------------------------
+Powered by LOA Engine
+Desarrollado por Gabriel Loayza
+Marketing GHL Solutions`;
 
   try {
     const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
