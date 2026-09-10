@@ -249,7 +249,7 @@ export async function routeChatByContact(contactId) {
 
       if (newestOutboundTimestamp > 0) {
         const minutesSinceLastAdvisorMsg = (Date.now() - newestOutboundTimestamp) / (1000 * 60);
-        if (minutesSinceLastAdvisorMsg < 15) {
+        if (minutesSinceLastAdvisorMsg < 3) {
           isLiveChatting = true;
           console.log(`[Agente 3] 🛡️ UX GUARD ACTIVO: El asesor actual está chateando activamente. Se congela TODO ruteo y actualización para no interrumpir la pantalla.`);
           return;
