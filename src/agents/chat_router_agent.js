@@ -494,10 +494,10 @@ export async function routeChatByContact(contactId) {
     if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, key: 'contact.utm_campaign', field_value: latestCampaign });
 
     // 🏢 G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO - DOMINIO AISLADO)
-    let isCustomerWon = false;
+    let finalCustomerWon = isCustomerWon;
     try {
       const truth = evaluateCommercialTruth(contact, vContact);
-      isCustomerWon = truth.isWon;
+      finalCustomerWon = truth.isWon;
       const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact);
       customFieldsToUpdate.push(...sanitizedCommercialFields);
     } catch (commErr) {
@@ -506,7 +506,7 @@ export async function routeChatByContact(contactId) {
 
     // 🚀 SINCRONIZACIÓN DE PIPELINE (Orquestación LOA)
     try {
-      await syncUnifiedPipelineOpportunity(contactId, fullName, isCustomerWon);
+      await syncUnifiedPipelineOpportunity(contactId, fullName, finalCustomerWon);
     } catch (oppErr) {
       console.error(`[Agente 3] Error sincronizando pipeline para ${contactId}:`, oppErr.message);
     }
