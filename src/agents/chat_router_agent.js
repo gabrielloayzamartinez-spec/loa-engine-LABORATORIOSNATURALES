@@ -251,8 +251,8 @@ export async function routeChatByContact(contactId) {
         const minutesSinceLastAdvisorMsg = (Date.now() - newestOutboundTimestamp) / (1000 * 60);
         if (minutesSinceLastAdvisorMsg < 15) {
           isLiveChatting = true;
-          console.log(`[Agente 3] 🛡️ UX GUARD ACTIVO: El asesor actual está chateando activamente. Se congela la reasignación.`);
-          targetAdvisorId = contact.assignedTo;
+          console.log(`[Agente 3] 🛡️ UX GUARD ACTIVO: El asesor actual está chateando activamente. Se congela TODO ruteo y actualización para no interrumpir la pantalla.`);
+          return;
         }
       }
     }
