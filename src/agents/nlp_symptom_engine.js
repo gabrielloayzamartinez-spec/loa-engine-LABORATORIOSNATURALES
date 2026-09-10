@@ -124,7 +124,7 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
 export function inferTreatmentFromCampaignOrUtm(text) {
   if (!text) return null;
   const norm = normalizeText(text);
-  if (/colageno|piel|arrugas/i.test(norm)) return 'Colageno';
+  if (/colageno|colagen|collagen|piel|arrugas/i.test(norm)) return 'Colageno';
   if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior/i.test(norm)) return 'Potencia';
   if (/diabetes|glucosa|azucar|nopal/i.test(norm)) return 'Diabetes';
   if (/prostata|prostatico/i.test(norm)) return 'Prostata';

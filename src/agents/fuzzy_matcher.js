@@ -87,8 +87,13 @@ export function isContextualDuplicate(contactA, contactB, threshold = 0.90) {
   const sim = calculateSimilarity(nameA, nameB);
   if (sim < threshold) return false;
 
-  // 3. Validación Contextual Cruzada (Para evitar falsos homónimos)
-  // Coincidencia de Estado o Ciudad
+  // 3. Validación Contextual Cruzada Estricta (Anti-Falsos Homónimos)
+  // Sin teléfono común, NUNCA asumir duplicado solo por coincidencia de nombre
+  const emailA = normalizeText(contactA.email || '');
+  const emailB = normalizeText(contactB.email || '');
+  if (emailA && emailB && emailA === emailB) return true;
+
+  // Coincidencia estricta de Estado o Ciudad
   const stateA = normalizeText(contactA.state || '');
   const stateB = normalizeText(contactB.state || '');
   const cityA = normalizeText(contactA.city || '');
@@ -102,7 +107,6 @@ export function isContextualDuplicate(contactA, contactB, threshold = 0.90) {
   const tagsB = (contactB.tags || []).map(t => normalizeText(t));
   const hasConditionMatch = tagsA.some(t => t.startsWith('producto-') && tagsB.includes(t));
 
-  // Si el nombre es idéntico (>= 98%) o si tiene al menos 1 coincidencia contextual
-  if (sim >= 0.98) return true;
-  return hasLocationMatch || hasConditionMatch;
+  // Solo es duplicado si tiene similitud de nombre Y coincidencia geográfica o de condición específica
+  return sim >= 0.90 && (hasLocationMatch || (hasConditionMatch && (stateA || cityA)));
 }

@@ -226,8 +226,9 @@ export async function routeChatByContact(contactId) {
 
     // 🛡️ ESCUDO TOTAL DE INTERACCIÓN ACTIVA (UX GUARD):
     // Si el contacto YA está asignado a un asesor y la conversación está viva (actividad en los últimos 15 min),
-    // NUNCA realizamos un PUT ni modificamos el contacto por API.
-    // Esto evita que la interfaz de GHL parpadee, recargue o cause saltos de mensajes mientras el asesor atiende.
+    // CONGELAMOS la asignación (assignedTo no cambia de asesor) para que la conversación no desaparezca
+    // de la pantalla del asesor. Pero PERMITIMOS enriquecer la ficha y purgar datos falsos de compra.
+    let isLiveChatting = false;
     if (contact.assignedTo) {
       let newestTimestamp = 0;
       for (const m of allMessages) {
@@ -240,8 +241,9 @@ export async function routeChatByContact(contactId) {
 
       const minutesSinceLastMsg = newestTimestamp > 0 ? (Date.now() - newestTimestamp) / (1000 * 60) : 999;
       if (minutesSinceLastMsg < 15) {
-        console.log(`[Agente 3] 🛡️ ESCUDO ACTIVO para ${contactId}: Asesor atendiendo activamente (${minutesSinceLastMsg.toFixed(1)}m). Se aborta cualquier PUT para evitar saltos de mensajes en la interfaz del asesor.`);
-        return;
+        isLiveChatting = true;
+        // Congelar asesor actual para no interrumpir
+        targetAdvisorId = contact.assignedTo;
       }
     }
 
@@ -357,17 +359,21 @@ export async function routeChatByContact(contactId) {
           const matches = (sData.contacts || []).filter(c => c.id !== contact.id);
 
           for (const m of matches) {
+            // Solo heredar notas o tratamientos si comparten teléfono confirmado o coincidencia geográfica
             if (isContextualDuplicate(contact, m, 0.90)) {
-              duplicateCount++;
-              const mCF = m.customFields || [];
-              const vN = mCF.find(f => f.id === VTIGER_NOTAS_FIELD && f.value);
-              const aId = mCF.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value);
-              const trat = mCF.find(f => f.id === TRATAMIENTO_FIELD && f.value);
-              const attrA = (m.attributions || []).find(a => a.utmAdId || a.adId);
+              const hasPhoneMatch = Boolean(contact.phone && m.phone && contact.phone.replace(/\D/g,'').slice(-10) === m.phone.replace(/\D/g,'').slice(-10));
+              if (hasPhoneMatch) {
+                duplicateCount++;
+                const mCF = m.customFields || [];
+                const vN = mCF.find(f => f.id === VTIGER_NOTAS_FIELD && f.value);
+                const aId = mCF.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value);
+                const trat = mCF.find(f => f.id === TRATAMIENTO_FIELD && f.value);
+                const attrA = (m.attributions || []).find(a => a.utmAdId || a.adId);
 
-              if (!targetVtigerNota && vN) targetVtigerNota = vN.value;
-              if (!targetAdId && (aId || attrA)) targetAdId = String(aId?.value || attrA?.utmAdId || attrA?.adId);
-              if (!targetTratamiento && trat) targetTratamiento = trat.value;
+                if (!targetVtigerNota && vN) targetVtigerNota = vN.value;
+                if (!targetAdId && (aId || attrA)) targetAdId = String(aId?.value || attrA?.utmAdId || attrA?.adId);
+                if (!targetTratamiento && trat) targetTratamiento = trat.value;
+              }
             }
           }
         }
@@ -441,18 +447,51 @@ export async function routeChatByContact(contactId) {
     // 📝 F. PREPARAR CUSTOM FIELDS (FULL DATA STACK)
     const customFieldsToUpdate = [];
     if (targetAdId) {
-      customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, field_value: String(targetAdId) });
-      customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, field_value: String(targetAdId) });
+      customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, key: 'contact.id_de_anuncio', field_value: String(targetAdId) });
+      customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, key: 'contact.ad_id', field_value: String(targetAdId) });
     }
     if (targetTratamiento && targetTratamiento !== 'General') {
-      customFieldsToUpdate.push({ id: TRATAMIENTO_FIELD, field_value: targetTratamiento });
+      customFieldsToUpdate.push({ id: TRATAMIENTO_FIELD, key: 'contact.tratamiento_comprado', field_value: targetTratamiento });
     }
-    if (targetVtigerNota) customFieldsToUpdate.push({ id: VTIGER_NOTAS_FIELD, field_value: targetVtigerNota });
+    if (targetVtigerNota) customFieldsToUpdate.push({ id: VTIGER_NOTAS_FIELD, key: 'contact.vtiger_historial_completo', field_value: targetVtigerNota });
     
     // UTMs
-    customFieldsToUpdate.push({ id: UTM_SOURCE_FIELD, field_value: 'facebook' });
-    customFieldsToUpdate.push({ id: UTM_MEDIUM_FIELD, field_value: isPaidAd ? 'cpc' : 'messenger' });
-    if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, field_value: latestCampaign });
+    customFieldsToUpdate.push({ id: UTM_SOURCE_FIELD, key: 'contact.utm_source', field_value: 'facebook' });
+    customFieldsToUpdate.push({ id: UTM_MEDIUM_FIELD, key: 'contact.utm_medium', field_value: isPaidAd ? 'cpc' : 'messenger' });
+    if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, key: 'contact.utm_campaign', field_value: latestCampaign });
+
+    // 🏢 G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO)
+    const numCompras = parseInt(vContact?.spl_num_compras || '0', 10);
+    const montoTotalVtiger = parseFloat(vContact?.cf_3392 || vContact?.cf_3238 || '0');
+
+    customFieldsToUpdate.push({ id: '8EQtKkiW7Z022bcN0vhS', key: 'contact.vtiger_estado_comercial', field_value: isCustomerWon ? 'CONVERTIDO' : 'SIN VENTA' });
+    customFieldsToUpdate.push({ id: '5TY5AIOpu1c8f6WosyF2', key: 'contact.vtiger_status_del_contacto', field_value: vContact?.cf_994 || (isCustomerWon ? 'VENDIDO' : 'SIN TRABAJAR') });
+
+    if (!isCustomerWon) {
+      // PROSPECTO SIN VENTA: Purgar fechas y montos de compra falsos, poblar Fecha Ultima Asignacion
+      customFieldsToUpdate.push({ id: 'RLxFOTXkICXLWShjaLaB', key: 'contact.fecha_ultima_asignacion', field_value: new Date().toISOString().split('T')[0] });
+      customFieldsToUpdate.push({ id: 'GZKRu2z1Z156lRUfyrpo', key: 'contact.fecha_compra', field_value: '' });
+      customFieldsToUpdate.push({ id: 'OJYOXVqKp33A6T5HZK5I', key: 'contact.vtiger_fecha_primera_compra', field_value: '' });
+      customFieldsToUpdate.push({ id: 'cyn0Ar7GMvmzYBKw0SJu', key: 'contact.vtiger_fecha_ultima_compra', field_value: '' });
+      customFieldsToUpdate.push({ id: '1U0XzfuI9HUQDqQVMeSV', key: 'contact.vtiger_fecha_ultima_factura', field_value: '' });
+      customFieldsToUpdate.push({ id: '5js0Lfbh5XDLq87SDgdT', key: 'contact.precio_venta', field_value: '' });
+    } else {
+      // CLIENTE CON VENTA: Preservar fechas reales
+      if (vContact?.spl_fecha_primera_compra) {
+        customFieldsToUpdate.push({ id: 'GZKRu2z1Z156lRUfyrpo', key: 'contact.fecha_compra', field_value: vContact.spl_fecha_primera_compra });
+        customFieldsToUpdate.push({ id: 'OJYOXVqKp33A6T5HZK5I', key: 'contact.vtiger_fecha_primera_compra', field_value: vContact.spl_fecha_primera_compra });
+      }
+      if (vContact?.spl_fecha_ultima_compra) {
+        customFieldsToUpdate.push({ id: 'cyn0Ar7GMvmzYBKw0SJu', key: 'contact.vtiger_fecha_ultima_compra', field_value: vContact.spl_fecha_ultima_compra });
+        customFieldsToUpdate.push({ id: '1U0XzfuI9HUQDqQVMeSV', key: 'contact.vtiger_fecha_ultima_factura', field_value: vContact.spl_fecha_ultima_compra });
+      }
+      if (numCompras > 0) {
+        customFieldsToUpdate.push({ id: '3L8KHJEp8fw8ELr081Kl', key: 'contact.spl_num_compras', field_value: String(numCompras) });
+      }
+      if (montoTotalVtiger > 0) {
+        customFieldsToUpdate.push({ id: '5js0Lfbh5XDLq87SDgdT', key: 'contact.precio_venta', field_value: String(montoTotalVtiger.toFixed(2)) });
+      }
+    }
 
     // 📦 G. CONSTRUIR PAYLOAD ATÓMICO (1 SOLO PUT)
     const updatePayload = {
@@ -504,13 +543,17 @@ export async function routeChatByContact(contactId) {
     const currentTags = (contact.tags || []).map(t => String(t).trim());
     const tagsChanged = newTagsSet.size !== currentTags.length || Array.from(newTagsSet).some(t => !currentTags.includes(t));
     const currentCFs = contact.customFields || [];
+    const CRITICAL_CF_IDS = [
+      ID_ANUNCIO_FIELD, AD_ID_ALT_FIELD, TRATAMIENTO_FIELD, VTIGER_NOTAS_FIELD,
+      '8EQtKkiW7Z022bcN0vhS', '5TY5AIOpu1c8f6WosyF2', 'RLxFOTXkICXLWShjaLaB',
+      'GZKRu2z1Z156lRUfyrpo', '5js0Lfbh5XDLq87SDgdT'
+    ];
     const hasCFChanges = customFieldsToUpdate.some(cf => {
-      // Solo comparar campos comerciales críticos para evitar bucles por UTMs
-      if (![ID_ANUNCIO_FIELD, AD_ID_ALT_FIELD, TRATAMIENTO_FIELD, VTIGER_NOTAS_FIELD].includes(cf.id)) {
-        return false;
-      }
+      if (!CRITICAL_CF_IDS.includes(cf.id)) return false;
       const existing = currentCFs.find(f => f.id === cf.id);
-      return !existing || existing.value !== cf.field_value;
+      const existingVal = existing ? String(existing.value || '') : '';
+      const newVal = String(cf.field_value || '');
+      return existingVal !== newVal;
     });
     const hasPhoneUpdate = !contact.phone && shippingData.hasPhone;
     const hasCountryUpdate = (!contact.country || contact.country === '--');

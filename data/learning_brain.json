@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
   "stats": {
-    "totalInferences": 21,
-    "learnedFromSales": 7,
+    "totalInferences": 24,
+    "learnedFromSales": 8,
     "learnedFromAdvisors": 0,
-    "falsePositivesPenalized": 7,
-    "lastLearnedAt": "2026-09-08T20:31:38.764Z"
+    "falsePositivesPenalized": 8,
+    "lastLearnedAt": "2026-09-10T15:57:21.554Z"
   },
   "treatments": [
     "Potencia",
@@ -33,7 +33,7 @@
       "Potencia": 8
     },
     "vigor": {
-      "Potencia": 78
+      "Potencia": 88
     },
     "ereccion": {
       "Potencia": 10
@@ -207,28 +207,28 @@
       "Artritis": 12
     },
     "vigor masculino": {
-      "Potencia": 70
+      "Potencia": 80
     },
     "vigor masculino prueba": {
-      "Potencia": 70
+      "Potencia": 80
     },
     "masculino": {
-      "Potencia": 70
+      "Potencia": 80
     },
     "masculino prueba": {
-      "Potencia": 70
+      "Potencia": 80
     },
     "masculino prueba fuego": {
-      "Potencia": 70
+      "Potencia": 80
     },
     "prueba": {
-      "Potencia": 70
+      "Potencia": 80
     },
     "prueba fuego": {
-      "Potencia": 70
+      "Potencia": 80
     },
     "fuego": {
-      "Potencia": 70
+      "Potencia": 80
     }
   },
   "campaignWeights": {
@@ -254,7 +254,7 @@
       "Artritis": 20
     },
     "campana test potencia": {
-      "Potencia": 105
+      "Potencia": 120
     }
   }
 }
