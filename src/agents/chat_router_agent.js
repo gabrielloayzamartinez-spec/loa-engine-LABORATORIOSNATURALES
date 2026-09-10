@@ -3,6 +3,7 @@ import { analyzeSymptoms, extractShippingData, buildVtigerSource, inferTreatment
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
+import { buildSanitizedCommercialFields } from '../domain/commercial_engine.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -461,43 +462,12 @@ export async function routeChatByContact(contactId) {
     customFieldsToUpdate.push({ id: UTM_MEDIUM_FIELD, key: 'contact.utm_medium', field_value: isPaidAd ? 'cpc' : 'messenger' });
     if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, key: 'contact.utm_campaign', field_value: latestCampaign });
 
-    // 🏢 G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO)
-    const isVtigerWon = Boolean(
-      (vContact?.cf_994 && ['Vendido', 'Cliente', 'Cobrado'].some(s => vContact.cf_994.toLowerCase().includes(s.toLowerCase()))) ||
-      (vContact?.spl_num_compras && parseInt(vContact.spl_num_compras, 10) > 0) ||
-      (vContact?.spl_fecha_primera_compra)
-    );
-    const isLeadConverted = Boolean(isCustomerWon || isVtigerWon);
-    const numCompras = parseInt(vContact?.spl_num_compras || '0', 10);
-    const montoTotalVtiger = parseFloat(vContact?.cf_3392 || vContact?.cf_3238 || '0');
-
-    customFieldsToUpdate.push({ id: '8EQtKkiW7Z022bcN0vhS', key: 'contact.vtiger_estado_comercial', field_value: isLeadConverted ? 'CONVERTIDO' : 'SIN VENTA' });
-    customFieldsToUpdate.push({ id: '5TY5AIOpu1c8f6WosyF2', key: 'contact.vtiger_status_del_contacto', field_value: vContact?.cf_994 || (isLeadConverted ? 'VENDIDO' : 'SIN TRABAJAR') });
-
-    if (!isLeadConverted) {
-      // PROSPECTO SIN VENTA: Purgar fechas y montos de compra falsos, poblar Fecha Ultima Asignacion
-      customFieldsToUpdate.push({ id: 'RLxFOTXkICXLWShjaLaB', key: 'contact.fecha_ultima_asignacion', field_value: new Date().toISOString().split('T')[0] });
-      customFieldsToUpdate.push({ id: 'GZKRu2z1Z156lRUfyrpo', key: 'contact.fecha_compra', field_value: '' });
-      customFieldsToUpdate.push({ id: 'OJYOXVqKp33A6T5HZK5I', key: 'contact.vtiger_fecha_primera_compra', field_value: '' });
-      customFieldsToUpdate.push({ id: 'cyn0Ar7GMvmzYBKw0SJu', key: 'contact.vtiger_fecha_ultima_compra', field_value: '' });
-      customFieldsToUpdate.push({ id: '1U0XzfuI9HUQDqQVMeSV', key: 'contact.vtiger_fecha_ultima_factura', field_value: '' });
-      customFieldsToUpdate.push({ id: '5js0Lfbh5XDLq87SDgdT', key: 'contact.precio_venta', field_value: '' });
-    } else {
-      // CLIENTE CON VENTA: Preservar fechas reales
-      if (vContact?.spl_fecha_primera_compra) {
-        customFieldsToUpdate.push({ id: 'GZKRu2z1Z156lRUfyrpo', key: 'contact.fecha_compra', field_value: vContact.spl_fecha_primera_compra });
-        customFieldsToUpdate.push({ id: 'OJYOXVqKp33A6T5HZK5I', key: 'contact.vtiger_fecha_primera_compra', field_value: vContact.spl_fecha_primera_compra });
-      }
-      if (vContact?.spl_fecha_ultima_compra) {
-        customFieldsToUpdate.push({ id: 'cyn0Ar7GMvmzYBKw0SJu', key: 'contact.vtiger_fecha_ultima_compra', field_value: vContact.spl_fecha_ultima_compra });
-        customFieldsToUpdate.push({ id: '1U0XzfuI9HUQDqQVMeSV', key: 'contact.vtiger_fecha_ultima_factura', field_value: vContact.spl_fecha_ultima_compra });
-      }
-      if (numCompras > 0) {
-        customFieldsToUpdate.push({ id: '3L8KHJEp8fw8ELr081Kl', key: 'contact.spl_num_compras', field_value: String(numCompras) });
-      }
-      if (montoTotalVtiger > 0) {
-        customFieldsToUpdate.push({ id: '5js0Lfbh5XDLq87SDgdT', key: 'contact.precio_venta', field_value: String(montoTotalVtiger.toFixed(2)) });
-      }
+    // 🏢 G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO - DOMINIO AISLADO)
+    try {
+      const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact);
+      customFieldsToUpdate.push(...sanitizedCommercialFields);
+    } catch (commErr) {
+      console.warn(`[Agente 3] ⚠️ No se pudo evaluar estado comercial en vivo para ${contactId}:`, commErr.message);
     }
 
     // 📦 G. CONSTRUIR PAYLOAD ATÓMICO (1 SOLO PUT)

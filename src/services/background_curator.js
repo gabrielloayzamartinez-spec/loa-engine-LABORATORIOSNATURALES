@@ -5,6 +5,7 @@ import { analyzeSymptoms, extractShippingData, inferTreatmentFromCampaignOrUtm, 
 import { tokenBucketQueue } from './token_bucket_queue.js';
 import { findVTigerContact } from './vtiger_api_service.js';
 import { learningBrain } from './learning_brain.js';
+import { evaluateCommercialTruth, buildSanitizedCommercialFields, COMMERCIAL_FIELD_IDS } from '../domain/commercial_engine.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -120,22 +121,19 @@ export async function auditAndCureContact(contact) {
     vContact = await findVTigerContact(contact);
   } catch (e) {}
 
-  const numCompras = parseInt(vContact?.spl_num_compras || '0', 10);
-  const montoTotalVtiger = parseFloat(vContact?.cf_3392 || vContact?.cf_3238 || '0');
-  const isVtigerWon = vContact && (vContact.cf_1876 === 'CONVERTIDO' || numCompras > 0 || montoTotalVtiger > 0);
-  const isGhlWon = currentTags.includes('cliente-comprador') || currentTags.includes('venta-cerrada');
-  const isCustomerWon = Boolean(isVtigerWon || isGhlWon);
+  const commercialTruth = evaluateCommercialTruth(contact, vContact);
+  const isCustomerWon = commercialTruth.isWon;
 
   // 3. Evaluar Necesidad de Sanitización de Fechas de Compra
-  const fechaCompraCF = existingCFs.find(f => f.id === 'GZKRu2z1Z156lRUfyrpo');
-  const precioVentaCF = existingCFs.find(f => f.id === '5js0Lfbh5XDLq87SDgdT');
-  const estadoComercialCF = existingCFs.find(f => f.id === '8EQtKkiW7Z022bcN0vhS');
-  const fechaAsignacionCF = existingCFs.find(f => f.id === 'RLxFOTXkICXLWShjaLaB');
+  const fechaCompraCF = existingCFs.find(f => f.id === COMMERCIAL_FIELD_IDS.FECHA_COMPRA);
+  const precioVentaCF = existingCFs.find(f => f.id === COMMERCIAL_FIELD_IDS.PRECIO_VENTA);
+  const estadoComercialCF = existingCFs.find(f => f.id === COMMERCIAL_FIELD_IDS.ESTADO_COMERCIAL);
+  const fechaAsignacionCF = existingCFs.find(f => f.id === COMMERCIAL_FIELD_IDS.FECHA_ASIGNACION);
   const currentTratamiento = existingCFs.find(f => f.id === TRATAMIENTO_FIELD)?.value;
 
   const hasFakePurchaseDate = !isCustomerWon && Boolean(fechaCompraCF?.value);
   const hasFakePrice = !isCustomerWon && Boolean(precioVentaCF?.value && precioVentaCF.value !== '0' && precioVentaCF.value !== '0.00');
-  const needsCommercialStatus = !estadoComercialCF || estadoComercialCF.value !== (isCustomerWon ? 'CONVERTIDO' : 'SIN VENTA');
+  const needsCommercialStatus = !estadoComercialCF || estadoComercialCF.value !== commercialTruth.commercialStatus;
   const needsAssignmentDate = !isCustomerWon && !fechaAsignacionCF?.value;
 
   // 4. Inferencia de Tratamiento Real
@@ -158,27 +156,9 @@ export async function auditAndCureContact(contact) {
   }
 
   // 5. Preparar Actualización Quirúrgica
-  const customFieldsToUpdate = [];
-
-  // Estado Comercial
-  customFieldsToUpdate.push({ id: '8EQtKkiW7Z022bcN0vhS', key: 'contact.vtiger_estado_comercial', field_value: isCustomerWon ? 'CONVERTIDO' : 'SIN VENTA' });
-  customFieldsToUpdate.push({ id: '5TY5AIOpu1c8f6WosyF2', key: 'contact.vtiger_status_del_contacto', field_value: vContact?.cf_994 || (isCustomerWon ? 'VENDIDO' : 'SIN TRABAJAR') });
-
-  if (!isCustomerWon) {
-    // PROSPECTO SIN VENTA: Purgar compras falsas y poner Fecha Ultima Asignacion
-    const todayStr = new Date().toISOString().split('T')[0];
-    customFieldsToUpdate.push({ id: 'RLxFOTXkICXLWShjaLaB', key: 'contact.fecha_ultima_asignacion', field_value: todayStr });
-    customFieldsToUpdate.push({ id: 'GZKRu2z1Z156lRUfyrpo', key: 'contact.fecha_compra', field_value: '' });
-    customFieldsToUpdate.push({ id: 'OJYOXVqKp33A6T5HZK5I', key: 'contact.vtiger_fecha_primera_compra', field_value: '' });
-    customFieldsToUpdate.push({ id: 'cyn0Ar7GMvmzYBKw0SJu', key: 'contact.vtiger_fecha_ultima_compra', field_value: '' });
-    customFieldsToUpdate.push({ id: '1U0XzfuI9HUQDqQVMeSV', key: 'contact.vtiger_fecha_ultima_factura', field_value: '' });
-    customFieldsToUpdate.push({ id: '5js0Lfbh5XDLq87SDgdT', key: 'contact.precio_venta', field_value: '' });
-  } else {
-    // CLIENTE CON VENTA: Preservar fechas reales
-    if (vContact?.spl_fecha_primera_compra) {
-      customFieldsToUpdate.push({ id: 'GZKRu2z1Z156lRUfyrpo', key: 'contact.fecha_compra', field_value: vContact.spl_fecha_primera_compra });
-    }
-  }
+  const customFieldsToUpdate = [
+    ...buildSanitizedCommercialFields(contact, vContact)
+  ];
 
   // Tratamiento corregido
   if (realTreatment && realTreatment !== 'General') {
