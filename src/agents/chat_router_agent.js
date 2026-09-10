@@ -10,10 +10,12 @@ const { apiKey, locationId } = GHL_CONFIG;
 /**
  * 📌 Save Process: Inyecta una Nota Histórica en el perfil de GHL ante un nuevo toque o cambio de pauta
  */
-export async function saveAdHistoryNote(contactId, { newAdId, oldAdId, campaign, pageName, clickCount }) {
+export async function saveAdHistoryNote(contactId, { newAdId, oldAdId, campaign, pageName, clickCount, source, treatment }) {
   const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
-  const noteBody = `📌 [SAVE PROCESS: HISTORIAL DE REINGRESO PUBLICITARIO]
+  const noteBody = `📌 [SAVE PROCESS: Ruteo y Diagnóstico]
 • Fecha: ${dateStr} (EST)
+• Origen/Fuente Asignada: ${source || 'N/A'}
+• Tratamiento Detectado: ${treatment || 'General'}
 • Nuevo Ad ID: ${newAdId || 'Orgánico / Sin Ad'}
 • Anuncio / Campaña Previa: ${oldAdId || 'Ninguna previa'}
 • Fanpage de Entrada: ${pageName || 'N/A'}
@@ -560,10 +562,8 @@ export async function routeChatByContact(contactId) {
       }
       console.log(`[Agente 3] ✅ ÉXITO: ${contact.firstName || ''} ${contact.lastName || ''} (${contactId}) | Ad ID: ${targetAdId || 'N/A'} | Fuente: ${vtigerSource} | Estado: ${updatePayload.state || contact.state || '--'} | Actualizado OK.`);
 
-      // 📌 H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA EN GHL SI HUBO CAMBIO DE AD ID O REINGRESO
-      const shouldSaveNote = (latestAdId && currentAdId && latestAdId !== currentAdId) || 
-                             (duplicateCount > 1) || 
-                             (latestAdId && !currentAdId);
+      // 📌 H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA EN GHL SIEMPRE QUE HAYA UN RUTEO EFECTIVO
+      const shouldSaveNote = true; // El usuario pidió visibilidad inmediata del trabajo del motor en la sección de Notas
 
       if (shouldSaveNote) {
         await saveAdHistoryNote(contactId, {
@@ -571,7 +571,9 @@ export async function routeChatByContact(contactId) {
           oldAdId: currentAdId || 'Ninguna previa',
           campaign: latestCampaign || 'Pauta Reciente',
           pageName: targetPageName,
-          clickCount: duplicateCount
+          clickCount: duplicateCount,
+          source: vtigerSource,
+          treatment: targetTratamiento
         });
       }
     } else {
