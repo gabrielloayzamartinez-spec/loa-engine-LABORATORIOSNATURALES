@@ -455,9 +455,25 @@ export async function routeChatByContact(contactId) {
       newTagsSet.add(`pauta-clic-x${duplicateCount}`);
     }
 
-    // 🚨 ALERTA: Doble Ingreso Publicitario (Clic a un Anuncio DIFERENTE)
-    // Ignora los múltiples clics locos al mismo anuncio (mismo Ad ID) por cobro CPM.
+    // 🚨 ALERTA: Doble Ingreso Publicitario (Detección Avanzada CPM)
+    let isDoubleAdEntry = false;
+
+    // Regla 1: Entró por un Ad diferente al que tenía registrado.
     if (latestAdId && currentAdId && latestAdId !== currentAdId) {
+      isDoubleAdEntry = true;
+    } 
+    // Regla 2: Entró por el MISMO Ad, pero pasaron más de 24 horas (Nuevo cobro de Meta)
+    else if (latestAdId && latestAdId === currentAdId) {
+      const adClicks = fbMessages.filter(m => m.adId === latestAdId);
+      if (adClicks.length >= 2) {
+        const timeDiffHours = (adClicks[0].timestamp - adClicks[adClicks.length - 1].timestamp) / (1000 * 60 * 60);
+        if (timeDiffHours >= 24) {
+          isDoubleAdEntry = true;
+        }
+      }
+    }
+
+    if (isDoubleAdEntry) {
       newTagsSet.add('doble-ingreso-publicitario');
     }
 
