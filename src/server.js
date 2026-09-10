@@ -14,7 +14,7 @@ import { learningBrain } from './services/learning_brain.js';
 import { syncVtigerGroundTruthToBrain } from './services/vtiger_api_service.js';
 import { tokenBucketQueue } from './services/token_bucket_queue.js';
 import { runBackgroundCuratorCycle, getCuratorMetrics } from './services/background_curator.js';
-
+import { initWebSocketServer } from './services/wsServer.js';
 const app = express();
 app.use(express.json());
 
@@ -863,7 +863,7 @@ app.get('/api/brain/metrics', (req, res) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', async () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   // Ejecución obligatoria de pre-flight check antes de admitir tráfico
   const isHealthy = runPreFlightSanityCheck();
   if (!isHealthy) {
@@ -898,4 +898,5 @@ app.listen(PORT, '0.0.0.0', async () => {
   }, 30 * 60 * 1000);
 
   runExpressAssignment();
+  initWebSocketServer(server);
 });
