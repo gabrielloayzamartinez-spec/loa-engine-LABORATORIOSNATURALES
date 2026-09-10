@@ -139,7 +139,7 @@ export async function getSalesHistory(contactId) {
  */
 export async function fetchRecentConfirmedSales(limit = 25) {
   try {
-    const q = `SELECT id, firstname, lastname, cf_2610, cf_3472, homephone, mobile, createdtime FROM Contacts ORDER BY createdtime DESC LIMIT 0, ${limit};`;
+    const q = `SELECT id, firstname, lastname, cf_2610, cf_3472, createdtime FROM Contacts ORDER BY createdtime DESC LIMIT 0, ${limit};`;
     const contacts = await queryVTiger(q);
     return contacts || [];
   } catch (err) {

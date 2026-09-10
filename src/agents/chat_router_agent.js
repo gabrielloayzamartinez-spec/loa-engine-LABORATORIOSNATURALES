@@ -308,8 +308,9 @@ export async function routeChatByContact(contactId) {
 
     // 🏢 C. GROUND TRUTH DE VTIGER CRM: Verdad Clínica y Comercial Confirmada
     let vtigerTreatment = null;
+    let vContact = null;
     try {
-      const vContact = await findVTigerContact(contact);
+      vContact = await findVTigerContact(contact);
       if (vContact) {
         const vCond = vContact.cf_2610 || '';
         vtigerTreatment = inferTreatmentFromCampaignOrUtm(vCond) || (vCond.length > 2 ? vCond : null);
@@ -461,13 +462,19 @@ export async function routeChatByContact(contactId) {
     if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, key: 'contact.utm_campaign', field_value: latestCampaign });
 
     // 🏢 G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO)
+    const isVtigerWon = Boolean(
+      (vContact?.cf_994 && ['Vendido', 'Cliente', 'Cobrado'].some(s => vContact.cf_994.toLowerCase().includes(s.toLowerCase()))) ||
+      (vContact?.spl_num_compras && parseInt(vContact.spl_num_compras, 10) > 0) ||
+      (vContact?.spl_fecha_primera_compra)
+    );
+    const isLeadConverted = Boolean(isCustomerWon || isVtigerWon);
     const numCompras = parseInt(vContact?.spl_num_compras || '0', 10);
     const montoTotalVtiger = parseFloat(vContact?.cf_3392 || vContact?.cf_3238 || '0');
 
-    customFieldsToUpdate.push({ id: '8EQtKkiW7Z022bcN0vhS', key: 'contact.vtiger_estado_comercial', field_value: isCustomerWon ? 'CONVERTIDO' : 'SIN VENTA' });
-    customFieldsToUpdate.push({ id: '5TY5AIOpu1c8f6WosyF2', key: 'contact.vtiger_status_del_contacto', field_value: vContact?.cf_994 || (isCustomerWon ? 'VENDIDO' : 'SIN TRABAJAR') });
+    customFieldsToUpdate.push({ id: '8EQtKkiW7Z022bcN0vhS', key: 'contact.vtiger_estado_comercial', field_value: isLeadConverted ? 'CONVERTIDO' : 'SIN VENTA' });
+    customFieldsToUpdate.push({ id: '5TY5AIOpu1c8f6WosyF2', key: 'contact.vtiger_status_del_contacto', field_value: vContact?.cf_994 || (isLeadConverted ? 'VENDIDO' : 'SIN TRABAJAR') });
 
-    if (!isCustomerWon) {
+    if (!isLeadConverted) {
       // PROSPECTO SIN VENTA: Purgar fechas y montos de compra falsos, poblar Fecha Ultima Asignacion
       customFieldsToUpdate.push({ id: 'RLxFOTXkICXLWShjaLaB', key: 'contact.fecha_ultima_asignacion', field_value: new Date().toISOString().split('T')[0] });
       customFieldsToUpdate.push({ id: 'GZKRu2z1Z156lRUfyrpo', key: 'contact.fecha_compra', field_value: '' });
