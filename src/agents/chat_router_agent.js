@@ -21,7 +21,12 @@ export async function saveAdHistoryNote(contactId, { newAdId, oldAdId, campaign,
 • Anuncio / Campaña Previa: ${oldAdId || 'Ninguna previa'}
 • Fanpage de Entrada: ${pageName || 'N/A'}
 • Campaña Detectada: ${campaign || 'N/A'}
-• Interacción: Clic #${clickCount || 1}`;
+• Interacción: Clic #${clickCount || 1}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━
+⚡ Powered by LOA Engine
+👤 Desarrollado por Gabriel Loayza
+🏢 Marketing GHL Solutions`;
 
   try {
     const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
