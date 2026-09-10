@@ -455,6 +455,12 @@ export async function routeChatByContact(contactId) {
       newTagsSet.add(`pauta-clic-x${duplicateCount}`);
     }
 
+    // 🚨 ALERTA: Doble Ingreso Publicitario (Clic a un Anuncio DIFERENTE)
+    // Ignora los múltiples clics locos al mismo anuncio (mismo Ad ID) por cobro CPM.
+    if (latestAdId && currentAdId && latestAdId !== currentAdId) {
+      newTagsSet.add('doble-ingreso-publicitario');
+    }
+
     // 📝 F. PREPARAR CUSTOM FIELDS (FULL DATA STACK)
     const customFieldsToUpdate = [];
     if (targetAdId) {
