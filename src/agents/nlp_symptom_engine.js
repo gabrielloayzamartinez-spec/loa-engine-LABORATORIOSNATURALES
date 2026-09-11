@@ -85,10 +85,10 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
     scores[treatment] = (brainResult.scores && brainResult.scores[treatment]) ? brainResult.scores[treatment] : 0;
   }
 
-  // Puntuación por título directo publicitario (Prioridad Máxima = 10 puntos)
+  // Puntuación por título directo publicitario (Prioridad Máxima = 1000 puntos)
   for (const dam of directAdMatches) {
     if (dam.regex.test(norm)) {
-      scores[dam.treatment] += 15;
+      scores[dam.treatment] += 1000;
     }
   }
 
