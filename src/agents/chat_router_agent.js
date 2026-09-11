@@ -338,16 +338,16 @@ export async function routeChatByContact(contactId) {
     }
 
     // 🔬 D. Inferencia Clínica y de Pauta Ponderada:
-    // Prioridad 1: Ground Truth de Ventas vTiger CRM
-    // Prioridad 2: Síntomas clínicos y Cerebro de Aprendizaje (NLP)
-    // Prioridad 3: Campaña / Anuncio / UTM Medium (ej: "DOMINGOS - COLÁGENO...", "MUESTRA GRATIS POTENCIA")
-    // Prioridad 4: Tratamiento previo registrado
+    // Prioridad 1: Síntomas clínicos y Cerebro de Aprendizaje (NLP) - (La intención ACTUAL del cliente)
+    // Prioridad 2: Campaña / Anuncio / UTM Medium (ej: "MUESTRA GRATIS POTENCIA")
+    // Prioridad 3: Ground Truth de Ventas vTiger CRM (Útil si el cliente solo dice "Hola" pero sabemos que es paciente crónico de algo)
+    // Prioridad 4: Tratamiento previo registrado en GHL
     const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(latestMedium) ||
                                   inferTreatmentFromCampaignOrUtm(latestCampaign) ||
                                   inferTreatmentFromCampaignOrUtm(contact.attributionSource?.campaign) ||
                                   inferTreatmentFromCampaignOrUtm(contact.attributionSource?.utmContent);
 
-    let targetTratamiento = vtigerTreatment || nlpAnalysis.primaryTreatment || utmInferredTreatment || currentTratamiento || 'General';
+    let targetTratamiento = nlpAnalysis.primaryTreatment || utmInferredTreatment || vtigerTreatment || currentTratamiento || 'General';
     let targetVtigerNota = currentVtigerNota || null;
     let duplicateCount = 1;
 
