@@ -80,43 +80,101 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
   const unifiedPipelineId = cache.unified.pipelineId;
   const stageGanadoId = cache.unified.stageGanadoId;
   const stageProspectoId = cache.unified.stageProspectoInicialId;
+  const stageCapturadoId = cache.unified.stageContactoCapturadoId;
+  const stageSeguimientoId = cache.unified.stageSeguimientoId;
+  const stagePerdidoId = cache.unified.stagePerdidoId;
 
-  const targetStageId = isWon ? stageGanadoId : stageProspectoId;
-  const targetStatus = isWon ? 'won' : 'open';
+  // Orden jerárquico de etapas (de menor a mayor avance)
+  // Solo se puede AVANZAR, nunca retroceder.
+  const STAGE_ORDER = [
+    stageProspectoId,     // 0 - Prospecto Inicial
+    stageCapturadoId,     // 1 - Contacto Capturado
+    stageSeguimientoId,   // 2 - Seguimiento
+    stageGanadoId,        // 3 - Ganado
+    stagePerdidoId        // 4 - Perdido (estado terminal)
+  ];
+
+  function getStageRank(stageId) {
+    const idx = STAGE_ORDER.indexOf(stageId);
+    return idx >= 0 ? idx : -1;
+  }
 
   // 1. Buscar si ya existe una oportunidad
   const opps = await findContactOpportunities(contactId);
   const existingOpp = opps.find(o => o.pipelineId === unifiedPipelineId);
 
-  // Payload base
-  const payload = {
-    pipelineId: unifiedPipelineId,
-    locationId: locationId,
-    name: contactName || "Oportunidad Comercial",
-    pipelineStageId: targetStageId,
-    status: targetStatus,
-    contactId: contactId,
-    monetaryValue: Number(monetaryValue) || 0
-  };
-
   await tokenBucketQueue.enqueue(async () => {
     if (existingOpp) {
-      // 2. Actualizar si ya existe, y SI la etapa, estatus o valor monetario es diferente
-      if (existingOpp.pipelineStageId !== targetStageId || existingOpp.status !== targetStatus || existingOpp.monetaryValue !== payload.monetaryValue) {
-        console.log(`[Pipeline] ♻️ Actualizando Oportunidad para ${contactId} a Etapa ${isWon ? 'GANADO' : 'INICIAL'} (Valor: $${payload.monetaryValue})`);
-        await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
-          method: 'PUT',
-          headers: HEADERS,
-          body: JSON.stringify(payload)
-        });
+      const currentRank = getStageRank(existingOpp.pipelineStageId);
+
+      // ── CASO A: El contacto es GANADO según vTiger ──
+      if (isWon) {
+        // Siempre mover a Ganado (rank 3), sin importar dónde esté
+        if (existingOpp.pipelineStageId !== stageGanadoId || existingOpp.status !== 'won' || existingOpp.monetaryValue !== Number(monetaryValue)) {
+          console.log(`[Pipeline] 🏆 Moviendo Oportunidad de ${contactId} a GANADO (Valor: $${monetaryValue})`);
+          await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
+            method: 'PUT',
+            headers: HEADERS,
+            body: JSON.stringify({
+              pipelineId: unifiedPipelineId,
+              locationId: locationId,
+              name: contactName || "Oportunidad Comercial",
+              pipelineStageId: stageGanadoId,
+              status: 'won',
+              contactId: contactId,
+              monetaryValue: Number(monetaryValue) || 0
+            })
+          });
+        }
+        return;
       }
+
+      // ── CASO B: El contacto NO es ganado ──
+      // REGLA CARDINAL: NUNCA retroceder la tarjeta.
+      // Si el asesor la movió manualmente a "Contacto Capturado" o "Seguimiento", 
+      // el motor NO la devuelve a "Prospecto Inicial".
+      if (currentRank >= 1) {
+        // Ya está en Capturado, Seguimiento, Ganado o Perdido → NO TOCAR
+        console.log(`[Pipeline] ⏸️ Oportunidad de ${contactId} ya está en etapa ${currentRank} (rank >= 1). No se retrocede.`);
+        // Solo actualizar valor monetario si cambió
+        if (existingOpp.monetaryValue !== Number(monetaryValue) && Number(monetaryValue) > 0) {
+          await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
+            method: 'PUT',
+            headers: HEADERS,
+            body: JSON.stringify({
+              pipelineId: unifiedPipelineId,
+              locationId: locationId,
+              name: contactName || existingOpp.name,
+              pipelineStageId: existingOpp.pipelineStageId,
+              status: existingOpp.status,
+              contactId: contactId,
+              monetaryValue: Number(monetaryValue) || 0
+            })
+          });
+        }
+        return;
+      }
+
+      // Si está en Prospecto Inicial (rank 0), dejarlo ahí (ya está donde debe)
+      // No hacer nada adicional.
+
     } else if (createIfMissing) {
       // 3. Crear nueva oportunidad si no existe
+      const targetStageId = isWon ? stageGanadoId : stageProspectoId;
+      const targetStatus = isWon ? 'won' : 'open';
       console.log(`[Pipeline] ✨ Creando nueva Oportunidad para ${contactId} en Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
       await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/`, {
         method: 'POST',
         headers: HEADERS,
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          pipelineId: unifiedPipelineId,
+          locationId: locationId,
+          name: contactName || "Oportunidad Comercial",
+          pipelineStageId: targetStageId,
+          status: targetStatus,
+          contactId: contactId,
+          monetaryValue: Number(monetaryValue) || 0
+        })
       });
     }
   }, 'NORMAL');

@@ -78,44 +78,110 @@ export async function queryVTiger(queryStr) {
   return data.result || [];
 }
 
+/**
+ * Sanitiza un valor para uso seguro en queries SQL de vTiger.
+ * Escapa comillas simples y elimina caracteres de control.
+ */
+function sanitizeForVtigerQuery(value) {
+  if (!value) return '';
+  return String(value)
+    .trim()
+    .replace(/'/g, "\\'")    // Escapar comillas simples (SQL injection)
+    .replace(/[\x00-\x1F]/g, '') // Eliminar caracteres de control
+    .substring(0, 100);       // Limitar longitud para evitar queries enormes
+}
+
+/**
+ * Compara dos cadenas de teléfono por los últimos N dígitos.
+ */
+function phonesMatch(phone1, phone2, digits = 10) {
+  if (!phone1 || !phone2) return false;
+  const p1 = String(phone1).replace(/\D/g, '');
+  const p2 = String(phone2).replace(/\D/g, '');
+  if (p1.length < 7 || p2.length < 7) return false;
+  return p1.slice(-digits) === p2.slice(-digits);
+}
+
 export async function findVTigerContact(ghlContact) {
-  // vTiger restringe la búsqueda por 'phone' o 'mobile' en la API (Permission denied).
-  // Estrategia: Buscar por Nombre y Apellido, luego filtrar por teléfono en memoria.
-  
-  let contacts = [];
   const cleanPhone = ghlContact.phone ? ghlContact.phone.replace(/\D/g, '') : '';
-  const firstName = (ghlContact.firstName || '').trim().replace(/'/g, '');
-  const lastName = (ghlContact.lastName || '').trim().replace(/'/g, '');
+  const firstName = sanitizeForVtigerQuery(ghlContact.firstName);
+  const lastName = sanitizeForVtigerQuery(ghlContact.lastName);
   
-  if (firstName && lastName) {
-    const q = `SELECT * FROM Contacts WHERE firstname = '${firstName}' AND lastname = '${lastName}';`;
-    const potentialContacts = await queryVTiger(q);
+  // ────────────────────────────────────────────
+  // ESTRATEGIA 1: Búsqueda por Nombre + Apellido (LIKE para tolerancia a tildes/variaciones)
+  // ────────────────────────────────────────────
+  if (firstName.length >= 2 && lastName.length >= 2) {
+    // Intentar primero con igualdad exacta (más rápido)
+    let q = `SELECT * FROM Contacts WHERE firstname = '${firstName}' AND lastname = '${lastName}';`;
+    let potentialContacts = await queryVTiger(q);
     
-    // Filtrar en memoria comprobando si algún campo de teléfono coincide
+    // Si no hay resultados exactos, intentar con LIKE (tolerante a tildes)
+    if (!potentialContacts || potentialContacts.length === 0) {
+      // Tomar los primeros 3 caracteres como ancla para LIKE
+      const fnPrefix = firstName.substring(0, Math.min(4, firstName.length));
+      const lnPrefix = lastName.substring(0, Math.min(4, lastName.length));
+      q = `SELECT * FROM Contacts WHERE firstname LIKE '${fnPrefix}%' AND lastname LIKE '${lnPrefix}%';`;
+      potentialContacts = await queryVTiger(q);
+    }
+    
     if (potentialContacts && potentialContacts.length > 0) {
-       for (const v of potentialContacts) {
-          const vPhones = [v.homephone, v.mobile, v.phone, v.otherphone]
-            .filter(Boolean)
-            .map(p => String(p).replace(/\D/g, ''));
-            
-          if (cleanPhone && vPhones.some(p => p.includes(cleanPhone.slice(-10)) || cleanPhone.includes(p.slice(-10)))) {
-             return v; // Match exacto por teléfono
+      // Prioridad 1: Match exacto por teléfono
+      if (cleanPhone) {
+        for (const v of potentialContacts) {
+          const vPhones = [v.homephone, v.mobile, v.phone, v.otherphone].filter(Boolean);
+          if (vPhones.some(p => phonesMatch(cleanPhone, p))) {
+            return v;
           }
-       }
-       // Si no hay match por teléfono, pero solo devolvió 1, podríamos arriesgarnos a devolverlo,
-       // pero es más seguro requerir que el teléfono coincida o que al menos haya 1 solo resultado.
-       if (potentialContacts.length === 1 && !cleanPhone) {
-          return potentialContacts[0];
-       }
+        }
+      }
+      
+      // Prioridad 2: Si solo hay 1 resultado y los nombres coinciden suficientemente, devolverlo
+      if (potentialContacts.length === 1) {
+        return potentialContacts[0];
+      }
+      
+      // Prioridad 3: Si hay múltiples resultados sin teléfono para desempatar,
+      // devolver el que tenga compras (más probable que sea relevante)
+      const withSales = potentialContacts.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
+      if (withSales) return withSales;
+      
+      // Si nada desempata, devolver el primero
+      return potentialContacts[0];
     }
   }
   
+  // ────────────────────────────────────────────
+  // ESTRATEGIA 2: Búsqueda por Email
+  // ────────────────────────────────────────────
   const email = ghlContact.email;
-  if (email) {
-    const cleanEmail = email.trim();
-    let q = `SELECT * FROM Contacts WHERE email = '${cleanEmail}' LIMIT 1;`;
-    contacts = await queryVTiger(q);
+  if (email && email.includes('@')) {
+    const cleanEmail = sanitizeForVtigerQuery(email);
+    const q = `SELECT * FROM Contacts WHERE email = '${cleanEmail}' LIMIT 1;`;
+    const contacts = await queryVTiger(q);
     if (contacts.length > 0) return contacts[0];
+  }
+  
+  // ────────────────────────────────────────────
+  // ESTRATEGIA 3: Búsqueda por solo nombre O solo apellido (último recurso)
+  // ────────────────────────────────────────────
+  if (cleanPhone && (firstName.length >= 3 || lastName.length >= 3)) {
+    const nameToSearch = lastName.length >= 3 ? lastName : firstName;
+    const field = lastName.length >= 3 ? 'lastname' : 'firstname';
+    const q = `SELECT * FROM Contacts WHERE ${field} = '${nameToSearch}' LIMIT 20;`;
+    try {
+      const contacts = await queryVTiger(q);
+      if (contacts && contacts.length > 0) {
+        // Solo devolver si hay match de teléfono (evitar falsos positivos)
+        for (const v of contacts) {
+          const vPhones = [v.homephone, v.mobile, v.phone, v.otherphone].filter(Boolean);
+          if (vPhones.some(p => phonesMatch(cleanPhone, p))) {
+            return v;
+          }
+        }
+      }
+    } catch (e) {
+      // Silenciar errores de esta búsqueda de último recurso
+    }
   }
   
   return null;

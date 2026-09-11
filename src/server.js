@@ -149,7 +149,7 @@ async function runExpressAssignment() {
 
     for (const contact of contacts) {
       const lastProcTime = processedContactTimestamps.get(contact.id) || 0;
-      if (Date.now() - lastProcTime < 2 * 60 * 1000) continue; // 2 min debounce por contacto
+      if (Date.now() - lastProcTime < 5 * 60 * 1000) continue; // 5 min debounce por contacto (evita re-procesamiento y ahorra API calls)
 
       const updatedAt = new Date(contact.dateUpdated || contact.dateAdded);
       const minutesAgo = (Date.now() - updatedAt.getTime()) / (1000 * 60);

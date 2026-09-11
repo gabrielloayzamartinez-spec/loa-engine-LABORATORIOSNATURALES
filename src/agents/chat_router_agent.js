@@ -153,18 +153,19 @@ export async function routeChatByContact(contactId) {
       targetPageName = FB_PAGE_ID_MAP[targetPageId];
     }
 
+    // 5. Cargar contacto de GHL UNA SOLA VEZ (se reutiliza para fallback de sede y para el procesamiento completo)
+    const contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: HEADERS });
+    if (contactRes.status !== 200) return;
+    const contactData = await contactRes.json();
+    const contact = contactData.contact || contactData;
+
     // Fallback: Si no se determinó por mensaje de Facebook, verificar si el contacto ya tiene etiquetas de sede
     if (!targetPageName) {
-      const cRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: HEADERS });
-      if (cRes.status === 200) {
-        const cData = await cRes.json();
-        const c = cData.contact || cData;
-        const tags = (c.tags || []).map(t => String(t).toLowerCase());
-        for (const [pName, tag] of Object.entries(PAGE_TAG_MAP)) {
-          if (tags.includes(tag.toLowerCase())) {
-            targetPageName = pName;
-            break;
-          }
+      const tags = (contact.tags || []).map(t => String(t).toLowerCase());
+      for (const [pName, tag] of Object.entries(PAGE_TAG_MAP)) {
+        if (tags.includes(tag.toLowerCase())) {
+          targetPageName = pName;
+          break;
         }
       }
     }
@@ -192,12 +193,6 @@ export async function routeChatByContact(contactId) {
       return;
     }
 
-    // 5. Cargar contacto de GHL para reasignación e inyección inteligente
-    const contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: HEADERS });
-    if (contactRes.status !== 200) return;
-
-    const contactData = await contactRes.json();
-    const contact = contactData.contact || contactData;
     const existingTags = (contact.tags || []).map(t => String(t).toLowerCase());
     const isCustomerWon = existingTags.includes('cliente-comprador') || existingTags.includes('venta-cerrada');
 
@@ -637,10 +632,11 @@ export async function routeChatByContact(contactId) {
       }
       console.log(`[Agente 3] ✅ ÉXITO: ${contact.firstName || ''} ${contact.lastName || ''} (${contactId}) | Ad ID: ${targetAdId || 'N/A'} | Fuente: ${vtigerSource} | Estado: ${updatePayload.state || contact.state || '--'} | Actualizado OK.`);
 
-      // 📌 H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA EN GHL SIEMPRE QUE HAYA UN RUTEO EFECTIVO
-      const shouldSaveNote = true; // El usuario pidió visibilidad inmediata del trabajo del motor en la sección de Notas
+      // 📌 H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA SOLO SI HUBO CAMBIO DE AD O DE TRATAMIENTO
+      const adChanged = latestAdId && latestAdId !== currentAdId;
+      const treatmentChanged = targetTratamiento && targetTratamiento !== currentTratamiento;
 
-      if (shouldSaveNote) {
+      if (adChanged || treatmentChanged) {
         await saveAdHistoryNote(contactId, {
           newAdId: latestAdId,
           oldAdId: currentAdId || 'Ninguna previa',
