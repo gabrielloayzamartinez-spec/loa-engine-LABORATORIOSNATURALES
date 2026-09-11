@@ -267,7 +267,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const UTM_SOURCE_FIELD = 'L3eEulpe8II7q0UAJnKZ';
     const UTM_MEDIUM_FIELD = 'HVjiEMKYR2feXviAZ2Jd';
     const UTM_CAMPAIGN_FIELD = 'KS3iYmIjVcmFJV7MIDnT';
-    const UTM_CONTENT_FIELD = 'RLxFOTXkICXLWShjaLaB';
+    const UTM_CONTENT_FIELD = 'Vmzz5BxbMcrlInmuiblM';
 
     const existingCustomFields = contact.customFields || [];
     const currentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
