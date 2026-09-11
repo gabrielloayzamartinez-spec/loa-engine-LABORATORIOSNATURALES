@@ -422,20 +422,25 @@ export async function routeChatByContact(contactId) {
       newTagsSet.add(pageSlug);
     }
 
-    // Añadir todas las etiquetas de productos detectadas por NLP o UTM
-    nlpAnalysis.productTags.forEach(t => newTagsSet.add(t));
-    if (targetTratamiento && !nlpAnalysis.productTags.includes(`producto-${targetTratamiento.toLowerCase()}`)) {
-      newTagsSet.add(`producto-${targetTratamiento.toLowerCase()}`);
-    }
-
-    // 🧹 Limpieza quirúrgica de etiquetas de productos huérfanas / falsas:
-    // Si se identificó un producto claro (por NLP o UTM), eliminar etiquetas de otros productos
+    // 1. Definir la ÚNICA etiqueta de producto permitida (El Tratamiento Principal)
     const ALL_PRODUCT_TAGS = ['producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 'producto-colageno', 'producto-vision', 'producto-gastro'];
     const activeProductTag = targetTratamiento ? `producto-${targetTratamiento.toLowerCase()}` : null;
+    
+    // 2. Solo añadimos LA etiqueta principal, ignorando detecciones secundarias de NLP para evitar que se disparen múltiples bots
+    if (activeProductTag) {
+      newTagsSet.add(activeProductTag);
+    }
+
+    // 3. 🧹 Limpieza Quirúrgica ESTRICTA de etiquetas huérfanas
+    const tagsToRemove = [];
     if (activeProductTag) {
       for (const pTag of ALL_PRODUCT_TAGS) {
-        if (pTag !== activeProductTag && !nlpAnalysis.productTags.includes(pTag)) {
+        if (pTag !== activeProductTag) {
           newTagsSet.delete(pTag);
+          // Si el contacto ya tenía esta etiqueta falsa/antigua en GHL, la preparamos para el borrado forzoso
+          if ((contact.tags || []).includes(pTag)) {
+            tagsToRemove.push(pTag);
+          }
         }
       }
     }
@@ -581,6 +586,17 @@ export async function routeChatByContact(contactId) {
     const currentTags = (contact.tags || []).map(t => String(t).trim());
     const tagsChanged = newTagsSet.size !== currentTags.length || Array.from(newTagsSet).some(t => !currentTags.includes(t));
     const currentCFs = contact.customFields || [];
+
+    // 🚀 EJECUTAR PURGA DE ETIQUETAS FALSAS EN GHL (API V2)
+    if (tagsToRemove.length > 0) {
+      console.log(`[Agente 3] 🧹 Purgando etiquetas huérfanas de ${contactId}: ${tagsToRemove.join(', ')}`);
+      await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+        method: 'DELETE',
+        headers: HEADERS,
+        body: JSON.stringify({ tags: tagsToRemove })
+      });
+    }
+
     const CRITICAL_CF_IDS = [
       ID_ANUNCIO_FIELD, AD_ID_ALT_FIELD, TRATAMIENTO_FIELD, VTIGER_NOTAS_FIELD,
       '8EQtKkiW7Z022bcN0vhS', '5TY5AIOpu1c8f6WosyF2', 'RLxFOTXkICXLWShjaLaB',
