@@ -16,7 +16,15 @@ export const COMMERCIAL_FIELD_IDS = {
   FECHA_ULTIMA_FACTURA: '1U0XzfuI9HUQDqQVMeSV', // contact.vtiger_fecha_ultima_factura
   PRECIO_VENTA: '5js0Lfbh5XDLq87SDgdT',     // contact.precio_venta
   NUM_COMPRAS: '3L8KHJEp8fw8ELr081Kl',      // contact.spl_num_compras
-  ESTADO_COMPRA_LISTA: 'jfaxRCXTLZQCuzsTl49v' // contact.estado_de_compra (Smart List Filter)
+  ESTADO_COMPRA_LISTA: 'jfaxRCXTLZQCuzsTl49v', // contact.estado_de_compra (Smart List Filter)
+  
+  // Nuevos Campos Extendidos
+  SEDE_TIENDA_COMPRA: '50pTZdtYYYcF1Wtz4j4s',  // vTiger Sede / Tienda Compra (cf_3451)
+  ANOTACIONES_REDES: 'lvPAFxRot6hrsBztMkLn',   // vTiger Anotaciones Redes (cf_2471)
+  CANAL_CAPTACION: 'PzuJCcBcrnu4oUq1zLnN',     // vTiger Canal Captacion (cf_3507)
+  CONTACT_NO: 'eBE29SIhviHr2yDJT1Y6',          // vTiger Contact No (contact_no)
+  FECHA_CREACION_VT: 'EulM7Gjuxt63t9i7qr1y',   // vTiger Fecha Creacion (createdtime)
+  ID_CLIENTE_VT: 'PNr3LsTpXAwmyvPnvI11'        // vTiger ID Cliente (id)
 };
 
 /**
@@ -118,6 +126,40 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null)
     }
     if (truth.totalSpent > 0) {
       fields.push({ id: COMMERCIAL_FIELD_IDS.PRECIO_VENTA, key: 'contact.precio_venta', field_value: String(truth.totalSpent.toFixed(2)) });
+    }
+  }
+
+  if (vContact) {
+    // Inyección de nuevos campos extendidos de vTiger
+    if (vContact.cf_3451) {
+      fields.push({ id: COMMERCIAL_FIELD_IDS.SEDE_TIENDA_COMPRA, key: 'contact.vtiger_sede__tienda_compra', field_value: vContact.cf_3451 });
+    }
+    
+    // Anotaciones Redes (incluyendo Sexo y Proveedor si existen)
+    let anotaciones = String(vContact.cf_2471 || '').trim();
+    if (vContact.cf_2821 && vContact.cf_2821 !== '--') {
+      anotaciones += ` / SEXO: ${vContact.cf_2821}`;
+    }
+    if (vContact.cf_2572) {
+      anotaciones += ` / PROVEEDOR: ${vContact.cf_2572}`;
+    }
+    anotaciones = anotaciones.replace(/^ \/ /, '').trim(); // Clean leading slash if cf_2471 was empty
+    
+    if (anotaciones) {
+      fields.push({ id: COMMERCIAL_FIELD_IDS.ANOTACIONES_REDES, key: 'contact.vtiger_anotaciones_redes', field_value: anotaciones });
+    }
+
+    if (vContact.cf_3507) {
+      fields.push({ id: COMMERCIAL_FIELD_IDS.CANAL_CAPTACION, key: 'contact.vtiger_canal_captacion', field_value: vContact.cf_3507 });
+    }
+    if (vContact.contact_no) {
+      fields.push({ id: COMMERCIAL_FIELD_IDS.CONTACT_NO, key: 'contact.vtiger_contact_no', field_value: vContact.contact_no });
+    }
+    if (vContact.createdtime) {
+      fields.push({ id: COMMERCIAL_FIELD_IDS.FECHA_CREACION_VT, key: 'contact.vtiger_fecha_creacion', field_value: vContact.createdtime });
+    }
+    if (vContact.id) {
+      fields.push({ id: COMMERCIAL_FIELD_IDS.ID_CLIENTE_VT, key: 'contact.vtiger_id_cliente', field_value: vContact.id });
     }
   }
 

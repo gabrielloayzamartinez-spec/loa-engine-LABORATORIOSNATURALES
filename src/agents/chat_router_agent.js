@@ -515,11 +515,18 @@ export async function routeChatByContact(contactId) {
 
     // 📦 G. CONSTRUIR PAYLOAD ATÓMICO (1 SOLO PUT)
     const updatePayload = {
-      assignedTo: targetAdvisorId, // Regla de Oro: Sede actual
       source: vtigerSource,        // Fuente de contacto estilo vTiger
       tags: Array.from(newTagsSet),
       customFields: customFieldsToUpdate
     };
+
+    // 🛡️ ESCUDO DE PROPIETARIO: No robar la asignación si ya es cliente cerrado en vTiger
+    if (finalCustomerWon && contact.assignedTo) {
+      console.log(`[Agente 3] 🛡️ Escudo de Propietario activado para ${contactId}. Se mantiene asignado a su propietario original.`);
+      // No incluimos 'assignedTo' en el payload
+    } else {
+      updatePayload.assignedTo = targetAdvisorId; // Regla de Oro: Sede actual
+    }
 
     // 🌍 INYECCIÓN AUTOMÁTICA DE "GENERAL INFO" (ESTRICTO USA)
     // 1. Teléfono
