@@ -620,6 +620,13 @@ export async function routeChatByContact(contactId) {
       return;
     }
 
+    // 🧹 Limpieza final del payload para evitar 400 Bad Request por strings vacíos
+    for (const key of Object.keys(updatePayload)) {
+      if (updatePayload[key] === '') {
+        delete updatePayload[key];
+      }
+    }
+
     const updateRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
       method: 'PUT',
       headers: HEADERS,
@@ -648,7 +655,8 @@ export async function routeChatByContact(contactId) {
         });
       }
     } else {
-      console.error(`[Agente 3] Falló actualización atómica de ${contactId}. Status: ${updateRes.status}`);
+      const errText = await updateRes.text();
+      console.error(`[Agente 3] Falló actualización atómica de ${contactId}. Status: ${updateRes.status} - Detalles: ${errText}`);
     }
 
   } catch (error) {
