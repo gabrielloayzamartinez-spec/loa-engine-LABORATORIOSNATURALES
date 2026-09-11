@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import fetch from 'node-fetch';
 import { GHL_CONFIG } from '../config/index.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
