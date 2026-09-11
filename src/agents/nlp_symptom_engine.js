@@ -82,7 +82,8 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
 
   const scores = {};
   for (const treatment of Object.keys(SYMPTOM_DICTIONARY)) {
-    scores[treatment] = (brainResult.scores && brainResult.scores[treatment]) ? brainResult.scores[treatment] : 0;
+    // Reducimos el peso del cerebro estadístico para que solo actúe como desempate (x0.1)
+    scores[treatment] = (brainResult.scores && brainResult.scores[treatment]) ? (brainResult.scores[treatment] * 0.1) : 0;
   }
 
   // Puntuación por título directo publicitario (Prioridad Máxima = 1000 puntos)
@@ -92,11 +93,11 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
     }
   }
 
-  // Puntuación por síntomas clásicos en el texto
+  // Puntuación por síntomas clásicos en el texto (Prioridad Alta = 500 puntos)
   for (const [treatment, keywords] of Object.entries(SYMPTOM_DICTIONARY)) {
     for (const kw of keywords) {
       if (norm.includes(kw)) {
-        scores[treatment] += 2;
+        scores[treatment] += 500;
       }
     }
   }
@@ -107,7 +108,9 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
     .sort((a, b) => b[1] - a[1])
     .map(([treatment]) => treatment);
 
-  const primaryTreatment = sortedTreatments.length > 0 ? sortedTreatments[0] : null;
+  // Solo consideramos un diagnóstico válido si superó el umbral de ruido conversacional (> 50 puntos)
+  const topScore = sortedTreatments.length > 0 ? scores[sortedTreatments[0]] : 0;
+  const primaryTreatment = topScore >= 50 ? sortedTreatments[0] : null;
   const productTags = sortedTreatments.map(t => `producto-${t.toLowerCase()}`);
 
   return {
@@ -126,7 +129,7 @@ export function inferTreatmentFromCampaignOrUtm(text) {
   if (!text) return null;
   const norm = normalizeText(text);
   if (/colageno|colagen|collagen|piel|arrugas/i.test(norm)) return 'Colageno';
-  if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior|testosterona|texto men|textomen/i.test(norm)) return 'Potencia';
+  if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior|testosterona|tetosterona|texto men|textomen/i.test(norm)) return 'Potencia';
   if (/diabetes|glucosa|azucar|nopal/i.test(norm)) return 'Diabetes';
   if (/prostata|prostatico/i.test(norm)) return 'Prostata';
   if (/vision|vista|catarata|ojos/i.test(norm)) return 'Vision';
