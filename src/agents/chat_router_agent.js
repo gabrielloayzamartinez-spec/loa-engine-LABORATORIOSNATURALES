@@ -246,8 +246,7 @@ export async function routeChatByContact(contactId) {
         const minutesSinceLastAdvisorMsg = (Date.now() - newestOutboundTimestamp) / (1000 * 60);
         if (minutesSinceLastAdvisorMsg < 3) {
           isLiveChatting = true;
-          console.log(`[Agente 3] 🛡️ UX GUARD ACTIVO: El asesor actual está chateando activamente. Se congela TODO ruteo y actualización para no interrumpir la pantalla.`);
-          return;
+          console.log(`[Agente 3] 🛡️ UX GUARD ACTIVO: Chat reciente detectado (< 3 min). Se omitirá la reasignación visual para no interrumpir al asesor, pero se actualizarán etiquetas en segundo plano.`);
         }
       }
     }
@@ -520,9 +519,10 @@ export async function routeChatByContact(contactId) {
       customFields: customFieldsToUpdate
     };
 
-    // 🛡️ ESCUDO DE PROPIETARIO: No robar la asignación si ya es cliente cerrado en vTiger
-    if (finalCustomerWon && contact.assignedTo) {
-      console.log(`[Agente 3] 🛡️ Escudo de Propietario activado para ${contactId}. Se mantiene asignado a su propietario original.`);
+    // 🛡️ ESCUDO DE PROPIETARIO & UX GUARD
+    // No robar la asignación si ya es cliente cerrado en vTiger, O si el usuario está en chat activo
+    if (isLiveChatting || (finalCustomerWon && contact.assignedTo)) {
+      console.log(`[Agente 3] 🛡️ Escudo de Propietario o UX Guard activado para ${contactId}. Se mantiene asignado al actual.`);
       // No incluimos 'assignedTo' en el payload
     } else {
       updatePayload.assignedTo = targetAdvisorId; // Regla de Oro: Sede actual
