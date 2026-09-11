@@ -70,7 +70,7 @@ export async function findContactOpportunities(contactId) {
  * Si isWon = true, lo mueve a Ganado.
  * Si isWon = false y es nuevo, lo mete a Prospecto Inicial.
  */
-export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon) {
+export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true) {
   const cache = loadPipelineCache();
   if (!cache || !cache.unified) {
     console.error("⚠️ Pipeline unificado no encontrado en caché. Ejecuta pipeline_manager.js primero.");
@@ -109,7 +109,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
           body: JSON.stringify(payload)
         });
       }
-    } else {
+    } else if (createIfMissing) {
       // 3. Crear nueva oportunidad si no existe
       console.log(`[Pipeline] ✨ Creando nueva Oportunidad para ${contactId} en Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
       await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/`, {

@@ -184,9 +184,9 @@ export async function auditAndCureContact(contact) {
     }
   }
 
-  // 6. Sincronización de Pipeline de GHL
+  // 6. Sincronización de Pipeline de GHL (Solo actualizar, no crear nuevos)
   const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
-  await syncUnifiedPipelineOpportunity(contactId, contactName, isCustomerWon);
+  await syncUnifiedPipelineOpportunity(contactId, contactName, isCustomerWon, false);
 
   // Encolar en Token Bucket Queue (Prioridad Baja)
   await tokenBucketQueue.enqueue(async () => {
