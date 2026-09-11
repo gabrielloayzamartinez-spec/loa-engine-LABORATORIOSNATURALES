@@ -124,6 +124,7 @@ export async function auditAndCureContact(contact) {
 
   const commercialTruth = evaluateCommercialTruth(contact, vContact);
   const isCustomerWon = commercialTruth.isWon;
+  const monetaryValue = commercialTruth.totalSpent;
 
   // 3. Evaluar Necesidad de Sanitización de Fechas de Compra
   const fechaCompraCF = existingCFs.find(f => f.id === COMMERCIAL_FIELD_IDS.FECHA_COMPRA);
@@ -186,7 +187,7 @@ export async function auditAndCureContact(contact) {
 
   // 6. Sincronización de Pipeline de GHL (Solo crear nuevos si son compras reales confirmadas por vTiger)
   const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
-  await syncUnifiedPipelineOpportunity(contactId, contactName, isCustomerWon, isCustomerWon);
+  await syncUnifiedPipelineOpportunity(contactId, contactName, isCustomerWon, isCustomerWon, monetaryValue);
 
   // Encolar en Token Bucket Queue (Prioridad Baja)
   await tokenBucketQueue.enqueue(async () => {

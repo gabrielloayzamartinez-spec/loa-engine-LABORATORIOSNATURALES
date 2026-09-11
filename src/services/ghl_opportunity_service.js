@@ -70,7 +70,7 @@ export async function findContactOpportunities(contactId) {
  * Si isWon = true, lo mueve a Ganado.
  * Si isWon = false y es nuevo, lo mete a Prospecto Inicial.
  */
-export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true) {
+export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0) {
   const cache = loadPipelineCache();
   if (!cache || !cache.unified) {
     console.error("⚠️ Pipeline unificado no encontrado en caché. Ejecuta pipeline_manager.js primero.");
@@ -95,14 +95,15 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
     name: contactName || "Oportunidad Comercial",
     pipelineStageId: targetStageId,
     status: targetStatus,
-    contactId: contactId
+    contactId: contactId,
+    monetaryValue: Number(monetaryValue) || 0
   };
 
   await tokenBucketQueue.enqueue(async () => {
     if (existingOpp) {
-      // 2. Actualizar si ya existe, y SI la etapa o estatus es diferente
-      if (existingOpp.pipelineStageId !== targetStageId || existingOpp.status !== targetStatus) {
-        console.log(`[Pipeline] ♻️ Actualizando Oportunidad para ${contactId} a Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
+      // 2. Actualizar si ya existe, y SI la etapa, estatus o valor monetario es diferente
+      if (existingOpp.pipelineStageId !== targetStageId || existingOpp.status !== targetStatus || existingOpp.monetaryValue !== payload.monetaryValue) {
+        console.log(`[Pipeline] ♻️ Actualizando Oportunidad para ${contactId} a Etapa ${isWon ? 'GANADO' : 'INICIAL'} (Valor: $${payload.monetaryValue})`);
         await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
           method: 'PUT',
           headers: HEADERS,
