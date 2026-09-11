@@ -523,8 +523,13 @@ export async function routeChatByContact(contactId) {
 
     // 🌍 INYECCIÓN AUTOMÁTICA DE "GENERAL INFO" (ESTRICTO USA)
     // 1. Teléfono
-    if (!contact.phone && shippingData.hasPhone) {
-      updatePayload.phone = shippingData.phone;
+    if (!contact.phone) {
+      if (shippingData && shippingData.hasPhone) {
+        updatePayload.phone = shippingData.phone;
+      } else if (vContact) {
+        const vPhone = vContact.mobile || vContact.phone || vContact.homephone || vContact.otherphone;
+        if (vPhone) updatePayload.phone = String(vPhone).replace(/\D/g, '');
+      }
     }
 
     // 2. País (Siempre United States / US)
@@ -533,23 +538,29 @@ export async function routeChatByContact(contactId) {
     }
 
     // 3. Dirección Postal (address1)
-    if (!contact.address1 && shippingData.address1) {
-      updatePayload.address1 = shippingData.address1;
+    if (!contact.address1) {
+      if (shippingData && shippingData.address1) updatePayload.address1 = shippingData.address1;
+      else if (vContact && vContact.mailingstreet) updatePayload.address1 = String(vContact.mailingstreet).trim();
     }
 
     // 4. Ciudad (city)
-    if (!contact.city && shippingData.city) {
-      updatePayload.city = shippingData.city;
+    if (!contact.city) {
+      if (shippingData && shippingData.city) updatePayload.city = shippingData.city;
+      else if (vContact && vContact.mailingcity) updatePayload.city = String(vContact.mailingcity).trim();
     }
 
     // 5. Región / Estado (state: e.g. TX, FL, CA, NY)
-    if ((!contact.state || contact.state === '--') && shippingData.state) {
-      updatePayload.state = shippingData.state;
+    if (!contact.state || contact.state === '--') {
+      if (shippingData && shippingData.state) updatePayload.state = shippingData.state;
+      else if (vContact && (vContact.mailingstate || vContact.splareacodes_state)) {
+        updatePayload.state = String(vContact.mailingstate || vContact.splareacodes_state).trim();
+      }
     }
 
     // 6. Código Postal (postalCode: e.g. 33135, 77002)
-    if (!contact.postalCode && shippingData.postalCode) {
-      updatePayload.postalCode = shippingData.postalCode;
+    if (!contact.postalCode) {
+      if (shippingData && shippingData.postalCode) updatePayload.postalCode = shippingData.postalCode;
+      else if (vContact && vContact.mailingzip) updatePayload.postalCode = String(vContact.mailingzip).trim();
     }
 
     // 7. Zona Horaria (timezone IANA: e.g. America/Chicago, America/New_York)

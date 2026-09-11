@@ -152,8 +152,20 @@ export async function auditAndCureContact(contact) {
 
   const treatmentMismatched = realTreatment && realTreatment !== 'General' && currentTratamiento !== realTreatment && (currentTags.includes('producto-artritis') && realTreatment !== 'Artritis');
 
+  // Verificar si faltan datos base en GHL que sí están en vTiger
+  let needsBaseInfoSync = false;
+  if (vContact) {
+    const vPhone = vContact.mobile || vContact.phone || vContact.homephone || vContact.otherphone;
+    if (!contact.phone && vPhone) needsBaseInfoSync = true;
+    else if (!contact.email && vContact.email) needsBaseInfoSync = true;
+    else if (!contact.address1 && vContact.mailingstreet) needsBaseInfoSync = true;
+    else if (!contact.city && vContact.mailingcity) needsBaseInfoSync = true;
+    else if ((!contact.state || contact.state === '--') && (vContact.mailingstate || vContact.splareacodes_state)) needsBaseInfoSync = true;
+    else if (!contact.postalCode && (vContact.mailingzip || vContact.mailingpobox)) needsBaseInfoSync = true;
+  }
+
   // Si no necesita cambios, saltar
-  if (!hasFakePurchaseDate && !needsCommercialStatus && !needsAssignmentDate && !treatmentMismatched) {
+  if (!hasFakePurchaseDate && !needsCommercialStatus && !needsAssignmentDate && !treatmentMismatched && !needsBaseInfoSync) {
     return { status: 'healthy' };
   }
 
@@ -178,10 +190,37 @@ export async function auditAndCureContact(contact) {
   const updatePayload = {
     customFields: customFieldsToUpdate
   };
+  
   if (treatmentMismatched) {
     updatePayload.tags = newTags;
     if ((contact.source || '').includes('Artritis')) {
       updatePayload.source = contact.source.replace(/Artritis/g, realTreatment);
+    }
+  }
+
+  // 🌍 INYECCIÓN AUTOMÁTICA DE "GENERAL INFO" DESDE VTIGER
+  if (vContact) {
+    if (!contact.phone) {
+      const vPhone = vContact.mobile || vContact.phone || vContact.homephone || vContact.otherphone;
+      if (vPhone) updatePayload.phone = String(vPhone).replace(/\D/g, '');
+    }
+    if (!contact.email && vContact.email) {
+      updatePayload.email = String(vContact.email).trim();
+    }
+    if (!contact.address1 && vContact.mailingstreet) {
+      updatePayload.address1 = String(vContact.mailingstreet).trim();
+    }
+    if (!contact.city && vContact.mailingcity) {
+      updatePayload.city = String(vContact.mailingcity).trim();
+    }
+    if ((!contact.state || contact.state === '--') && (vContact.mailingstate || vContact.splareacodes_state)) {
+      updatePayload.state = String(vContact.mailingstate || vContact.splareacodes_state).trim();
+    }
+    if (!contact.postalCode && (vContact.mailingzip || vContact.mailingpobox)) {
+      updatePayload.postalCode = String(vContact.mailingzip || vContact.mailingpobox).trim();
+    }
+    if (!contact.country || contact.country === '--') {
+      updatePayload.country = 'United States';
     }
   }
 
