@@ -192,22 +192,7 @@ setInterval(() => {
 // setInterval(runChatRouterPoller, 15000);
 // setInterval(runInboxSedeCleaner, 45000);
 // setInterval(runSupervisorAuditor, 60000);
-  try {
-    const url = `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=20`;
-    const res = await fetchWithRetry(url, { headers: HEADERS_CONTACTS });
-    if (res.status === 200) {
-      const data = await res.json();
-      const contacts = data.contacts || [];
-      for (const c of contacts) {
-        await processMasterContact(c, { silent: true });
-        await sleep(500);
-      }
-    }
-  } catch (err) {
-    console.error("[Background Audit Error]:", err.message);
-  }
-}, 90000);
-*/
+
 
 // ==========================================
 // 2. GUARDIÁN CONTINUO DE AUTO-AUDITORÍA — DESACTIVADO (Ahorro de API)
