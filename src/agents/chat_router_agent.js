@@ -52,12 +52,15 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-let routerRateLimitBlockedUntil = 0;
+let liveRateLimitBlockedUntil = 0;
+let backgroundRateLimitBlockedUntil = 0;
 
-async function fetchWithRetry(url, options, attempt = 1) {
+async function fetchWithRetry(url, options, attempt = 1, isLive = false) {
   const now = Date.now();
-  if (now < routerRateLimitBlockedUntil) {
-    const waitMs = routerRateLimitBlockedUntil - now;
+  const blockedUntil = isLive ? liveRateLimitBlockedUntil : backgroundRateLimitBlockedUntil;
+
+  if (now < blockedUntil) {
+    const waitMs = blockedUntil - now;
     await sleep(waitMs);
   }
 
@@ -65,16 +68,20 @@ async function fetchWithRetry(url, options, attempt = 1) {
     if (global.apiCounters) global.apiCounters.ghl++;
     const res = await fetch(url, options);
     if (res.status === 429) {
-      console.warn(`[Chat Router Shield] ⚠️ GHL retornó 429. Pausando peticiones durante 60 segundos...`);
-      routerRateLimitBlockedUntil = Date.now() + 60000;
+      console.warn(`[Chat Router Shield] ⚠️ GHL retornó 429. Pausando peticiones ${isLive ? 'EN VIVO' : 'DE FONDO'} durante 60 segundos...`);
+      if (isLive) {
+        liveRateLimitBlockedUntil = Date.now() + 60000;
+      } else {
+        backgroundRateLimitBlockedUntil = Date.now() + 60000;
+      }
       await sleep(60000);
-      if (attempt < 4) return fetchWithRetry(url, options, attempt + 1);
+      if (attempt < 4) return fetchWithRetry(url, options, attempt + 1, isLive);
     }
     return res;
   } catch (e) {
     if (attempt < 4) {
       await sleep(2000 * attempt);
-      return fetchWithRetry(url, options, attempt + 1);
+      return fetchWithRetry(url, options, attempt + 1, isLive);
     }
     throw e;
   }
@@ -85,13 +92,13 @@ async function fetchWithRetry(url, options, attempt = 1) {
  * Evalúa los últimos mensajes de un contacto para enrutar el chat a la sede correcta,
  * aplicando una regla "Anti-Vivazos" (cooldown de 24 horas) para evitar rebotes entre oficinas.
  */
-export async function routeChatByContact(contactId) {
+export async function routeChatByContact(contactId, isLive = false) {
   try {
-    console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}...`);
+    console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive})`);
 
     // 1. Obtener la conversación del contacto
     const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&contactId=${contactId}`;
-    const convRes = await fetchWithRetry(convUrl, { headers: HEADERS });
+    const convRes = await fetchWithRetry(convUrl, { headers: HEADERS }, 1, isLive);
     
     if (convRes.status !== 200) {
       console.log(`[Agente 3] No se pudieron obtener las conversaciones para ${contactId}`);
@@ -111,7 +118,7 @@ export async function routeChatByContact(contactId) {
 
     // 2. Traer los últimos mensajes (pedimos unos 20 para ver el historial cercano)
     const msgUrl = `https://services.leadconnectorhq.com/conversations/${convId}/messages?locationId=${locationId}&limit=20`;
-    const msgRes = await fetchWithRetry(msgUrl, { headers: HEADERS });
+    const msgRes = await fetchWithRetry(msgUrl, { headers: HEADERS }, 1, isLive);
     
     if (msgRes.status !== 200) {
       console.log(`[Agente 3] No se pudieron obtener los mensajes para la conv ${convId}`);
@@ -154,7 +161,7 @@ export async function routeChatByContact(contactId) {
     }
 
     // 5. Cargar contacto de GHL UNA SOLA VEZ (se reutiliza para fallback de sede y para el procesamiento completo)
-    const contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: HEADERS });
+    const contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: HEADERS }, 1, isLive);
     if (contactRes.status !== 200) return;
     const contactData = await contactRes.json();
     const contact = contactData.contact || contactData;
@@ -358,7 +365,7 @@ export async function routeChatByContact(contactId) {
     const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
     if ((!targetVtigerNota || !targetAdId || !targetTratamiento) && fullName.length >= 3) {
       try {
-        const searchRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&query=${encodeURIComponent(fullName)}`, { headers: HEADERS });
+        const searchRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&query=${encodeURIComponent(fullName)}`, { headers: HEADERS }, 1, isLive);
         if (searchRes.status === 200) {
           const sData = await searchRes.json();
           const matches = (sData.contacts || []).filter(c => c.id !== contact.id);
@@ -589,7 +596,7 @@ export async function routeChatByContact(contactId) {
         method: 'DELETE',
         headers: HEADERS,
         body: JSON.stringify({ tags: tagsToRemove })
-      });
+      }, 1, isLive);
     }
 
     const CRITICAL_CF_IDS = [
@@ -631,7 +638,7 @@ export async function routeChatByContact(contactId) {
       method: 'PUT',
       headers: HEADERS,
       body: JSON.stringify(updatePayload)
-    });
+    }, 1, isLive);
 
     if (updateRes.status === 200) {
       if (global.pushLiveLog) {
@@ -678,7 +685,7 @@ export async function routeChatByContact(contactId) {
               method: 'PUT',
               headers: HEADERS,
               body: JSON.stringify(updatePayload)
-            });
+            }, 1, isLive);
             
             if (retryRes.status === 200) {
                console.log(`[Agente 3] ✅ Auto-Heal Exitoso para ${contactId} tras esquivar conflicto de duplicado.`);

@@ -157,8 +157,8 @@ async function runExpressAssignment() {
 
       countNew++;
       console.log(`[${timeStr}] [Worker 1] ⚡ Procesando lead fresco: ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
-      // Disparar enrutamiento e hidratación completa
-      await routeChatByContact(contact.id);
+      // Disparar enrutamiento e hidratación completa (isLive = true)
+      await routeChatByContact(contact.id, true);
       processedContactTimestamps.set(contact.id, Date.now());
       stats.contactsProcessed++;
       
@@ -179,18 +179,19 @@ async function runExpressAssignment() {
   }
 }
 
-// Único ciclo activo continuo: cada 20 segundos
+// Único ciclo activo continuo: cada 20 segundos para webhooks
 setInterval(runExpressAssignment, 20000);
+
+// Demonio Inverso: Sincroniza cambios de vTiger -> GHL cada 3 minutos (180,000 ms)
+import { runVTigerToGHLPoller } from './agents/vtiger_sync_agent.js';
+setInterval(() => {
+  runVTigerToGHLPoller(4).catch(err => console.error("Error en Reverse Sync:", err));
+}, 180000);
 
 // NOTA: Pollers concurrentes desactivados para evitar solapamiento de llamadas a la API
 // setInterval(runChatRouterPoller, 15000);
 // setInterval(runInboxSedeCleaner, 45000);
 // setInterval(runSupervisorAuditor, 60000);
-
-// El procesamiento pesado — DESACTIVADO (Ahorro de API)
-// Se puede reactivar cuando sea necesario
-/*
-setInterval(async () => {
   try {
     const url = `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=20`;
     const res = await fetchWithRetry(url, { headers: HEADERS_CONTACTS });
