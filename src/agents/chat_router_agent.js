@@ -5,6 +5,7 @@ import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
 import { buildSanitizedCommercialFields, evaluateCommercialTruth } from '../domain/commercial_engine.js';
 import { syncUnifiedPipelineOpportunity } from '../services/ghl_opportunity_service.js';
+import { getMetaAdDetails } from '../services/meta_api_service.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -266,6 +267,7 @@ export async function routeChatByContact(contactId, isLive = false) {
     const UTM_SOURCE_FIELD = 'L3eEulpe8II7q0UAJnKZ';
     const UTM_MEDIUM_FIELD = 'HVjiEMKYR2feXviAZ2Jd';
     const UTM_CAMPAIGN_FIELD = 'KS3iYmIjVcmFJV7MIDnT';
+    const UTM_CONTENT_FIELD = 'RLxFOTXkICXLWShjaLaB';
 
     const existingCustomFields = contact.customFields || [];
     const currentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
@@ -311,6 +313,17 @@ export async function routeChatByContact(contactId, isLive = false) {
     }
 
     let targetAdId = latestAdId || currentAdId || null;
+    let targetAdName = null;
+
+    // 🔥 ACTUALIZACIÓN CONSTANTE DE UTMs EN VIVO (Meta Graph)
+    if (latestAdId && latestAdId !== 'N/A') {
+      const metaDetails = await getMetaAdDetails(latestAdId);
+      if (metaDetails) {
+        latestCampaign = metaDetails.campaignName || latestCampaign;
+        targetAdName = metaDetails.adName || metaDetails.creativeTitle;
+        console.log(`[Agente 3] 🎯 UTMs Actualizados en vivo desde Meta: Campaña [${latestCampaign}], Ad [${targetAdName}]`);
+      }
+    }
 
     // 🧠 B. ANÁLISIS INTELIGENTE DE SÍNTOMAS (NLP + LEARNING BRAIN) Y DATOS DE ENVÍO
     const combinedText = allMessages.map(m => m.body || '').join(' \n ');
@@ -498,6 +511,7 @@ export async function routeChatByContact(contactId, isLive = false) {
     customFieldsToUpdate.push({ id: UTM_SOURCE_FIELD, key: 'contact.utm_source', field_value: 'facebook' });
     customFieldsToUpdate.push({ id: UTM_MEDIUM_FIELD, key: 'contact.utm_medium', field_value: isPaidAd ? 'cpc' : 'messenger' });
     if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, key: 'contact.utm_campaign', field_value: latestCampaign });
+    if (targetAdName) customFieldsToUpdate.push({ id: UTM_CONTENT_FIELD, key: 'contact.utm_content', field_value: targetAdName });
 
     // 🏢 G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO - DOMINIO AISLADO)
     let finalCustomerWon = isCustomerWon;
@@ -601,6 +615,7 @@ export async function routeChatByContact(contactId, isLive = false) {
 
     const CRITICAL_CF_IDS = [
       ID_ANUNCIO_FIELD, AD_ID_ALT_FIELD, TRATAMIENTO_FIELD, VTIGER_NOTAS_FIELD,
+      UTM_SOURCE_FIELD, UTM_MEDIUM_FIELD, UTM_CAMPAIGN_FIELD, UTM_CONTENT_FIELD,
       '8EQtKkiW7Z022bcN0vhS', '5TY5AIOpu1c8f6WosyF2', 'RLxFOTXkICXLWShjaLaB',
       'GZKRu2z1Z156lRUfyrpo', '5js0Lfbh5XDLq87SDgdT'
     ];
