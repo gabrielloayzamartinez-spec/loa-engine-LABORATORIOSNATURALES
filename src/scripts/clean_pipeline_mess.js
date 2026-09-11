@@ -51,9 +51,10 @@ async function cleanPipelineMess() {
   
   // Usamos el endpoint de búsqueda de GHL (puede requerir paginación o borrar lotes de 100)
   while (hasMore) {
-    console.log(`Buscando lote de oportunidades en el pipeline unificado...`);
-    // GHL Opportunities API Search: https://highlevel.stoplight.io/docs/integrations/e37d5cbdfcc9b-search-opportunities
-    const res = await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/search?location_id=${locationId}&pipeline_id=${pipelineId}&limit=100`, { headers: HEADERS });
+    console.log(`Buscando lote de oportunidades basura en la columna 'Prospecto Inicial'...`);
+    // Filtrar estrictamente por el stageProspectoId para NO tocar a los "Ganados"
+    const url = `https://services.leadconnectorhq.com/opportunities/search?location_id=${locationId}&pipeline_id=${pipelineId}&pipeline_stage_id=${stageProspectoId}&limit=100`;
+    const res = await fetchWithRetry(url, { headers: HEADERS });
     
     if (res.status !== 200) {
       console.error("Error buscando oportunidades:", await res.text());
@@ -80,8 +81,10 @@ async function cleanPipelineMess() {
       } else {
         console.error(`Error borrando oportunidad ${opp.id}: status ${delRes.status}`);
       }
-      // Pequeño delay para no saturar la API
-      await sleep(200);
+      // 🛡️ API SAFEGUARD: Delay ultra-conservador de medio segundo (500ms) por borrado
+      // Esto asegura máximo 2 peticiones por segundo, dejando el 80% del límite de GHL 
+      // libre para que el Chat Router atienda a los clientes en vivo sin latencia.
+      await sleep(500);
     }
   }
   
