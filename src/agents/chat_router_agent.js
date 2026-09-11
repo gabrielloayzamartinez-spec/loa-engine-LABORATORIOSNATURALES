@@ -657,6 +657,39 @@ export async function routeChatByContact(contactId) {
     } else {
       const errText = await updateRes.text();
       console.error(`[Agente 3] Falló actualización atómica de ${contactId}. Status: ${updateRes.status} - Detalles: ${errText}`);
+      
+      // 🛡️ AUTO-HEALING: Conflicto de Contacto Duplicado (Phone/Email)
+      if (updateRes.status === 400 && errText.includes('duplicated contacts') && errText.includes('matchingField')) {
+        try {
+          const errObj = JSON.parse(errText);
+          const conflictField = errObj.meta && errObj.meta.matchingField;
+          
+          if (conflictField && updatePayload[conflictField]) {
+            console.log(`[Agente 3] ⚠️ Auto-Heal: Conflicto de duplicado en '${conflictField}'. Contacto real: ${errObj.meta.contactId}. Reintentando sin este campo...`);
+            
+            // 1. Remover el campo que causa el conflicto (GHL no permite 2 contactos con el mismo teléfono)
+            delete updatePayload[conflictField];
+            
+            // 2. Añadir alerta visual
+            updatePayload.tags.push('alerta-duplicado-crm');
+            
+            // 3. Reintentar el PUT salvando el resto del contexto (Tags, Custom Fields, Tratamientos)
+            const retryRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+              method: 'PUT',
+              headers: HEADERS,
+              body: JSON.stringify(updatePayload)
+            });
+            
+            if (retryRes.status === 200) {
+               console.log(`[Agente 3] ✅ Auto-Heal Exitoso para ${contactId} tras esquivar conflicto de duplicado.`);
+            } else {
+               console.error(`[Agente 3] ❌ Auto-Heal falló para ${contactId}. Status: ${retryRes.status}`);
+            }
+          }
+        } catch (parseErr) {
+           console.error("[Agente 3] Error en protocolo de Auto-Heal:", parseErr.message);
+        }
+      }
     }
 
   } catch (error) {
