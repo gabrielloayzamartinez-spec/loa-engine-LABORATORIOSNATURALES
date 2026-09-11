@@ -93,9 +93,9 @@ async function fetchWithRetry(url, options, attempt = 1, isLive = false) {
  * Evalúa los últimos mensajes de un contacto para enrutar el chat a la sede correcta,
  * aplicando una regla "Anti-Vivazos" (cooldown de 24 horas) para evitar rebotes entre oficinas.
  */
-export async function routeChatByContact(contactId, isLive = false) {
+export async function routeChatByContact(contactId, isLive = false, isDryRun = false) {
   try {
-    console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive})`);
+    console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive}, DryRun: ${isDryRun})`);
 
     // 1. Obtener la conversación del contacto
     const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&contactId=${contactId}`;
@@ -356,7 +356,8 @@ export async function routeChatByContact(contactId, isLive = false) {
     // Prioridad 2: Campaña / Anuncio / UTM Medium (ej: "MUESTRA GRATIS POTENCIA")
     // Prioridad 3: Ground Truth de Ventas vTiger CRM (Útil si el cliente solo dice "Hola" pero sabemos que es paciente crónico de algo)
     // Prioridad 4: Tratamiento previo registrado en GHL
-    const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(latestMedium) ||
+    const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(targetAdName) ||
+                                  inferTreatmentFromCampaignOrUtm(latestMedium) ||
                                   inferTreatmentFromCampaignOrUtm(latestCampaign) ||
                                   inferTreatmentFromCampaignOrUtm(contact.attributionSource?.campaign) ||
                                   inferTreatmentFromCampaignOrUtm(contact.attributionSource?.utmContent);
@@ -647,6 +648,12 @@ export async function routeChatByContact(contactId, isLive = false) {
       if (updatePayload[key] === '') {
         delete updatePayload[key];
       }
+    }
+
+    if (isDryRun) {
+      console.log(`[Agente 3] 🧪 DRY RUN: Simulación completada para ${contactId}. Cambios que se habrían inyectado:`);
+      console.log(JSON.stringify(updatePayload, null, 2));
+      return;
     }
 
     const updateRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, {

@@ -27,7 +27,8 @@ const SYMPTOM_DICTIONARY = {
   ],
   'Potencia': [
     'potencia', 'vigor', 'ereccion', 'sexual', 'libido', 'cansancio intimo', 'rendimiento',
-    'testosterona', 'energia masculina', 'deseo sexual', 'fuerza intima', 'poder interior'
+    'testosterona', 'energia masculina', 'deseo sexual', 'fuerza intima', 'poder interior',
+    'texto men', 'textomen'
   ],
   'Colageno': [
     'colageno', 'piel', 'arrugas', 'caida de cabello', 'unas', 'regenerador celular', 'elasticidad'
@@ -125,7 +126,7 @@ export function inferTreatmentFromCampaignOrUtm(text) {
   if (!text) return null;
   const norm = normalizeText(text);
   if (/colageno|colagen|collagen|piel|arrugas/i.test(norm)) return 'Colageno';
-  if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior/i.test(norm)) return 'Potencia';
+  if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior|testosterona|texto men|textomen/i.test(norm)) return 'Potencia';
   if (/diabetes|glucosa|azucar|nopal/i.test(norm)) return 'Diabetes';
   if (/prostata|prostatico/i.test(norm)) return 'Prostata';
   if (/vision|vista|catarata|ojos/i.test(norm)) return 'Vision';
