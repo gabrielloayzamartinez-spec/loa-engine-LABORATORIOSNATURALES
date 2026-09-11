@@ -184,9 +184,9 @@ export async function auditAndCureContact(contact) {
     }
   }
 
-  // 6. Sincronización de Pipeline de GHL (Solo actualizar, no crear nuevos)
+  // 6. Sincronización de Pipeline de GHL (Solo crear nuevos si son compras reales confirmadas por vTiger)
   const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
-  await syncUnifiedPipelineOpportunity(contactId, contactName, isCustomerWon, false);
+  await syncUnifiedPipelineOpportunity(contactId, contactName, isCustomerWon, isCustomerWon);
 
   // Encolar en Token Bucket Queue (Prioridad Baja)
   await tokenBucketQueue.enqueue(async () => {
