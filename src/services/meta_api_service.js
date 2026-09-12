@@ -27,11 +27,26 @@ export function normalizePhone(phone) {
 }
 
 /**
+ * Cache en memoria para detalles de anuncios
+ * Evita llamar a Graph API múltiples veces para el mismo Ad ID
+ */
+const adCache = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hora
+
+/**
  * 1. Consultar Metadatos Reales de un Anuncio en Meta Graph API
  * Extrae: Nombre de Campaña, Conjunto de Anuncios y Título del Creativo
  */
 export async function getMetaAdDetails(adId) {
   if (!adId || adId === 'N/A' || !accessToken) return null;
+
+  const now = Date.now();
+  if (adCache.has(adId)) {
+    const cached = adCache.get(adId);
+    if (now - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+  }
 
   try {
     const url = `${GRAPH_BASE}/${adId}?fields=id,name,campaign{id,name},adset{id,name},creative{id,title,body}&access_token=${accessToken}`;
@@ -41,7 +56,7 @@ export async function getMetaAdDetails(adId) {
       return null;
     }
     const data = await res.json();
-    return {
+    const details = {
       adId: data.id,
       adName: data.name || 'Anuncio Meta',
       campaignId: data.campaign?.id || null,
@@ -50,6 +65,9 @@ export async function getMetaAdDetails(adId) {
       adsetName: data.adset?.name || 'Conjunto de Anuncios',
       creativeTitle: data.creative?.title || data.creative?.body || 'Creativo'
     };
+
+    adCache.set(adId, { timestamp: now, data: details });
+    return details;
   } catch (err) {
     console.error(`[Meta API] Error obteniendo anuncio ${adId}:`, err.message);
     return null;

@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
   "stats": {
-    "totalInferences": 24,
-    "learnedFromSales": 8,
+    "totalInferences": 39,
+    "learnedFromSales": 15,
     "learnedFromAdvisors": 0,
-    "falsePositivesPenalized": 8,
-    "lastLearnedAt": "2026-09-10T15:57:21.554Z"
+    "falsePositivesPenalized": 12,
+    "lastLearnedAt": "2026-09-12T17:25:57.405Z"
   },
   "treatments": [
     "Potencia",
@@ -18,7 +18,9 @@
   ],
   "vocabularyWeights": {
     "muestra gratis potencia": {
-      "Potencia": 25
+      "Potencia": 25,
+      "Artritis": 30,
+      "Gastro": 10
     },
     "poder interior": {
       "Potencia": 20
@@ -27,19 +29,23 @@
       "Potencia": 20
     },
     "salud sexual": {
-      "Potencia": 15
+      "Potencia": 15,
+      "Artritis": 20
     },
     "sexual": {
-      "Potencia": 8
+      "Potencia": 8,
+      "Artritis": 20
     },
     "vigor": {
-      "Potencia": 88
+      "Potencia": 98
     },
     "ereccion": {
       "Potencia": 10
     },
     "potencia": {
-      "Potencia": 10
+      "Potencia": 10,
+      "Artritis": 30,
+      "Gastro": 10
     },
     "libido": {
       "Potencia": 8
@@ -48,7 +54,8 @@
       "Potencia": 10
     },
     "rendimiento": {
-      "Potencia": 6
+      "Potencia": 6,
+      "Artritis": 20
     },
     "energia masculina": {
       "Potencia": 10
@@ -63,7 +70,8 @@
       "Diabetes": 15
     },
     "glucosa": {
-      "Diabetes": 15
+      "Diabetes": 15,
+      "Artritis": 10
     },
     "diabetes": {
       "Diabetes": 15
@@ -90,7 +98,8 @@
       "Prostata": 25
     },
     "prostata": {
-      "Prostata": 15
+      "Prostata": 15,
+      "Artritis": 20
     },
     "chorro debil": {
       "Prostata": 15
@@ -207,28 +216,1570 @@
       "Artritis": 12
     },
     "vigor masculino": {
-      "Potencia": 80
+      "Potencia": 90
     },
     "vigor masculino prueba": {
-      "Potencia": 80
+      "Potencia": 90
     },
     "masculino": {
-      "Potencia": 80
+      "Potencia": 90
     },
     "masculino prueba": {
-      "Potencia": 80
+      "Potencia": 90
     },
     "masculino prueba fuego": {
-      "Potencia": 80
+      "Potencia": 90
     },
     "prueba": {
-      "Potencia": 80
+      "Potencia": 90
     },
     "prueba fuego": {
-      "Potencia": 80
+      "Potencia": 90
     },
     "fuego": {
-      "Potencia": 80
+      "Potencia": 90
+    },
+    "perfecto": {
+      "Artritis": 30,
+      "Gastro": 10
+    },
+    "perfecto virginio": {
+      "Artritis": 10
+    },
+    "perfecto virginio para": {
+      "Artritis": 10
+    },
+    "virginio": {
+      "Artritis": 10
+    },
+    "virginio para": {
+      "Artritis": 10
+    },
+    "virginio para coordinar": {
+      "Artritis": 10
+    },
+    "para": {
+      "Artritis": 50,
+      "Gastro": 10
+    },
+    "para coordinar": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "para coordinar envio": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "coordinar": {
+      "Artritis": 30,
+      "Gastro": 10
+    },
+    "coordinar envio": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "coordinar envio muestra": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "envio": {
+      "Artritis": 30,
+      "Gastro": 10
+    },
+    "envio muestra": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "envio muestra gratis": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "muestra gratis": {
+      "Artritis": 40,
+      "Gastro": 10
+    },
+    "gratis potencia": {
+      "Artritis": 30,
+      "Gastro": 10
+    },
+    "gratis potencia cual": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "potencia cual": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "potencia cual numero": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "cual": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "cual numero": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "cual numero telefono": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "numero": {
+      "Artritis": 50,
+      "Gastro": 10
+    },
+    "numero telefono": {
+      "Artritis": 40,
+      "Gastro": 10
+    },
+    "numero telefono que": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "telefono": {
+      "Artritis": 40,
+      "Gastro": 10
+    },
+    "telefono que": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "telefono que direccion": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "que": {
+      "Artritis": 50,
+      "Gastro": 10
+    },
+    "que direccion": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "que direccion enviaremos": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "direccion": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "direccion enviaremos": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "direccion enviaremos muestra": {
+      "Artritis": 10
+    },
+    "enviaremos": {
+      "Artritis": 30,
+      "Gastro": 10
+    },
+    "enviaremos muestra": {
+      "Artritis": 10
+    },
+    "enviaremos muestra gratis": {
+      "Artritis": 10
+    },
+    "opportunity": {
+      "Artritis": 20,
+      "Gastro": 10
+    },
+    "opportunity created": {
+      "Artritis": 20,
+      "Gastro": 10
+    },
+    "opportunity created ayudaremos": {
+      "Artritis": 10
+    },
+    "created": {
+      "Artritis": 20,
+      "Gastro": 10
+    },
+    "created ayudaremos": {
+      "Artritis": 10
+    },
+    "created ayudaremos con": {
+      "Artritis": 10
+    },
+    "ayudaremos": {
+      "Artritis": 10
+    },
+    "ayudaremos con": {
+      "Artritis": 10
+    },
+    "ayudaremos con mucho": {
+      "Artritis": 10
+    },
+    "con": {
+      "Artritis": 40
+    },
+    "con mucho": {
+      "Artritis": 10
+    },
+    "con mucho gusto": {
+      "Artritis": 10
+    },
+    "mucho": {
+      "Artritis": 10
+    },
+    "mucho gusto": {
+      "Artritis": 10
+    },
+    "mucho gusto con": {
+      "Artritis": 10
+    },
+    "gusto": {
+      "Artritis": 10
+    },
+    "gusto con": {
+      "Artritis": 10
+    },
+    "gusto con toda": {
+      "Artritis": 10
+    },
+    "con toda": {
+      "Artritis": 10
+    },
+    "con toda informacion": {
+      "Artritis": 10
+    },
+    "toda": {
+      "Artritis": 10
+    },
+    "toda informacion": {
+      "Artritis": 10
+    },
+    "toda informacion que": {
+      "Artritis": 10
+    },
+    "informacion que": {
+      "Artritis": 10
+    },
+    "informacion que nos": {
+      "Artritis": 10
+    },
+    "que nos": {
+      "Artritis": 10
+    },
+    "que nos solicitas": {
+      "Artritis": 10
+    },
+    "nos": {
+      "Artritis": 10
+    },
+    "nos solicitas": {
+      "Artritis": 10
+    },
+    "nos solicitas indicame": {
+      "Artritis": 10
+    },
+    "solicitas": {
+      "Artritis": 10
+    },
+    "solicitas indicame": {
+      "Artritis": 10
+    },
+    "solicitas indicame numero": {
+      "Artritis": 10
+    },
+    "indicame": {
+      "Artritis": 10
+    },
+    "indicame numero": {
+      "Artritis": 10
+    },
+    "indicame numero telefonico": {
+      "Artritis": 10
+    },
+    "numero telefonico": {
+      "Artritis": 10
+    },
+    "numero telefonico para": {
+      "Artritis": 10
+    },
+    "telefonico": {
+      "Artritis": 10
+    },
+    "telefonico para": {
+      "Artritis": 10
+    },
+    "telefonico para poder": {
+      "Artritis": 10
+    },
+    "para poder": {
+      "Artritis": 40
+    },
+    "para poder atenderte": {
+      "Artritis": 10
+    },
+    "poder": {
+      "Artritis": 40
+    },
+    "poder atenderte": {
+      "Artritis": 10
+    },
+    "poder atenderte forma": {
+      "Artritis": 10
+    },
+    "atenderte": {
+      "Artritis": 10
+    },
+    "atenderte forma": {
+      "Artritis": 10
+    },
+    "atenderte forma personalizada": {
+      "Artritis": 10
+    },
+    "forma": {
+      "Artritis": 10
+    },
+    "forma personalizada": {
+      "Artritis": 10
+    },
+    "forma personalizada sin": {
+      "Artritis": 10
+    },
+    "personalizada": {
+      "Artritis": 10
+    },
+    "personalizada sin": {
+      "Artritis": 10
+    },
+    "personalizada sin ningun": {
+      "Artritis": 10
+    },
+    "sin": {
+      "Artritis": 10
+    },
+    "sin ningun": {
+      "Artritis": 10
+    },
+    "sin ningun compromiso": {
+      "Artritis": 10
+    },
+    "ningun": {
+      "Artritis": 10
+    },
+    "ningun compromiso": {
+      "Artritis": 10
+    },
+    "compromiso": {
+      "Artritis": 10
+    },
+    "brindame": {
+      "Artritis": 10
+    },
+    "brindame por": {
+      "Artritis": 10
+    },
+    "brindame por favor": {
+      "Artritis": 10
+    },
+    "por": {
+      "Artritis": 10
+    },
+    "por favor": {
+      "Artritis": 10
+    },
+    "por favor numero": {
+      "Artritis": 10
+    },
+    "favor": {
+      "Artritis": 10
+    },
+    "favor numero": {
+      "Artritis": 10
+    },
+    "favor numero telefono": {
+      "Artritis": 10
+    },
+    "numero telefono para": {
+      "Artritis": 30
+    },
+    "telefono para": {
+      "Artritis": 30
+    },
+    "telefono para ayudarte": {
+      "Artritis": 10
+    },
+    "para ayudarte": {
+      "Artritis": 10
+    },
+    "para ayudarte con": {
+      "Artritis": 10
+    },
+    "ayudarte": {
+      "Artritis": 30
+    },
+    "ayudarte con": {
+      "Artritis": 10
+    },
+    "ayudarte con beneficio": {
+      "Artritis": 10
+    },
+    "con beneficio": {
+      "Artritis": 10
+    },
+    "con beneficio que": {
+      "Artritis": 10
+    },
+    "beneficio": {
+      "Artritis": 10
+    },
+    "beneficio que": {
+      "Artritis": 10
+    },
+    "beneficio que tenemos": {
+      "Artritis": 10
+    },
+    "que tenemos": {
+      "Artritis": 10
+    },
+    "que tenemos para": {
+      "Artritis": 10
+    },
+    "tenemos": {
+      "Artritis": 10
+    },
+    "tenemos para": {
+      "Artritis": 10
+    },
+    "tenemos para dia": {
+      "Artritis": 10
+    },
+    "para dia": {
+      "Artritis": 10
+    },
+    "para dia hoy": {
+      "Artritis": 10
+    },
+    "dia": {
+      "Artritis": 30
+    },
+    "dia hoy": {
+      "Artritis": 30
+    },
+    "dia hoy gustaria": {
+      "Artritis": 10
+    },
+    "hoy": {
+      "Artritis": 30
+    },
+    "hoy gustaria": {
+      "Artritis": 10
+    },
+    "hoy gustaria probar": {
+      "Artritis": 10
+    },
+    "gustaria": {
+      "Artritis": 30
+    },
+    "gustaria probar": {
+      "Artritis": 10
+    },
+    "gustaria probar gracias": {
+      "Artritis": 10
+    },
+    "probar": {
+      "Artritis": 10
+    },
+    "probar gracias": {
+      "Artritis": 10
+    },
+    "probar gracias margarita": {
+      "Artritis": 10
+    },
+    "gracias margarita": {
+      "Artritis": 10
+    },
+    "gracias margarita que": {
+      "Artritis": 10
+    },
+    "margarita": {
+      "Artritis": 10
+    },
+    "margarita que": {
+      "Artritis": 10
+    },
+    "margarita que numero": {
+      "Artritis": 10
+    },
+    "que numero": {
+      "Artritis": 10
+    },
+    "que numero podemos": {
+      "Artritis": 10
+    },
+    "numero podemos": {
+      "Artritis": 10
+    },
+    "numero podemos comunicarnos": {
+      "Artritis": 10
+    },
+    "podemos": {
+      "Artritis": 10
+    },
+    "podemos comunicarnos": {
+      "Artritis": 10
+    },
+    "podemos comunicarnos contigo": {
+      "Artritis": 10
+    },
+    "comunicarnos": {
+      "Artritis": 10
+    },
+    "comunicarnos contigo": {
+      "Artritis": 10
+    },
+    "comunicarnos contigo para": {
+      "Artritis": 10
+    },
+    "contigo": {
+      "Artritis": 10
+    },
+    "contigo para": {
+      "Artritis": 10
+    },
+    "contigo para poder": {
+      "Artritis": 10
+    },
+    "para poder ayudarte": {
+      "Artritis": 30
+    },
+    "poder ayudarte": {
+      "Artritis": 30
+    },
+    "poder ayudarte con": {
+      "Artritis": 10
+    },
+    "ayudarte con muestra": {
+      "Artritis": 10
+    },
+    "con muestra": {
+      "Artritis": 10
+    },
+    "con muestra gratis": {
+      "Artritis": 10
+    },
+    "muestra gratis hola": {
+      "Artritis": 10
+    },
+    "gratis hola": {
+      "Artritis": 10
+    },
+    "gratis hola margarita": {
+      "Artritis": 10
+    },
+    "hola margarita": {
+      "Artritis": 10
+    },
+    "hola margarita claro": {
+      "Artritis": 10
+    },
+    "margarita claro": {
+      "Artritis": 10
+    },
+    "margarita claro que": {
+      "Artritis": 10
+    },
+    "claro": {
+      "Artritis": 10
+    },
+    "claro que": {
+      "Artritis": 10
+    },
+    "claro que ayudare": {
+      "Artritis": 10
+    },
+    "que ayudare": {
+      "Artritis": 10
+    },
+    "que ayudare gestionar": {
+      "Artritis": 10
+    },
+    "ayudare": {
+      "Artritis": 10
+    },
+    "ayudare gestionar": {
+      "Artritis": 10
+    },
+    "ayudare gestionar muestra": {
+      "Artritis": 10
+    },
+    "gestionar": {
+      "Artritis": 10
+    },
+    "gestionar muestra": {
+      "Artritis": 10
+    },
+    "gestionar muestra gratis": {
+      "Artritis": 10
+    },
+    "muestra gratis opportunity": {
+      "Artritis": 10
+    },
+    "gratis opportunity": {
+      "Artritis": 10
+    },
+    "gratis opportunity created": {
+      "Artritis": 10
+    },
+    "opportunity created muestra": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "created muestra": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "created muestra gratis": {
+      "Artritis": 10,
+      "Gastro": 10
+    },
+    "muestra gratis glucosa": {
+      "Artritis": 10
+    },
+    "gratis glucosa": {
+      "Artritis": 10
+    },
+    "perfecto luis": {
+      "Gastro": 10
+    },
+    "perfecto luis para": {
+      "Gastro": 10
+    },
+    "luis": {
+      "Gastro": 10
+    },
+    "luis para": {
+      "Gastro": 10
+    },
+    "luis para coordinar": {
+      "Gastro": 10
+    },
+    "direccion enviaremos opportunity": {
+      "Gastro": 10
+    },
+    "enviaremos opportunity": {
+      "Gastro": 10
+    },
+    "enviaremos opportunity created": {
+      "Gastro": 10
+    },
+    "gratis potencia muestra": {
+      "Gastro": 10,
+      "Artritis": 20
+    },
+    "potencia muestra": {
+      "Gastro": 10,
+      "Artritis": 20
+    },
+    "potencia muestra gratis": {
+      "Gastro": 10,
+      "Artritis": 20
+    },
+    "buenos": {
+      "Artritis": 20
+    },
+    "buenos dias": {
+      "Artritis": 20
+    },
+    "buenos dias arturo": {
+      "Artritis": 20
+    },
+    "dias": {
+      "Artritis": 20
+    },
+    "dias arturo": {
+      "Artritis": 20
+    },
+    "dias arturo para": {
+      "Artritis": 20
+    },
+    "arturo": {
+      "Artritis": 20
+    },
+    "arturo para": {
+      "Artritis": 20
+    },
+    "arturo para continuar": {
+      "Artritis": 20
+    },
+    "para continuar": {
+      "Artritis": 20
+    },
+    "para continuar con": {
+      "Artritis": 20
+    },
+    "continuar": {
+      "Artritis": 20
+    },
+    "continuar con": {
+      "Artritis": 20
+    },
+    "continuar con solicitud": {
+      "Artritis": 20
+    },
+    "con solicitud": {
+      "Artritis": 20
+    },
+    "con solicitud envianos": {
+      "Artritis": 20
+    },
+    "solicitud": {
+      "Artritis": 20
+    },
+    "solicitud envianos": {
+      "Artritis": 20
+    },
+    "solicitud envianos numero": {
+      "Artritis": 20
+    },
+    "envianos": {
+      "Artritis": 20
+    },
+    "envianos numero": {
+      "Artritis": 20
+    },
+    "envianos numero telefono": {
+      "Artritis": 20
+    },
+    "telefono para registrarte": {
+      "Artritis": 20
+    },
+    "para registrarte": {
+      "Artritis": 20
+    },
+    "para registrarte coordinar": {
+      "Artritis": 20
+    },
+    "registrarte": {
+      "Artritis": 20
+    },
+    "registrarte coordinar": {
+      "Artritis": 20
+    },
+    "registrarte coordinar los": {
+      "Artritis": 20
+    },
+    "coordinar los": {
+      "Artritis": 20
+    },
+    "coordinar los siguientes": {
+      "Artritis": 20
+    },
+    "los": {
+      "Artritis": 20
+    },
+    "los siguientes": {
+      "Artritis": 20
+    },
+    "los siguientes pasos": {
+      "Artritis": 20
+    },
+    "siguientes": {
+      "Artritis": 20
+    },
+    "siguientes pasos": {
+      "Artritis": 20
+    },
+    "siguientes pasos arturo": {
+      "Artritis": 20
+    },
+    "pasos": {
+      "Artritis": 20
+    },
+    "pasos arturo": {
+      "Artritis": 20
+    },
+    "pasos arturo estamos": {
+      "Artritis": 20
+    },
+    "arturo estamos": {
+      "Artritis": 20
+    },
+    "arturo estamos espera": {
+      "Artritis": 20
+    },
+    "estamos": {
+      "Artritis": 20
+    },
+    "estamos espera": {
+      "Artritis": 20
+    },
+    "estamos espera respuesta": {
+      "Artritis": 20
+    },
+    "espera": {
+      "Artritis": 20
+    },
+    "espera respuesta": {
+      "Artritis": 20
+    },
+    "espera respuesta para": {
+      "Artritis": 20
+    },
+    "respuesta": {
+      "Artritis": 20
+    },
+    "respuesta para": {
+      "Artritis": 20
+    },
+    "respuesta para poder": {
+      "Artritis": 20
+    },
+    "poder ayudarte perfecto": {
+      "Artritis": 20
+    },
+    "ayudarte perfecto": {
+      "Artritis": 20
+    },
+    "ayudarte perfecto arturo": {
+      "Artritis": 20
+    },
+    "perfecto arturo": {
+      "Artritis": 20
+    },
+    "perfecto arturo para": {
+      "Artritis": 20
+    },
+    "arturo para poder": {
+      "Artritis": 20
+    },
+    "para poder darte": {
+      "Artritis": 20
+    },
+    "poder darte": {
+      "Artritis": 20
+    },
+    "poder darte muestra": {
+      "Artritis": 20
+    },
+    "darte": {
+      "Artritis": 20
+    },
+    "darte muestra": {
+      "Artritis": 20
+    },
+    "darte muestra mas": {
+      "Artritis": 20
+    },
+    "muestra mas": {
+      "Artritis": 20
+    },
+    "muestra mas adecuada": {
+      "Artritis": 20
+    },
+    "mas": {
+      "Artritis": 20
+    },
+    "mas adecuada": {
+      "Artritis": 20
+    },
+    "mas adecuada que": {
+      "Artritis": 20
+    },
+    "adecuada": {
+      "Artritis": 20
+    },
+    "adecuada que": {
+      "Artritis": 20
+    },
+    "adecuada que que": {
+      "Artritis": 20
+    },
+    "que que": {
+      "Artritis": 20
+    },
+    "que que mas": {
+      "Artritis": 20
+    },
+    "que mas": {
+      "Artritis": 20
+    },
+    "que mas gustaria": {
+      "Artritis": 20
+    },
+    "mas gustaria": {
+      "Artritis": 20
+    },
+    "mas gustaria mejorar": {
+      "Artritis": 20
+    },
+    "gustaria mejorar": {
+      "Artritis": 20
+    },
+    "gustaria mejorar salud": {
+      "Artritis": 20
+    },
+    "mejorar": {
+      "Artritis": 20
+    },
+    "mejorar salud": {
+      "Artritis": 20
+    },
+    "mejorar salud sexual": {
+      "Artritis": 20
+    },
+    "salud": {
+      "Artritis": 20
+    },
+    "salud sexual muestra": {
+      "Artritis": 20
+    },
+    "sexual muestra": {
+      "Artritis": 20
+    },
+    "sexual muestra gratis": {
+      "Artritis": 20
+    },
+    "gratis potencia bienvenido": {
+      "Artritis": 20
+    },
+    "potencia bienvenido": {
+      "Artritis": 20
+    },
+    "potencia bienvenido arturo": {
+      "Artritis": 20
+    },
+    "bienvenido": {
+      "Artritis": 20
+    },
+    "bienvenido arturo": {
+      "Artritis": 20
+    },
+    "bienvenido arturo vimos": {
+      "Artritis": 20
+    },
+    "arturo vimos": {
+      "Artritis": 20
+    },
+    "arturo vimos que": {
+      "Artritis": 20
+    },
+    "vimos": {
+      "Artritis": 20
+    },
+    "vimos que": {
+      "Artritis": 20
+    },
+    "vimos que tienes": {
+      "Artritis": 20
+    },
+    "que tienes": {
+      "Artritis": 20
+    },
+    "que tienes interes": {
+      "Artritis": 20
+    },
+    "tienes": {
+      "Artritis": 20
+    },
+    "tienes interes": {
+      "Artritis": 20
+    },
+    "tienes interes hormiga": {
+      "Artritis": 20
+    },
+    "interes": {
+      "Artritis": 20
+    },
+    "interes hormiga": {
+      "Artritis": 20
+    },
+    "interes hormiga negra": {
+      "Artritis": 20
+    },
+    "hormiga": {
+      "Artritis": 20
+    },
+    "hormiga negra": {
+      "Artritis": 20
+    },
+    "hormiga negra cuentame": {
+      "Artritis": 20
+    },
+    "negra": {
+      "Artritis": 20
+    },
+    "negra cuentame": {
+      "Artritis": 20
+    },
+    "negra cuentame que": {
+      "Artritis": 20
+    },
+    "cuentame": {
+      "Artritis": 20
+    },
+    "cuentame que": {
+      "Artritis": 20
+    },
+    "cuentame que gustaria": {
+      "Artritis": 20
+    },
+    "que gustaria": {
+      "Artritis": 20
+    },
+    "que gustaria mejorar": {
+      "Artritis": 20
+    },
+    "gustaria mejorar vida": {
+      "Artritis": 20
+    },
+    "mejorar vida": {
+      "Artritis": 20
+    },
+    "mejorar vida sexual": {
+      "Artritis": 20
+    },
+    "vida": {
+      "Artritis": 20
+    },
+    "vida sexual": {
+      "Artritis": 20
+    },
+    "vida sexual muestra": {
+      "Artritis": 20
+    },
+    "gratis potencia obsequiamos": {
+      "Artritis": 20
+    },
+    "potencia obsequiamos": {
+      "Artritis": 20
+    },
+    "potencia obsequiamos una": {
+      "Artritis": 20
+    },
+    "obsequiamos": {
+      "Artritis": 20
+    },
+    "obsequiamos una": {
+      "Artritis": 20
+    },
+    "obsequiamos una muestra": {
+      "Artritis": 20
+    },
+    "una": {
+      "Artritis": 20
+    },
+    "una muestra": {
+      "Artritis": 20
+    },
+    "una muestra gratis": {
+      "Artritis": 20
+    },
+    "muestra gratis dejes": {
+      "Artritis": 20
+    },
+    "gratis dejes": {
+      "Artritis": 20
+    },
+    "gratis dejes pasar": {
+      "Artritis": 20
+    },
+    "dejes": {
+      "Artritis": 20
+    },
+    "dejes pasar": {
+      "Artritis": 20
+    },
+    "dejes pasar esta": {
+      "Artritis": 20
+    },
+    "pasar": {
+      "Artritis": 20
+    },
+    "pasar esta": {
+      "Artritis": 20
+    },
+    "pasar esta oportunidad": {
+      "Artritis": 20
+    },
+    "esta": {
+      "Artritis": 20
+    },
+    "esta oportunidad": {
+      "Artritis": 20
+    },
+    "esta oportunidad mejorar": {
+      "Artritis": 20
+    },
+    "oportunidad": {
+      "Artritis": 20
+    },
+    "oportunidad mejorar": {
+      "Artritis": 20
+    },
+    "oportunidad mejorar salud": {
+      "Artritis": 20
+    },
+    "mejorar salud obtenla": {
+      "Artritis": 20
+    },
+    "salud obtenla": {
+      "Artritis": 20
+    },
+    "salud obtenla dia": {
+      "Artritis": 20
+    },
+    "obtenla": {
+      "Artritis": 20
+    },
+    "obtenla dia": {
+      "Artritis": 20
+    },
+    "obtenla dia hoy": {
+      "Artritis": 20
+    },
+    "dia hoy solo": {
+      "Artritis": 20
+    },
+    "hoy solo": {
+      "Artritis": 20
+    },
+    "hoy solo dejanos": {
+      "Artritis": 20
+    },
+    "solo": {
+      "Artritis": 20
+    },
+    "solo dejanos": {
+      "Artritis": 20
+    },
+    "solo dejanos numero": {
+      "Artritis": 20
+    },
+    "dejanos": {
+      "Artritis": 20
+    },
+    "dejanos numero": {
+      "Artritis": 20
+    },
+    "dejanos numero telefono": {
+      "Artritis": 20
+    },
+    "numero telefono lugar": {
+      "Artritis": 20
+    },
+    "telefono lugar": {
+      "Artritis": 20
+    },
+    "telefono lugar donde": {
+      "Artritis": 20
+    },
+    "lugar": {
+      "Artritis": 20
+    },
+    "lugar donde": {
+      "Artritis": 20
+    },
+    "lugar donde enviaremos": {
+      "Artritis": 20
+    },
+    "donde": {
+      "Artritis": 20
+    },
+    "donde enviaremos": {
+      "Artritis": 20
+    },
+    "donde enviaremos para": {
+      "Artritis": 20
+    },
+    "enviaremos para": {
+      "Artritis": 20
+    },
+    "enviaremos para programar": {
+      "Artritis": 20
+    },
+    "para programar": {
+      "Artritis": 20
+    },
+    "para programar envio": {
+      "Artritis": 20
+    },
+    "programar": {
+      "Artritis": 20
+    },
+    "programar envio": {
+      "Artritis": 20
+    },
+    "programar envio arturo": {
+      "Artritis": 20
+    },
+    "envio arturo": {
+      "Artritis": 20
+    },
+    "envio arturo ultimas": {
+      "Artritis": 20
+    },
+    "arturo ultimas": {
+      "Artritis": 20
+    },
+    "arturo ultimas unidades": {
+      "Artritis": 20
+    },
+    "ultimas": {
+      "Artritis": 20
+    },
+    "ultimas unidades": {
+      "Artritis": 20
+    },
+    "ultimas unidades disponibles": {
+      "Artritis": 20
+    },
+    "unidades": {
+      "Artritis": 20
+    },
+    "unidades disponibles": {
+      "Artritis": 20
+    },
+    "unidades disponibles compartenos": {
+      "Artritis": 20
+    },
+    "disponibles": {
+      "Artritis": 20
+    },
+    "disponibles compartenos": {
+      "Artritis": 20
+    },
+    "disponibles compartenos numero": {
+      "Artritis": 20
+    },
+    "compartenos": {
+      "Artritis": 20
+    },
+    "compartenos numero": {
+      "Artritis": 20
+    },
+    "compartenos numero telefono": {
+      "Artritis": 20
+    },
+    "telefono lugar envio": {
+      "Artritis": 20
+    },
+    "lugar envio": {
+      "Artritis": 20
+    },
+    "lugar envio para": {
+      "Artritis": 20
+    },
+    "envio para": {
+      "Artritis": 20
+    },
+    "envio para continuar": {
+      "Artritis": 20
+    },
+    "continuar con registro": {
+      "Artritis": 20
+    },
+    "con registro": {
+      "Artritis": 20
+    },
+    "con registro coordinar": {
+      "Artritis": 20
+    },
+    "registro": {
+      "Artritis": 20
+    },
+    "registro coordinar": {
+      "Artritis": 20
+    },
+    "registro coordinar los": {
+      "Artritis": 20
+    },
+    "siguientes pasos hola": {
+      "Artritis": 20
+    },
+    "pasos hola": {
+      "Artritis": 20
+    },
+    "pasos hola arturo": {
+      "Artritis": 20
+    },
+    "hola arturo": {
+      "Artritis": 20
+    },
+    "hola arturo sabemos": {
+      "Artritis": 20
+    },
+    "arturo sabemos": {
+      "Artritis": 20
+    },
+    "arturo sabemos que": {
+      "Artritis": 20
+    },
+    "sabemos": {
+      "Artritis": 20
+    },
+    "sabemos que": {
+      "Artritis": 20
+    },
+    "sabemos que cuando": {
+      "Artritis": 20
+    },
+    "que cuando": {
+      "Artritis": 20
+    },
+    "que cuando energia": {
+      "Artritis": 20
+    },
+    "cuando": {
+      "Artritis": 20
+    },
+    "cuando energia": {
+      "Artritis": 20
+    },
+    "cuando energia rendimiento": {
+      "Artritis": 20
+    },
+    "energia": {
+      "Artritis": 20
+    },
+    "energia rendimiento": {
+      "Artritis": 20
+    },
+    "energia rendimiento disminuyen": {
+      "Artritis": 20
+    },
+    "rendimiento disminuyen": {
+      "Artritis": 20
+    },
+    "rendimiento disminuyen tambien": {
+      "Artritis": 20
+    },
+    "disminuyen": {
+      "Artritis": 20
+    },
+    "disminuyen tambien": {
+      "Artritis": 20
+    },
+    "disminuyen tambien puede": {
+      "Artritis": 20
+    },
+    "tambien": {
+      "Artritis": 20
+    },
+    "tambien puede": {
+      "Artritis": 20
+    },
+    "tambien puede afectar": {
+      "Artritis": 20
+    },
+    "puede": {
+      "Artritis": 20
+    },
+    "puede afectar": {
+      "Artritis": 20
+    },
+    "puede afectar como": {
+      "Artritis": 20
+    },
+    "afectar": {
+      "Artritis": 20
+    },
+    "afectar como": {
+      "Artritis": 20
+    },
+    "afectar como sientes": {
+      "Artritis": 20
+    },
+    "como": {
+      "Artritis": 20
+    },
+    "como sientes": {
+      "Artritis": 20
+    },
+    "como sientes dia": {
+      "Artritis": 20
+    },
+    "sientes": {
+      "Artritis": 20
+    },
+    "sientes dia": {
+      "Artritis": 20
+    },
+    "sientes dia dia": {
+      "Artritis": 20
+    },
+    "dia dia": {
+      "Artritis": 20
+    },
+    "dia dia conoce": {
+      "Artritis": 20
+    },
+    "dia conoce": {
+      "Artritis": 20
+    },
+    "dia conoce mas": {
+      "Artritis": 20
+    },
+    "conoce": {
+      "Artritis": 20
+    },
+    "conoce mas": {
+      "Artritis": 20
+    },
+    "conoce mas sobre": {
+      "Artritis": 20
+    },
+    "mas sobre": {
+      "Artritis": 20
+    },
+    "mas sobre hormiga": {
+      "Artritis": 20
+    },
+    "sobre": {
+      "Artritis": 20
+    },
+    "sobre hormiga": {
+      "Artritis": 20
+    },
+    "sobre hormiga negra": {
+      "Artritis": 20
+    },
+    "hormiga negra dejanos": {
+      "Artritis": 20
+    },
+    "negra dejanos": {
+      "Artritis": 20
+    },
+    "negra dejanos numero": {
+      "Artritis": 20
+    },
+    "dejanos numero uno": {
+      "Artritis": 20
+    },
+    "numero uno": {
+      "Artritis": 20
+    },
+    "numero uno nuestros": {
+      "Artritis": 20
+    },
+    "uno": {
+      "Artritis": 20
+    },
+    "uno nuestros": {
+      "Artritis": 20
+    },
+    "uno nuestros especialistas": {
+      "Artritis": 20
+    },
+    "nuestros": {
+      "Artritis": 20
+    },
+    "nuestros especialistas": {
+      "Artritis": 20
+    },
+    "nuestros especialistas podra": {
+      "Artritis": 20
+    },
+    "especialistas": {
+      "Artritis": 20
+    },
+    "especialistas podra": {
+      "Artritis": 20
+    },
+    "especialistas podra orientarte": {
+      "Artritis": 20
+    },
+    "podra": {
+      "Artritis": 20
+    },
+    "podra orientarte": {
+      "Artritis": 20
+    },
+    "podra orientarte buenas": {
+      "Artritis": 20
+    },
+    "orientarte": {
+      "Artritis": 20
+    },
+    "orientarte buenas": {
+      "Artritis": 20
+    },
+    "orientarte buenas tardes": {
+      "Artritis": 20
+    },
+    "buenas tardes": {
+      "Artritis": 20
+    },
+    "buenas tardes arturo": {
+      "Artritis": 20
+    },
+    "tardes": {
+      "Artritis": 20
+    },
+    "tardes arturo": {
+      "Artritis": 20
+    },
+    "tardes arturo para": {
+      "Artritis": 20
+    },
+    "pasos arturo cuentame": {
+      "Artritis": 20
+    },
+    "arturo cuentame": {
+      "Artritis": 20
+    },
+    "arturo cuentame deseas": {
+      "Artritis": 20
+    },
+    "cuentame deseas": {
+      "Artritis": 20
+    },
+    "cuentame deseas mejorar": {
+      "Artritis": 20
+    },
+    "deseas": {
+      "Artritis": 20
+    },
+    "deseas mejorar": {
+      "Artritis": 20
+    },
+    "deseas mejorar rendimiento": {
+      "Artritis": 20
+    },
+    "mejorar rendimiento": {
+      "Artritis": 20
+    },
+    "mejorar rendimiento sexual": {
+      "Artritis": 20
+    },
+    "rendimiento sexual": {
+      "Artritis": 20
+    },
+    "rendimiento sexual energia": {
+      "Artritis": 20
+    },
+    "sexual energia": {
+      "Artritis": 20
+    },
+    "sexual energia prostata": {
+      "Artritis": 20
+    },
+    "energia prostata": {
+      "Artritis": 20
+    },
+    "energia prostata muestra": {
+      "Artritis": 20
+    },
+    "prostata muestra": {
+      "Artritis": 20
+    },
+    "prostata muestra gratis": {
+      "Artritis": 20
+    },
+    "gratis potencia perfecto": {
+      "Artritis": 20
+    },
+    "potencia perfecto": {
+      "Artritis": 20
+    },
+    "potencia perfecto arturo": {
+      "Artritis": 20
     }
   },
   "campaignWeights": {
@@ -254,7 +1805,17 @@
       "Artritis": 20
     },
     "campana test potencia": {
-      "Potencia": 120
+      "Potencia": 135
+    },
+    "potencia roosevelt david": {
+      "Artritis": 15,
+      "Gastro": 15
+    },
+    "diabetes benavides cesar piura": {
+      "Artritis": 15
+    },
+    "jorge naturales bionatural 250 diario": {
+      "Artritis": 30
     }
   }
 }

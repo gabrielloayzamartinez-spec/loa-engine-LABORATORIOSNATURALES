@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS } from './config/index.js';
+import { ghlFetch, GHL_HEADERS, getRateLimiterStatus } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
@@ -11,7 +12,8 @@ import { runSupervisorAuditor, auditorStats } from './agents/auditor_agent.js';
 import { setupAllPipelines } from './scripts/pipeline_manager.js';
 import { runPreFlightSanityCheck } from './tests/test_audit_engine.js';
 import { learningBrain } from './services/learning_brain.js';
-import { syncVtigerGroundTruthToBrain } from './services/vtiger_api_service.js';
+import { syncVtigerGroundTruthToBrain, checkVTigerHealth } from './services/vtiger_api_service.js';
+import { processVtigerRetryQueue, getVtigerQueueCount } from './services/vtiger_retry_queue.js';
 import { tokenBucketQueue } from './services/token_bucket_queue.js';
 import { runBackgroundCuratorCycle, getCuratorMetrics } from './services/background_curator.js';
 const app = express();
@@ -56,38 +58,21 @@ global.pushLiveLog = (msg) => {
   if (global.liveLogs.length > 6) global.liveLogs.pop();
 };
 
-const HEADERS_CONTACTS = {
-  'Authorization': `Bearer ${apiKey}`,
-  'Version': '2021-07-28',
-  'Content-Type': 'application/json',
-  'Accept': 'application/json'
-};
+const HEADERS_CONTACTS = GHL_HEADERS;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// fetchWithRetry ahora es un wrapper delgado sobre ghlFetch (centralizado en ghl_http_client.js)
 async function fetchWithRetry(url, options, attempt = 1) {
-  try {
-    global.apiCounters.ghl++;
-    const res = await fetch(url, options);
-    if (res.status === 429) {
-      await sleep(1500 * attempt);
-      if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
-    }
-    return res;
-  } catch (e) {
-    if (attempt < 5) {
-      await sleep(1500);
-      return fetchWithRetry(url, options, attempt + 1);
-    }
-    throw e;
-  }
+  return ghlFetch(url, options, attempt, 'Radar');
 }
 
 let isFastSyncRunning = false;
 let lastSyncTime = null;
 let metaConnectionStatus = { isConfigured: Boolean(META_CONFIG.accessToken) };
+let vtigerConnectionStatus = { status: 'PENDING', message: 'Checking...' };
 
 let stats = {
   totalRuns: 0,
@@ -130,13 +115,29 @@ let stats = {
 
 const processedContactTimestamps = new Map();
 
+// 🧹 PODA AUTOMÁTICA: Evitar memory leak con 300K+ contactos
+// Cada 10 minutos, elimina entradas procesadas hace más de 48 horas
+setInterval(() => {
+  const cutoff = Date.now() - (48 * 60 * 60 * 1000);
+  let pruned = 0;
+  for (const [id, ts] of processedContactTimestamps) {
+    if (ts < cutoff) {
+      processedContactTimestamps.delete(id);
+      pruned++;
+    }
+  }
+  if (pruned > 0 || processedContactTimestamps.size > 100) {
+    console.log(`[Memory Guard] 🧹 Mapa podado: ${pruned} entradas eliminadas. Tamaño actual: ${processedContactTimestamps.size}`);
+  }
+}, 10 * 60 * 1000);
+
 async function runExpressAssignment() {
   if (isFastSyncRunning) return;
   isFastSyncRunning = true;
 
   try {
     const timeStr = new Date().toLocaleTimeString('es-PE', { hour12: false });
-    const url = `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=15&sortBy=date_updated`;
+    const url = `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=5&sortBy=date_updated`;
     const res = await fetchWithRetry(url, { headers: HEADERS_CONTACTS });
     if (res.status !== 200) {
       console.log(`[${timeStr}] [Worker 1] Status API: ${res.status}`);
@@ -148,22 +149,32 @@ async function runExpressAssignment() {
     let countNew = 0;
 
     for (const contact of contacts) {
-      const lastProcTime = processedContactTimestamps.get(contact.id) || 0;
-      if (Date.now() - lastProcTime < 5 * 60 * 1000) continue; // 5 min debounce por contacto (evita re-procesamiento y ahorra API calls)
+      const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
+      const lastProcessedUpdate = processedContactTimestamps.get(contact.id) || 0;
+      
+      // Si ya procesamos esta actualización exacta, saltamos (previene loops infinitos)
+      if (updatedAt <= lastProcessedUpdate) continue;
 
-      const updatedAt = new Date(contact.dateUpdated || contact.dateAdded);
-      const minutesAgo = (Date.now() - updatedAt.getTime()) / (1000 * 60);
-      if (minutesAgo > 30) continue;
+      const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
+      // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
+      if (hoursAgo > 24) continue;
 
       countNew++;
       console.log(`[${timeStr}] [Worker 1] ⚡ Procesando lead fresco: ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
-      // Disparar enrutamiento e hidratación completa (isLive = true)
-      await routeChatByContact(contact.id, true);
-      processedContactTimestamps.set(contact.id, Date.now());
-      stats.contactsProcessed++;
       
-      // Rate-Limit Shield: 500ms estrictos entre contactos
-      await sleep(500);
+      const result = await routeChatByContact(contact.id, true);
+      
+      // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
+      if (result === 'RETRY' || result === 'RETRY_INDEXING') {
+        console.log(`[${timeStr}] [Worker 1] 🔄 Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
+      } else {
+        // Guardamos el timestamp exacto de esta actualización para no volver a procesarla hasta que el lead vuelva a hacer algo
+        processedContactTimestamps.set(contact.id, updatedAt);
+        stats.contactsProcessed++;
+      }
+      
+      // Rate-Limit Shield: 1500ms estrictos entre contactos
+      await sleep(1500);
     }
 
     if (countNew === 0) {
@@ -171,6 +182,7 @@ async function runExpressAssignment() {
     }
 
     lastSyncTime = new Date().toISOString();
+    global.lastRadarActivity = Date.now();
     stats.totalRuns++;
   } catch (err) {
     console.error("[Express Assignment Error]:", err.message);
@@ -187,6 +199,12 @@ import { runVTigerToGHLPoller } from './agents/vtiger_sync_agent.js';
 setInterval(() => {
   runVTigerToGHLPoller(4).catch(err => console.error("Error en Reverse Sync:", err));
 }, 180000);
+
+// Cola de Reintentos vTiger (procesa 1 vez por minuto)
+setInterval(() => {
+  stats.vtigerQueue = getVtigerQueueCount();
+  processVtigerRetryQueue().catch(err => console.error("Error en vTiger Retry Queue:", err));
+}, 60000);
 
 // NOTA: Pollers concurrentes desactivados para evitar solapamiento de llamadas a la API
 // setInterval(runChatRouterPoller, 15000);
@@ -511,12 +529,15 @@ app.get('/health', (req, res) => {
               </div>
             </div>
 
-            <!-- TABLERO 4: EXTRACCIÓN VTIGER (SPIDER BUFFER) -->
+            <!-- TABLERO 4: CONEXIÓN VTIGER CRM -->
             <div class="card">
-              <div class="card-title">Extracción vTiger</div>
+              <div class="card-title">Conexión vTiger CRM</div>
               <div class="metric-row">
-                <span class="metric-label">Estado del Demonio (Python)</span>
-                <span class="metric-value val-blue" id="val-vtigerStatus">${stats.vtigerStatus}</span>
+                <span class="metric-label">Estado de Conexión</span>
+                <span class="metric-value" id="val-vtigerConnectionStatus">Verificando...</span>
+              </div>
+              <div class="metric-row" style="font-size: 0.85em; color: var(--text-muted); border-bottom: none; padding-top: 5px;">
+                <span id="val-vtigerConnectionMessage"></span>
               </div>
               <div class="metric-row">
                 <span class="metric-label">Contactos Empujados a GHL</span>
@@ -586,6 +607,18 @@ app.get('/health', (req, res) => {
                   el.innerText = data.stats[f];
                 }
               });
+              const vtigerConnEl = document.getElementById('val-vtigerConnectionStatus');
+              if (vtigerConnEl && data.vtigerConnectionStatus) {
+                const isOk = data.vtigerConnectionStatus.status === 'OK';
+                vtigerConnEl.innerText = isOk ? '🟢 Conectado' : '🔴 Desconectado';
+                vtigerConnEl.className = 'metric-value ' + (isOk ? 'val-green' : 'val-red');
+                
+                const msgEl = document.getElementById('val-vtigerConnectionMessage');
+                if (msgEl) {
+                  msgEl.innerText = isOk ? 'Sincronización bidireccional activa' : data.vtigerConnectionStatus.message;
+                }
+              }
+
               if (data.systemHealth) {
                 const memEl = document.getElementById('val-memoryRss');
                 if (memEl) memEl.innerText = (data.systemHealth.memoryRss / 1024 / 1024).toFixed(1) + ' MB';
@@ -646,6 +679,7 @@ app.get('/api/stats', (req, res) => {
     stats, 
     lastSyncTime, 
     metaConnectionStatus, 
+    vtigerConnectionStatus,
     healMetrics: getHealMetrics(),
     auditorStats,
     systemHealth,
@@ -848,7 +882,40 @@ app.get('/api/brain/metrics', (req, res) => {
   });
 });
 
+app.get('/api/audit/report', (req, res) => {
+  let cleanupState = { msg: "Script de limpieza no ha corrido aún." };
+  try {
+    const STATE_FILE = path.join(process.cwd(), 'cleanup_state.json');
+    if (fs.existsSync(STATE_FILE)) {
+      cleanupState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+    }
+  } catch(e) {}
+  
+  res.json({
+    status: 'Activo',
+    radarInactivityMinutes: Math.floor((Date.now() - (global.lastRadarActivity || Date.now())) / 60000),
+    massCleanupProgress: cleanupState,
+    memoryPointers: {
+      radarProcessedLeads: processedContactTimestamps.size,
+      vtigerQueue: stats.vtigerQueue
+    }
+  });
+});
+
 const server = app.listen(PORT, '0.0.0.0', async () => {
+  try {
+    const vtigerStatus = await checkVTigerHealth();
+    vtigerConnectionStatus = vtigerStatus;
+    if (vtigerStatus.status === 'OK') {
+      console.log('✅ Conexión con vTiger CRM verificada correctamente.');
+    } else {
+      console.error('❌ Error de conexión con vTiger CRM:', vtigerStatus.message);
+    }
+  } catch (err) {
+    vtigerConnectionStatus = { status: 'ERROR', message: err.message };
+    console.error('❌ Error fatal al verificar vTiger:', err.message);
+  }
+
   // Ejecución obligatoria de pre-flight check antes de admitir tráfico
   const isHealthy = runPreFlightSanityCheck();
   if (!isHealthy) {
@@ -884,3 +951,14 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
 
   runExpressAssignment();
 });
+
+// 🚨 Watchdog: Alerta si el radar se duerme > 5 min
+setInterval(() => {
+  if (global.lastRadarActivity) {
+    const inactiveTime = Date.now() - global.lastRadarActivity;
+    if (inactiveTime > 5 * 60 * 1000) {
+      console.error(`[WATCHDOG ALERTA] 🚨 ¡El Radar de Asignación lleva más de 5 minutos sin reportar actividad! (Inactivo por ${Math.round(inactiveTime/60000)} min). Verifica logs.`);
+      // En un entorno de prod, aquí se puede enviar un HTTP POST a Slack/Discord o un Email
+    }
+  }
+}, 60000);

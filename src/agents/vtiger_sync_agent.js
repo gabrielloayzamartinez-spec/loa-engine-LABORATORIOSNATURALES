@@ -1,16 +1,13 @@
 import { queryVTiger } from '../services/vtiger_api_service.js';
 import { GHL_CONFIG } from '../config/index.js';
+import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
+import { acquireContactLock, releaseContactLock } from './chat_router_agent.js';
 import { buildSanitizedCommercialFields } from '../domain/commercial_engine.js';
 import { learningBrain } from '../services/learning_brain.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
-const HEADERS = {
-  'Authorization': `Bearer ${apiKey}`,
-  'Version': '2021-07-28',
-  'Content-Type': 'application/json',
-  'Accept': 'application/json'
-};
+const HEADERS = GHL_HEADERS;
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -18,30 +15,9 @@ async function sleep(ms) {
 
 let syncRateLimitBlockedUntil = 0;
 
+// fetchWithRetry ahora es un wrapper delgado sobre ghlFetch (centralizado en ghl_http_client.js)
 async function fetchWithRetry(url, options, attempt = 1) {
-  const now = Date.now();
-  if (now < syncRateLimitBlockedUntil) {
-    const waitMs = syncRateLimitBlockedUntil - now;
-    await sleep(waitMs);
-  }
-
-  try {
-    if (global.apiCounters) global.apiCounters.ghl++;
-    const res = await fetch(url, options);
-    if (res.status === 429) {
-      console.warn(`[VTiger Sync Shield] ⚠️ GHL retornó 429. Pausando demonio durante 60s...`);
-      syncRateLimitBlockedUntil = Date.now() + 60000;
-      await sleep(60000);
-      if (attempt < 4) return fetchWithRetry(url, options, attempt + 1);
-    }
-    return res;
-  } catch (e) {
-    if (attempt < 4) {
-      await sleep(2000 * attempt);
-      return fetchWithRetry(url, options, attempt + 1);
-    }
-    throw e;
-  }
+  return ghlFetch(url, options, attempt, 'Reverse Sync');
 }
 
 /**
@@ -131,21 +107,44 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
         customFields: customFieldsToUpdate
       };
 
-      // Limpieza de strings vacíos
-      for (const key of Object.keys(updatePayload)) {
-        if (updatePayload[key] === '') delete updatePayload[key];
+      // 4.5 Refuerzo de Etiquetas de Producto (vTiger manda sobre GHL)
+      if (treatment) {
+        const ALL_PRODUCT_TAGS = ['producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 'producto-colageno', 'producto-vision', 'producto-gastro'];
+        const activeProductTag = `producto-${treatment.toLowerCase()}`;
+        
+        const newTagsSet = new Set((ghlContact.tags || []).map(t => String(t).trim()));
+        newTagsSet.add(activeProductTag);
+        
+        // Purgar etiquetas falsas/obsoletas de otros productos
+        for (const pTag of ALL_PRODUCT_TAGS) {
+          if (pTag !== activeProductTag) {
+            newTagsSet.delete(pTag);
+          }
+        }
+        
+        updatePayload.tags = Array.from(newTagsSet);
       }
 
-      // 5. Inyectar a GHL (solo Custom Fields, no tocamos tags ni owner aquí para no entorpecer)
-      const updateRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${ghlContact.id}`, {
-        method: 'PUT',
-        headers: HEADERS,
-        body: JSON.stringify(updatePayload)
-      });
+      // Limpieza de strings vacíos
+      for (const key of Object.keys(updatePayload.customFields)) {
+        if (updatePayload.customFields[key] === '') delete updatePayload.customFields[key];
+      }
 
-      if (updateRes.status === 200) {
-         syncCount++;
-         console.log(`[Reverse Sync] ✅ Cliente ${vContact.firstname} ${vContact.lastname} sincronizado de vTiger a GHL exitosamente.`);
+      // 5. Inyectar a GHL (Custom Fields y Tags sanados)
+      await acquireContactLock(ghlContact.id);
+      try {
+        const updateRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${ghlContact.id}`, {
+          method: 'PUT',
+          headers: HEADERS,
+          body: JSON.stringify(updatePayload)
+        });
+
+        if (updateRes.status === 200) {
+           syncCount++;
+           console.log(`[Reverse Sync] ✅ Cliente ${vContact.firstname} ${vContact.lastname} sincronizado de vTiger a GHL exitosamente.`);
+        }
+      } finally {
+        releaseContactLock(ghlContact.id);
       }
       
       await sleep(250); // Rate Limit Protection

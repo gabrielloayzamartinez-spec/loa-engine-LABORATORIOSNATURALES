@@ -4,6 +4,15 @@ import { learningBrain } from './learning_brain.js';
 
 let currentSessionName = null;
 
+export async function checkVTigerHealth() {
+  try {
+    await loginToVTiger();
+    return { status: 'OK' };
+  } catch (e) {
+    return { status: 'ERROR', message: e.message };
+  }
+}
+
 export async function loginToVTiger() {
   const { url, username, accessKey } = VTIGER_CONFIG;
   if (!url || !username || !accessKey) {

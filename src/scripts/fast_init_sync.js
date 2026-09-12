@@ -77,6 +77,13 @@ async function runFastInit() {
     }
   }
 
+  const isDryRun = process.argv.includes('--dry-run');
+
+  if (isDryRun) {
+    console.log("🧪 MODO DRY-RUN ACTIVADO. Procesando solo 10 contactos. Bloqueando PUTs en el enrutador.");
+    allContacts.splice(10); // Conservar solo 10 contactos
+  }
+
   console.log(`\n\n📊 Total de contactos a procesar: ${allContacts.length}\n`);
   
   if (allContacts.length === 0) return;
@@ -96,7 +103,7 @@ async function runFastInit() {
     await Promise.all(batch.map(async (c) => {
       try {
         // Enrutamiento forzado como proceso "Background" (isLive = false)
-        await routeChatByContact(c.id, false);
+        await routeChatByContact(c.id, false, isDryRun);
       } catch (err) {
         console.error(`Error en contacto ${c.id}:`, err.message);
       }

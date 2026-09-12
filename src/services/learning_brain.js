@@ -138,11 +138,34 @@ class LearningBrain {
   }
 
   save() {
-    try {
-      fs.writeFileSync(BRAIN_FILE, JSON.stringify(this.memory, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('[LearningBrain] Error guardando memoria en disco:', err.message);
+    if (this._saveTimeout) return; // Debounce en proceso
+
+    // Poda de memoria (Limitar vocabulario a ~2000 entradas)
+    const vocabKeys = Object.keys(this.memory.vocabularyWeights);
+    if (vocabKeys.length > 2000) {
+      const sorted = vocabKeys.map(phrase => {
+        const sum = Object.values(this.memory.vocabularyWeights[phrase]).reduce((a, b) => a + b, 0);
+        return { phrase, sum };
+      }).sort((a, b) => b.sum - a.sum);
+
+      const keysToRemove = sorted.slice(2000).map(k => k.phrase);
+      for (const k of keysToRemove) {
+        delete this.memory.vocabularyWeights[k];
+      }
+      console.log(`[LearningBrain] 🧹 Poda de memoria: Eliminadas ${keysToRemove.length} frases menos relevantes.`);
     }
+
+    this._saveTimeout = setTimeout(() => {
+      try {
+        fs.writeFile(BRAIN_FILE, JSON.stringify(this.memory, null, 2), 'utf-8', (err) => {
+          if (err) console.error('[LearningBrain] Error guardando memoria en disco:', err.message);
+        });
+      } catch (err) {
+        console.error('[LearningBrain] Error asíncrono guardando memoria:', err.message);
+      } finally {
+        this._saveTimeout = null;
+      }
+    }, 30000); // 30 segundos debounce
   }
 
   normalize(text) {

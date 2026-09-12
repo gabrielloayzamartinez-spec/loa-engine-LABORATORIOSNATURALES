@@ -2,6 +2,7 @@ import { GHL_CONFIG, PAGE_TAG_MAP, PALACIOS_USERS, FB_PAGE_ID_MAP } from '../con
 import { excludeLeadFromMetaAds, sendMetaConversionEvent, getMetaAdDetails } from '../services/meta_api_service.js';
 import { inferTreatmentFromCampaignOrUtm, analyzeSymptoms } from './nlp_symptom_engine.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
+import { enqueueVtigerRetry } from '../services/vtiger_retry_queue.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -250,7 +251,10 @@ export async function processMasterContact(contactInput, options = {}) {
     let vContact = null;
     try {
       vContact = await findVTigerContact(contact);
-    } catch (e) {}
+    } catch (e) {
+      console.warn(`[Master] ⚠️ Error conectando con vTiger para ${contactId}. Encolando.`);
+      enqueueVtigerRetry(contactId);
+    }
 
     const numCompras = parseInt(vContact?.spl_num_compras || '0', 10);
     const montoTotalVtiger = parseFloat(vContact?.cf_3392 || vContact?.cf_3238 || '0');

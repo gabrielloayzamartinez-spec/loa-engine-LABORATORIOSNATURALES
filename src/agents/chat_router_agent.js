@@ -1,4 +1,5 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS } from '../config/index.js';
+import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, inferTreatmentFromCampaignOrUtm } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
@@ -42,12 +43,7 @@ Marketing GHL Solutions`;
   }
 }
 
-const HEADERS = {
-  'Authorization': `Bearer ${apiKey}`,
-  'Version': '2021-07-28',
-  'Content-Type': 'application/json',
-  'Accept': 'application/json'
-};
+const HEADERS = GHL_HEADERS;
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -56,37 +52,37 @@ async function sleep(ms) {
 let liveRateLimitBlockedUntil = 0;
 let backgroundRateLimitBlockedUntil = 0;
 
-async function fetchWithRetry(url, options, attempt = 1, isLive = false) {
-  const now = Date.now();
-  const blockedUntil = isLive ? liveRateLimitBlockedUntil : backgroundRateLimitBlockedUntil;
-
-  if (now < blockedUntil) {
-    const waitMs = blockedUntil - now;
-    await sleep(waitMs);
-  }
-
-  try {
-    if (global.apiCounters) global.apiCounters.ghl++;
-    const res = await fetch(url, options);
-    if (res.status === 429) {
-      console.warn(`[Chat Router Shield] ⚠️ GHL retornó 429. Pausando peticiones ${isLive ? 'EN VIVO' : 'DE FONDO'} durante 60 segundos...`);
-      if (isLive) {
-        liveRateLimitBlockedUntil = Date.now() + 60000;
-      } else {
-        backgroundRateLimitBlockedUntil = Date.now() + 60000;
-      }
-      await sleep(60000);
-      if (attempt < 4) return fetchWithRetry(url, options, attempt + 1, isLive);
-    }
-    return res;
-  } catch (e) {
-    if (attempt < 4) {
-      await sleep(2000 * attempt);
-      return fetchWithRetry(url, options, attempt + 1, isLive);
-    }
-    throw e;
-  }
+// fetchWithRetry ahora es un wrapper delgado sobre ghlFetch (centralizado en ghl_http_client.js)
+async function fetchWithRetry(url, options, attempt = 1, _isLive = false) {
+  return ghlFetch(url, options, attempt, 'Agente 3');
 }
+
+// Mapa para controlar reintentos por delay de indexación
+const indexingRetries = new Map();
+
+// 🔒 LOCK POR CONTACTO: Evita que el Radar y el Reverse Sync hagan PUT simultáneo al mismo contacto
+const contactLocks = new Set();
+const MAX_LOCK_WAIT_MS = 15000; // Máximo 15 segundos esperando un lock
+
+async function acquireContactLock(contactId) {
+  const start = Date.now();
+  while (contactLocks.has(contactId)) {
+    if (Date.now() - start > MAX_LOCK_WAIT_MS) {
+      console.warn(`[Lock Guard] ⚠️ Lock timeout para ${contactId}. Forzando liberación.`);
+      contactLocks.delete(contactId);
+      break;
+    }
+    await sleep(200);
+  }
+  contactLocks.add(contactId);
+}
+
+function releaseContactLock(contactId) {
+  contactLocks.delete(contactId);
+}
+
+// Exportar para que vtiger_sync_agent.js también use el mismo lock
+export { acquireContactLock, releaseContactLock };
 
 /**
  * Agente 3: Chat Router
@@ -94,6 +90,7 @@ async function fetchWithRetry(url, options, attempt = 1, isLive = false) {
  * aplicando una regla "Anti-Vivazos" (cooldown de 24 horas) para evitar rebotes entre oficinas.
  */
 export async function routeChatByContact(contactId, isLive = false, isDryRun = false) {
+  await acquireContactLock(contactId);
   try {
     console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive}, DryRun: ${isDryRun})`);
 
@@ -102,7 +99,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const convRes = await fetchWithRetry(convUrl, { headers: HEADERS }, 1, isLive);
     
     if (convRes.status !== 200) {
-      console.log(`[Agente 3] No se pudieron obtener las conversaciones para ${contactId}`);
+      console.log(`[Agente 3] No se pudieron obtener las conversaciones para ${contactId}. Status: ${convRes.status}`);
+      if (convRes.status >= 500) return 'RETRY';
       return;
     }
 
@@ -110,7 +108,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const conversations = convData.conversations || [];
     
     if (conversations.length === 0) {
-      console.log(`[Agente 3] Sin conversaciones para ${contactId}.`);
+      const retries = indexingRetries.get(contactId) || 0;
+      if (retries < 2) {
+        console.log(`[Agente 3] ⏱️ Posible delay de indexación para ${contactId}. Conversaciones vacías. Reintentando en próximo ciclo (Intento ${retries + 1}/2).`);
+        indexingRetries.set(contactId, retries + 1);
+        return 'RETRY_INDEXING';
+      }
+      console.log(`[Agente 3] Sin conversaciones indexadas tras 2 reintentos para ${contactId}. Ignorando.`);
+      indexingRetries.delete(contactId);
       return;
     }
 
@@ -122,7 +127,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const msgRes = await fetchWithRetry(msgUrl, { headers: HEADERS }, 1, isLive);
     
     if (msgRes.status !== 200) {
-      console.log(`[Agente 3] No se pudieron obtener los mensajes para la conv ${convId}`);
+      console.log(`[Agente 3] No se pudieron obtener los mensajes para la conv ${convId}. Status: ${msgRes.status}`);
+      if (msgRes.status >= 500) return 'RETRY';
       return;
     }
 
@@ -150,6 +156,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // Ordenar de más reciente a más antiguo
     fbMessages.sort((a, b) => b.timestamp - a.timestamp);
+
+    if (fbMessages.length === 0) {
+      const retries = indexingRetries.get(contactId) || 0;
+      if (retries < 2) {
+        console.log(`[Agente 3] ⏱️ Posible delay de indexación de FB para ${contactId}. Mensajes de FB vacíos. Reintentando en próximo ciclo (Intento ${retries + 1}/2).`);
+        indexingRetries.set(contactId, retries + 1);
+        return 'RETRY_INDEXING';
+      }
+    }
 
     let targetPageId = null;
     let targetPageName = null;
@@ -200,6 +215,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] No se encontró un asesor asignado para la página ${targetPageName}.`);
       return;
     }
+
+    indexingRetries.delete(contactId); // Limpiar reintentos en caso de éxito
 
     const existingTags = (contact.tags || []).map(t => String(t).toLowerCase());
     const isCustomerWon = existingTags.includes('cliente-comprador') || existingTags.includes('venta-cerrada');
@@ -687,6 +704,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const errText = await updateRes.text();
       console.error(`[Agente 3] Falló actualización atómica de ${contactId}. Status: ${updateRes.status} - Detalles: ${errText}`);
       
+      // 🛡️ AUTO-HEALING: Errores de servidor GHL (500/502/503)
+      // Marcar el contacto para re-proceso en el siguiente ciclo del Radar
+      if (updateRes.status >= 500) {
+        console.warn(`[Agente 3] ⚠️ GHL devolvió ${updateRes.status} para ${contactId}. Marcando para re-proceso en el siguiente ciclo.`);
+        return 'RETRY';
+      }
+
       // 🛡️ AUTO-HEALING: Conflicto de Contacto Duplicado (Phone/Email)
       if (updateRes.status === 400 && errText.includes('duplicated contacts') && errText.includes('matchingField')) {
         try {
@@ -723,6 +747,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
   } catch (error) {
     console.error(`[Agente 3] Error crítico en routeChatByContact:`, error.message);
+  } finally {
+    releaseContactLock(contactId);
   }
 }
 
