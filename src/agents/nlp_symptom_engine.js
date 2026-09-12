@@ -108,11 +108,11 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
     .sort((a, b) => b[1] - a[1])
     .map(([treatment]) => treatment);
 
-  // Solo consideramos un diagnóstico válido si superó el umbral de ruido conversacional (> 50 puntos)
+  // Solo consideramos un diagnóstico válido si superó el umbral de ruido conversacional (> 100 puntos)
   const topScore = sortedTreatments.length > 0 ? scores[sortedTreatments[0]] : 0;
-  const primaryTreatment = topScore >= 50 ? sortedTreatments[0] : null;
+  const primaryTreatment = topScore >= 100 ? sortedTreatments[0] : null;
   const productTags = sortedTreatments
-    .filter(t => scores[t] >= 50)
+    .filter(t => scores[t] >= 100)
     .map(t => `producto-${t.toLowerCase()}`);
 
   return {

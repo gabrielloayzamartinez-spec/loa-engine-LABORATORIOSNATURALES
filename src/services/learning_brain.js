@@ -182,7 +182,14 @@ class LearningBrain {
   extractNgrams(text, maxN = 3) {
     const clean = this.normalize(text);
     if (!clean) return [];
-    const tokens = clean.split(' ').filter(t => t.length > 2);
+    
+    const STOPWORDS = new Set([
+      'hola', 'quiero', 'informacion', 'precio', 'para', 'que', 'cual', 'numero',
+      'telefono', 'envio', 'gracias', 'poder', 'con', 'dia', 'perfecto', 'coordinar',
+      'ayudarte', 'enviaremos', 'mas', 'por', 'favor', 'como', 'donde', 'cuando', 'este', 'esta', 'eso', 'esa'
+    ]);
+
+    const tokens = clean.split(' ').filter(t => t.length > 2 && !STOPWORDS.has(t));
     const ngrams = [];
 
     // 1-grams
