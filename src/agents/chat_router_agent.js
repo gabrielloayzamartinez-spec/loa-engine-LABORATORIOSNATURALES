@@ -718,6 +718,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           const conflictField = errObj.meta && errObj.meta.matchingField;
           
           if (conflictField && updatePayload[conflictField]) {
+            const rescateValor = updatePayload[conflictField];
             console.log(`[Agente 3] ⚠️ Auto-Heal: Conflicto de duplicado en '${conflictField}'. Contacto real: ${errObj.meta.contactId}. Reintentando sin este campo...`);
             
             // 1. Remover el campo que causa el conflicto (GHL no permite 2 contactos con el mismo teléfono)
@@ -735,6 +736,20 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             
             if (retryRes.status === 200) {
                console.log(`[Agente 3] ✅ Auto-Heal Exitoso para ${contactId} tras esquivar conflicto de duplicado.`);
+               
+               if (rescateValor && isLive) {
+                 try {
+                   const notaText = `⚠️ NÚMERO RESCATADO DE VTIGER: ${rescateValor}\n(GHL bloqueó la inserción automática porque este número ya le pertenece a otro familiar. Usa este número para llamar.)`;
+                   await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/notes`, {
+                     method: 'POST',
+                     headers: HEADERS,
+                     body: JSON.stringify({ body: notaText, userId: updatePayload.assignedTo || null })
+                   }, 1, true);
+                   console.log(`[Agente 3] 📝 Nota de Rescate insertada exitosamente en GHL para ${contactId}.`);
+                 } catch (noteErr) {
+                   console.log(`[Agente 3] ⚠️ No se pudo insertar la nota de rescate: ${noteErr.message}`);
+                 }
+               }
             } else {
                console.error(`[Agente 3] ❌ Auto-Heal falló para ${contactId}. Status: ${retryRes.status}`);
             }
