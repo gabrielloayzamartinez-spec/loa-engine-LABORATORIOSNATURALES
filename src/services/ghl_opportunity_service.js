@@ -70,7 +70,7 @@ export async function findContactOpportunities(contactId) {
  * Si isWon = true, lo mueve a Ganado.
  * Si isWon = false y es nuevo, lo mete a Prospecto Inicial.
  */
-export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0) {
+export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0, assignedTo = null) {
   const cache = loadPipelineCache();
   if (!cache || !cache.unified) {
     console.error("⚠️ Pipeline unificado no encontrado en caché. Ejecuta pipeline_manager.js primero.");
@@ -112,18 +112,21 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
         // Siempre mover a Ganado (rank 3), sin importar dónde esté
         if (existingOpp.pipelineStageId !== stageGanadoId || existingOpp.status !== 'won' || existingOpp.monetaryValue !== Number(monetaryValue)) {
           console.log(`[Pipeline] 🏆 Moviendo Oportunidad de ${contactId} a GANADO (Valor: $${monetaryValue})`);
+          const putWonPayload = {
+            pipelineId: unifiedPipelineId,
+            locationId: locationId,
+            name: contactName || "Oportunidad Comercial",
+            pipelineStageId: stageGanadoId,
+            status: 'won',
+            contactId: contactId,
+            monetaryValue: Number(monetaryValue) || 0
+          };
+          if (assignedTo) putWonPayload.assignedTo = assignedTo;
+
           await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
             method: 'PUT',
             headers: HEADERS,
-            body: JSON.stringify({
-              pipelineId: unifiedPipelineId,
-              locationId: locationId,
-              name: contactName || "Oportunidad Comercial",
-              pipelineStageId: stageGanadoId,
-              status: 'won',
-              contactId: contactId,
-              monetaryValue: Number(monetaryValue) || 0
-            })
+            body: JSON.stringify(putWonPayload)
           });
         }
         return;
@@ -136,45 +139,70 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       if (currentRank >= 1) {
         // Ya está en Capturado, Seguimiento, Ganado o Perdido → NO TOCAR
         console.log(`[Pipeline] ⏸️ Oportunidad de ${contactId} ya está en etapa ${currentRank} (rank >= 1). No se retrocede.`);
-        // Solo actualizar valor monetario si cambió
-        if (existingOpp.monetaryValue !== Number(monetaryValue) && Number(monetaryValue) > 0) {
+        // Solo actualizar valor monetario o asignación si faltaba
+        const needsMonetaryUpdate = existingOpp.monetaryValue !== Number(monetaryValue) && Number(monetaryValue) > 0;
+        const needsAdvisorAssign = !existingOpp.assignedTo && assignedTo;
+        if (needsMonetaryUpdate || needsAdvisorAssign) {
+          const putRankPayload = {
+            pipelineId: unifiedPipelineId,
+            locationId: locationId,
+            name: contactName || existingOpp.name,
+            pipelineStageId: existingOpp.pipelineStageId,
+            status: existingOpp.status,
+            contactId: contactId,
+            monetaryValue: Number(monetaryValue) || 0
+          };
+          if (assignedTo) putRankPayload.assignedTo = assignedTo;
+
           await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
             method: 'PUT',
             headers: HEADERS,
-            body: JSON.stringify({
-              pipelineId: unifiedPipelineId,
-              locationId: locationId,
-              name: contactName || existingOpp.name,
-              pipelineStageId: existingOpp.pipelineStageId,
-              status: existingOpp.status,
-              contactId: contactId,
-              monetaryValue: Number(monetaryValue) || 0
-            })
+            body: JSON.stringify(putRankPayload)
           });
         }
         return;
       }
 
-      // Si está en Prospecto Inicial (rank 0), dejarlo ahí (ya está donde debe)
-      // No hacer nada adicional.
+      // Si está en Prospecto Inicial (rank 0), actualizar nombre enriquecido y asignación
+      if (currentRank === 0 && (existingOpp.name !== contactName || (!existingOpp.assignedTo && assignedTo))) {
+        const updateRank0Payload = {
+          pipelineId: unifiedPipelineId,
+          locationId: locationId,
+          name: contactName || existingOpp.name,
+          pipelineStageId: existingOpp.pipelineStageId,
+          status: existingOpp.status,
+          contactId: contactId,
+          monetaryValue: Number(monetaryValue) || 0
+        };
+        if (assignedTo) updateRank0Payload.assignedTo = assignedTo;
+
+        await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
+          method: 'PUT',
+          headers: HEADERS,
+          body: JSON.stringify(updateRank0Payload)
+        });
+      }
 
     } else if (createIfMissing) {
       // 3. Crear nueva oportunidad si no existe
       const targetStageId = isWon ? stageGanadoId : stageProspectoId;
       const targetStatus = isWon ? 'won' : 'open';
       console.log(`[Pipeline] ✨ Creando nueva Oportunidad para ${contactId} en Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
+      const createPayload = {
+        pipelineId: unifiedPipelineId,
+        locationId: locationId,
+        name: contactName || "Oportunidad Comercial",
+        pipelineStageId: targetStageId,
+        status: targetStatus,
+        contactId: contactId,
+        monetaryValue: Number(monetaryValue) || 0
+      };
+      if (assignedTo) createPayload.assignedTo = assignedTo;
+
       await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/`, {
         method: 'POST',
         headers: HEADERS,
-        body: JSON.stringify({
-          pipelineId: unifiedPipelineId,
-          locationId: locationId,
-          name: contactName || "Oportunidad Comercial",
-          pipelineStageId: targetStageId,
-          status: targetStatus,
-          contactId: contactId,
-          monetaryValue: Number(monetaryValue) || 0
-        })
+        body: JSON.stringify(createPayload)
       });
     }
   }, 'NORMAL');

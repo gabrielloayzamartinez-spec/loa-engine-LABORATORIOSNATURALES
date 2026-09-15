@@ -9,7 +9,11 @@ echo.
 echo Repositorio destino:
 echo https://github.com/gabrielloayzamartinez-spec/loa-engine-LABORATORIOSNATURALES.git
 echo.
-echo Subiendo ramas y archivos...
+echo Guardando cambios y mejoras locales...
+git add -A
+git commit -m "feat(palacios): optimizacion Ad ID en vivo, tarjetas enriquecidas y limpieza de scripts"
+echo.
+echo Subiendo ramas y archivos a GitHub...
 git push -u origin main
 echo.
 echo =======================================================================

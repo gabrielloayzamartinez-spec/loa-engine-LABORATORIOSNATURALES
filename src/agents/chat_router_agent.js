@@ -333,8 +333,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let targetAdName = null;
 
     // 🔥 ACTUALIZACIÓN CONSTANTE DE UTMs EN VIVO (Meta Graph)
-    if (latestAdId && latestAdId !== 'N/A') {
-      const metaDetails = await getMetaAdDetails(latestAdId);
+    if (targetAdId && targetAdId !== 'N/A') {
+      const metaDetails = await getMetaAdDetails(targetAdId);
       if (metaDetails) {
         latestCampaign = metaDetails.campaignName || latestCampaign;
         targetAdName = metaDetails.adName || metaDetails.creativeTitle;
@@ -546,7 +546,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // 🚀 SINCRONIZACIÓN DE PIPELINE (Orquestación LOA)
     try {
-      await syncUnifiedPipelineOpportunity(contactId, fullName, finalCustomerWon, true, finalMonetaryValue);
+      const cleanSede = (targetPageName?.toLowerCase().includes('bionatural') || targetPageName?.toLowerCase().includes('palacios')) 
+        ? 'PALACIOS' 
+        : (targetPageName ? targetPageName.replace(/Naturales\s*/i, '').trim().toUpperCase() : 'SEDE');
+      const campaignSnippet = (latestCampaign || targetAdName || 'Directa').substring(0, 32);
+      const cardTitle = `${fullName} | 🏢 ${cleanSede} | 📣 ${campaignSnippet}`;
+      await syncUnifiedPipelineOpportunity(contactId, cardTitle, finalCustomerWon, true, finalMonetaryValue, targetAdvisorId);
     } catch (oppErr) {
       console.error(`[Agente 3] Error sincronizando pipeline para ${contactId}:`, oppErr.message);
     }
