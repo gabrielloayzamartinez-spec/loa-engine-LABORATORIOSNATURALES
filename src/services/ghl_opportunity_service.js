@@ -77,12 +77,13 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
     return;
   }
 
-  const unifiedPipelineId = cache.unified.pipelineId;
-  const stageGanadoId = cache.unified.stageGanadoId;
-  const stageProspectoId = cache.unified.stageProspectoInicialId;
-  const stageCapturadoId = cache.unified.stageContactoCapturadoId;
-  const stageSeguimientoId = cache.unified.stageSeguimientoId;
-  const stagePerdidoId = cache.unified.stagePerdidoId;
+  const unifiedPipelineId = cache.unified.pipelineId || 'TetMBFc4R1p4cpNhRr2L';
+  const stages = cache.unified.stages || [];
+  const stageProspectoId = stages[0]?.id || cache.unified.stageProspectoInicialId || '6c38e349-79d6-4ee4-be81-e16112f3c279';
+  const stageCapturadoId = stages[1]?.id || cache.unified.stageContactoCapturadoId || '0da5ba47-8747-4edd-a271-2f927ccc3937';
+  const stageSeguimientoId = stages[2]?.id || cache.unified.stageSeguimientoId || '5ce95579-c5b3-4b36-a963-9936ee5ae996';
+  const stageGanadoId = stages[3]?.id || cache.unified.stageGanadoId || '3174c6f7-397e-42de-9ee7-780053c3920a';
+  const stagePerdidoId = stages[4]?.id || cache.unified.stagePerdidoId || 'c35c57b1-a17c-432d-aa17-e1da89beb012';
 
   // Orden jerárquico de etapas (de menor a mayor avance)
   // Solo se puede AVANZAR, nunca retroceder.
@@ -111,7 +112,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       if (isWon) {
         // Siempre mover a Ganado (rank 3), sin importar dónde esté
         if (existingOpp.pipelineStageId !== stageGanadoId || existingOpp.status !== 'won' || existingOpp.monetaryValue !== Number(monetaryValue)) {
-          console.log(`[Pipeline] 🏆 Moviendo Oportunidad de ${contactId} a GANADO (Valor: $${monetaryValue})`);
+          console.log(`[Pipeline] Moviendo Oportunidad de ${contactId} a GANADO (Valor: $${monetaryValue})`);
           const putWonPayload = {
             pipelineId: unifiedPipelineId,
             locationId: locationId,
@@ -138,7 +139,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       // el motor NO la devuelve a "Prospecto Inicial".
       if (currentRank >= 1) {
         // Ya está en Capturado, Seguimiento, Ganado o Perdido → NO TOCAR
-        console.log(`[Pipeline] ⏸️ Oportunidad de ${contactId} ya está en etapa ${currentRank} (rank >= 1). No se retrocede.`);
+        console.log(`[Pipeline] Oportunidad de ${contactId} ya está en etapa ${currentRank} (rank >= 1). No se retrocede.`);
         // Solo actualizar valor monetario o asignación si faltaba
         const needsMonetaryUpdate = existingOpp.monetaryValue !== Number(monetaryValue) && Number(monetaryValue) > 0;
         const needsAdvisorAssign = !existingOpp.assignedTo && assignedTo;
@@ -187,7 +188,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       // 3. Crear nueva oportunidad si no existe
       const targetStageId = isWon ? stageGanadoId : stageProspectoId;
       const targetStatus = isWon ? 'won' : 'open';
-      console.log(`[Pipeline] ✨ Creando nueva Oportunidad para ${contactId} en Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
+      console.log(`[Pipeline] Creando nueva Oportunidad para ${contactId} en Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
       const createPayload = {
         pipelineId: unifiedPipelineId,
         locationId: locationId,
@@ -205,5 +206,5 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
         body: JSON.stringify(createPayload)
       });
     }
-  }, 'NORMAL');
+  }, 'HIGH');
 }

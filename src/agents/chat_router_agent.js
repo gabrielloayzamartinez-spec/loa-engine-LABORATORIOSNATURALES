@@ -544,13 +544,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.warn(`[Agente 3] ⚠️ No se pudo evaluar estado comercial en vivo para ${contactId}:`, commErr.message);
     }
 
-    // 🚀 SINCRONIZACIÓN DE PIPELINE (Orquestación LOA)
+    // SINCRONIZACION DE PIPELINE (Orquestacion LOA)
     try {
       const cleanSede = (targetPageName?.toLowerCase().includes('bionatural') || targetPageName?.toLowerCase().includes('palacios')) 
         ? 'PALACIOS' 
         : (targetPageName ? targetPageName.replace(/Naturales\s*/i, '').trim().toUpperCase() : 'SEDE');
       const campaignSnippet = (latestCampaign || targetAdName || 'Directa').substring(0, 32);
-      const cardTitle = `${fullName} | 🏢 ${cleanSede} | 📣 ${campaignSnippet}`;
+      const cardTitle = `${fullName} | ${cleanSede} | ${campaignSnippet}`;
       await syncUnifiedPipelineOpportunity(contactId, cardTitle, finalCustomerWon, true, finalMonetaryValue, targetAdvisorId);
     } catch (oppErr) {
       console.error(`[Agente 3] Error sincronizando pipeline para ${contactId}:`, oppErr.message);
