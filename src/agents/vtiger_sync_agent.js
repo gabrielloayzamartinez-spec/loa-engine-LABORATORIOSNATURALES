@@ -75,7 +75,7 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
 
     if (!modifiedContacts || modifiedContacts.length === 0) return;
     
-    console.log(`[Reverse Sync] 🔄 ${modifiedContacts.length} contactos modificados en vTiger detectados en los últimos ${minutesLookback} mins. Sincronizando a GHL...`);
+    console.log(`[Reverse Sync] [SYNC] ${modifiedContacts.length} contactos modificados en vTiger detectados en los últimos ${minutesLookback} mins. Sincronizando a GHL...`);
 
     let syncCount = 0;
     for (const vContact of modifiedContacts) {
@@ -141,7 +141,7 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
 
         if (updateRes.status === 200) {
            syncCount++;
-           console.log(`[Reverse Sync] ✅ Cliente ${vContact.firstname} ${vContact.lastname} sincronizado de vTiger a GHL exitosamente.`);
+           console.log(`[Reverse Sync] [SUCCESS] Cliente ${vContact.firstname} ${vContact.lastname} sincronizado de vTiger a GHL exitosamente.`);
         }
       } finally {
         releaseContactLock(ghlContact.id);

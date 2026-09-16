@@ -127,7 +127,7 @@ setInterval(() => {
     }
   }
   if (pruned > 0 || processedContactTimestamps.size > 100) {
-    console.log(`[Memory Guard] 🧹 Mapa podado: ${pruned} entradas eliminadas. Tamaño actual: ${processedContactTimestamps.size}`);
+    console.log(`[Memory Guard] [CLEANUP] Mapa podado: ${pruned} entradas eliminadas. Tamaño actual: ${processedContactTimestamps.size}`);
   }
 }, 10 * 60 * 1000);
 
@@ -160,13 +160,13 @@ async function runExpressAssignment() {
       if (hoursAgo > 24) continue;
 
       countNew++;
-      console.log(`[${timeStr}] [Worker 1] ⚡ Procesando lead fresco: ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
+      console.log(`[${timeStr}] [Worker 1] [PROCESSING] Lead fresco: ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
       
       const result = await routeChatByContact(contact.id, true);
       
       // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
       if (result === 'RETRY' || result === 'RETRY_INDEXING') {
-        console.log(`[${timeStr}] [Worker 1] 🔄 Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
+        console.log(`[${timeStr}] [Worker 1] [RETRY] Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
       } else {
         // Guardamos el timestamp exacto de esta actualización para no volver a procesarla hasta que el lead vuelva a hacer algo
         processedContactTimestamps.set(contact.id, updatedAt);
@@ -771,7 +771,7 @@ app.post('/webhook/ghl-contact', async (req, res) => {
     setTimeout(async () => {
       try {
         await routeChatByContact(contactData.id);
-        if (global.pushLiveLog) global.pushLiveLog(`⚡ Worker 1 Webhook: Ruteado e hidratado ${contactData.id}`);
+        if (global.pushLiveLog) global.pushLiveLog(`[WORKER] Worker 1 Webhook: Ruteado e hidratado ${contactData.id}`);
       } catch (err) {
         console.error("[Worker 1 Webhook Error]:", err.message);
       }
@@ -867,7 +867,7 @@ app.get('/api/vtiger/sync', async (req, res) => {
   try {
     const result = await syncVtigerGroundTruthToBrain(30);
     stats.vtigerSynced = (stats.vtigerSynced || 0) + (result.trainedCount || 0);
-    stats.vtigerStatus = result.success ? '🟢 Conectado y Aprendiendo' : '⚠️ Error de Conexión';
+    stats.vtigerStatus = result.success ? '[ONLINE] Conectado y Aprendiendo' : '[ERROR] Error de Conexión';
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -907,29 +907,29 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     const vtigerStatus = await checkVTigerHealth();
     vtigerConnectionStatus = vtigerStatus;
     if (vtigerStatus.status === 'OK') {
-      console.log('✅ Conexión con vTiger CRM verificada correctamente.');
+      console.log('[VTIGER] [SUCCESS] Conexión con vTiger CRM verificada correctamente.');
     } else {
-      console.error('❌ Error de conexión con vTiger CRM:', vtigerStatus.message);
+      console.error('[VTIGER] [ERROR] Error de conexión con vTiger CRM:', vtigerStatus.message);
     }
   } catch (err) {
     vtigerConnectionStatus = { status: 'ERROR', message: err.message };
-    console.error('❌ Error fatal al verificar vTiger:', err.message);
+    console.error('[VTIGER] [FATAL] Error fatal al verificar vTiger:', err.message);
   }
 
   // Ejecución obligatoria de pre-flight check antes de admitir tráfico
   const isHealthy = runPreFlightSanityCheck();
   if (!isHealthy) {
-    console.error('❌ ERROR FATAL: El motor no superó el Pre-Flight Sanity Check. Deteniendo para evitar datos corruptos.');
+    console.error('[INIT] [FATAL] El motor no superó el Pre-Flight Sanity Check. Deteniendo para evitar datos corruptos.');
     process.exit(1);
   }
 
   console.log(`\n==========================================================`);
-  console.log(`🎯 LOA ENGINE 2.0 (AUTOAPRENDIZAJE + VTIGER + RADAR 24/7)`);
-  console.log(`📡 Puerto: ${PORT} | Dashboard: http://localhost:${PORT}/health`);
-  console.log(`🛡️ Token Bucket Shield: 1.2s entre curaciones de fondo (0% saturación)`);
-  console.log(`🧠 Learning Brain: Memoria activa y feedback loop conectado a vTiger`);
-  console.log(`⚡ Radar en Vivo: Escaneando tráfico de hoy cada 20 segundos`);
-  console.log(`🌐 Webhooks: /webhook/ghl-contact, /webhook/meta, /webhook/vtiger`);
+  console.log(`[INIT] LOA ENGINE 2.0 (AUTOAPRENDIZAJE + VTIGER + RADAR 24/7)`);
+  console.log(`[CONFIG] Puerto: ${PORT} | Dashboard: http://localhost:${PORT}/health`);
+  console.log(`[SECURITY] Token Bucket Shield: 1.2s entre curaciones de fondo (0% saturación)`);
+  console.log(`[AI] Learning Brain: Memoria activa y feedback loop conectado a vTiger`);
+  console.log(`[RADAR] Radar en Vivo: Escaneando tráfico de hoy cada 20 segundos`);
+  console.log(`[ROUTES] Webhooks: /webhook/ghl-contact, /webhook/meta, /webhook/vtiger`);
   console.log(`==========================================================\n`);
 
   // Sincronización inicial suave de Ground Truth con vTiger CRM

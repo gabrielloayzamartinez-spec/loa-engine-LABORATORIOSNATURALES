@@ -73,7 +73,7 @@ export async function findContactOpportunities(contactId) {
 export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0, assignedTo = null) {
   const cache = loadPipelineCache();
   if (!cache || !cache.unified) {
-    console.error("⚠️ Pipeline unificado no encontrado en caché. Ejecuta pipeline_manager.js primero.");
+    console.error("[WARN] Pipeline unificado no encontrado en caché. Ejecuta pipeline_manager.js primero.");
     return;
   }
 
@@ -112,7 +112,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       if (isWon) {
         // Siempre mover a Ganado (rank 3), sin importar dónde esté
         if (existingOpp.pipelineStageId !== stageGanadoId || existingOpp.status !== 'won' || existingOpp.monetaryValue !== Number(monetaryValue)) {
-          console.log(`[Pipeline] Moviendo Oportunidad de ${contactId} a GANADO (Valor: $${monetaryValue})`);
+          console.log(`[Pipeline] [WON] Moviendo Oportunidad de ${contactId} a GANADO (Valor: $${monetaryValue})`);
           const putWonPayload = {
             pipelineId: unifiedPipelineId,
             locationId: locationId,
@@ -139,7 +139,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       // el motor NO la devuelve a "Prospecto Inicial".
       if (currentRank >= 1) {
         // Ya está en Capturado, Seguimiento, Ganado o Perdido → NO TOCAR
-        console.log(`[Pipeline] Oportunidad de ${contactId} ya está en etapa ${currentRank} (rank >= 1). No se retrocede.`);
+        console.log(`[Pipeline] [LOCKED] Oportunidad de ${contactId} ya está en etapa ${currentRank} (rank >= 1). No se retrocede.`);
         // Solo actualizar valor monetario o asignación si faltaba
         const needsMonetaryUpdate = existingOpp.monetaryValue !== Number(monetaryValue) && Number(monetaryValue) > 0;
         const needsAdvisorAssign = !existingOpp.assignedTo && assignedTo;
@@ -188,7 +188,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       // 3. Crear nueva oportunidad si no existe
       const targetStageId = isWon ? stageGanadoId : stageProspectoId;
       const targetStatus = isWon ? 'won' : 'open';
-      console.log(`[Pipeline] Creando nueva Oportunidad para ${contactId} en Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
+      console.log(`[Pipeline] [OPPORTUNITY] Creando nueva Oportunidad para ${contactId} en Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
       const createPayload = {
         pipelineId: unifiedPipelineId,
         locationId: locationId,

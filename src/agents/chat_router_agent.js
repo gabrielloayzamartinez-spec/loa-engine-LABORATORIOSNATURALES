@@ -37,7 +37,7 @@ Marketing GHL Solutions`;
       headers: HEADERS,
       body: JSON.stringify({ body: noteBody })
     });
-    console.log(`[Agente 4 Save Process] 📝 Nota histórica inyectada para contacto ${contactId}`);
+    console.log(`[Agente 4 Save Process] [NOTE] Nota histórica inyectada para contacto ${contactId}`);
   } catch (err) {
     console.error(`[Agente 4 Save Process Error]:`, err.message);
   }
@@ -68,7 +68,7 @@ async function acquireContactLock(contactId) {
   const start = Date.now();
   while (contactLocks.has(contactId)) {
     if (Date.now() - start > MAX_LOCK_WAIT_MS) {
-      console.warn(`[Lock Guard] ⚠️ Lock timeout para ${contactId}. Forzando liberación.`);
+      console.warn(`[Lock Guard] [WARN] Lock timeout para ${contactId}. Forzando liberación.`);
       contactLocks.delete(contactId);
       break;
     }
@@ -110,7 +110,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (conversations.length === 0) {
       const retries = indexingRetries.get(contactId) || 0;
       if (retries < 2) {
-        console.log(`[Agente 3] ⏱️ Posible delay de indexación para ${contactId}. Conversaciones vacías. Reintentando en próximo ciclo (Intento ${retries + 1}/2).`);
+        console.log(`[Agente 3] [WAIT] Posible delay de indexación para ${contactId}. Conversaciones vacías. Reintentando en próximo ciclo (Intento ${retries + 1}/2).`);
         indexingRetries.set(contactId, retries + 1);
         return 'RETRY_INDEXING';
       }
@@ -160,7 +160,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (fbMessages.length === 0) {
       const retries = indexingRetries.get(contactId) || 0;
       if (retries < 2) {
-        console.log(`[Agente 3] ⏱️ Posible delay de indexación de FB para ${contactId}. Mensajes de FB vacíos. Reintentando en próximo ciclo (Intento ${retries + 1}/2).`);
+        console.log(`[Agente 3] [WAIT] Posible delay de indexación de FB para ${contactId}. Mensajes de FB vacíos. Reintentando en próximo ciclo (Intento ${retries + 1}/2).`);
         indexingRetries.set(contactId, retries + 1);
         return 'RETRY_INDEXING';
       }
@@ -247,7 +247,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     if (blockingMsg) {
       const blockingPageName = FB_PAGE_ID_MAP[blockingMsg.pageId] || blockingMsg.pageId;
-      console.log(`[Agente 3] 🛡️ BLINDAJE DE SEDE ACTIVO para ${contactId}.`);
+      console.log(`[Agente 3] [GUARD] Blindaje de sede activo para ${contactId}.`);
       console.log(`El contacto acaba de escribir a [${targetPageName}], pero está protegido por [${blockingPageName}] (${isCustomerWon ? 'GRACIA 1 MES DE RECOMPRA ACTIVA' : 'GRACIA 4 DÍAS ACTIVA'}).`);
       console.log(`-> Se aborta la reasignación para mantener la exclusividad de la sede.`);
       return;
@@ -271,7 +271,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         const minutesSinceLastAdvisorMsg = (Date.now() - newestOutboundTimestamp) / (1000 * 60);
         if (minutesSinceLastAdvisorMsg < 3) {
           isLiveChatting = true;
-          console.log(`[Agente 3] 🛡️ UX GUARD ACTIVO: Chat reciente detectado (< 3 min). Se omitirá la reasignación visual para no interrumpir al asesor, pero se actualizarán etiquetas en segundo plano.`);
+          console.log(`[Agente 3] [UX-GUARD] Chat reciente detectado (< 3 min). Se omitirá la reasignación visual para no interrumpir al asesor, pero se actualizarán etiquetas en segundo plano.`);
         }
       }
     }
@@ -356,7 +356,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         const vCond = vContact.cf_2610 || '';
         vtigerTreatment = inferTreatmentFromCampaignOrUtm(vCond) || (vCond.length > 2 ? vCond : null);
         if (vtigerTreatment) {
-          console.log(`[Agente 3] 🏢 Ground Truth vTiger para ${contact.id}: [${vtigerTreatment}]`);
+          console.log(`[Agente 3] [VTIGER] Ground Truth vTiger para ${contact.id}: [${vtigerTreatment}]`);
           learningBrain.learnFromVtigerSale({
             treatment: vtigerTreatment,
             chatText: combinedText,
@@ -541,7 +541,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact);
       customFieldsToUpdate.push(...sanitizedCommercialFields);
     } catch (commErr) {
-      console.warn(`[Agente 3] ⚠️ No se pudo evaluar estado comercial en vivo para ${contactId}:`, commErr.message);
+      console.warn(`[Agente 3] [WARN] No se pudo evaluar estado comercial en vivo para ${contactId}:`, commErr.message);
     }
 
     // SINCRONIZACION DE PIPELINE (Orquestacion LOA)
@@ -566,7 +566,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // 🛡️ ESCUDO DE PROPIETARIO & UX GUARD
     // No robar la asignación si ya es cliente cerrado en vTiger, O si el usuario está en chat activo
     if (isLiveChatting || (finalCustomerWon && contact.assignedTo)) {
-      console.log(`[Agente 3] 🛡️ Escudo de Propietario o UX Guard activado para ${contactId}. Se mantiene asignado al actual.`);
+      console.log(`[Agente 3] [UX-GUARD] Escudo de Propietario activado para ${contactId}. Se mantiene asignado al actual.`);
       // No incluimos 'assignedTo' en el payload
     } else {
       updatePayload.assignedTo = targetAdvisorId; // Regla de Oro: Sede actual
@@ -628,7 +628,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // 🚀 EJECUTAR PURGA DE ETIQUETAS FALSAS EN GHL (API V2)
     if (tagsToRemove.length > 0) {
-      console.log(`[Agente 3] 🧹 Purgando etiquetas huérfanas de ${contactId}: ${tagsToRemove.join(', ')}`);
+      console.log(`[Agente 3] [CLEANUP] Purgando etiquetas huérfanas de ${contactId}: ${tagsToRemove.join(', ')}`);
       await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
         method: 'DELETE',
         headers: HEADERS,
@@ -661,7 +661,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const hasChanges = !isSameAdvisor || !isSameSource || tagsChanged || hasCFChanges || hasPhoneUpdate || hasGeoUpdate;
 
     if (!hasChanges) {
-      console.log(`[Agente 3] ⚡ Contacto ${contactId} ya está 100% sincronizado. Omitiendo PUT para evitar parpadeos en pantalla.`);
+      console.log(`[Agente 3] [SYNC] Contacto ${contactId} ya está 100% sincronizado. Omitiendo PUT para evitar parpadeos en pantalla.`);
       return;
     }
 
@@ -686,9 +686,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     if (updateRes.status === 200) {
       if (global.pushLiveLog) {
-        global.pushLiveLog(`⚡ Agente 3: ${contact.name || 'Lead'} -> ${targetAdvisorName} | Src: ${vtigerSource}`);
+        global.pushLiveLog(`[ROUTING] Agente 3: ${contact.name || 'Lead'} -> ${targetAdvisorName} | Src: ${vtigerSource}`);
       }
-      console.log(`[Agente 3] ✅ ÉXITO: ${contact.firstName || ''} ${contact.lastName || ''} (${contactId}) | Ad ID: ${targetAdId || 'N/A'} | Fuente: ${vtigerSource} | Estado: ${updatePayload.state || contact.state || '--'} | Actualizado OK.`);
+      console.log(`[Agente 3] [SUCCESS] ${contact.firstName || ''} ${contact.lastName || ''} (${contactId}) | Ad ID: ${targetAdId || 'N/A'} | Fuente: ${vtigerSource} | Estado: ${updatePayload.state || contact.state || '--'} | Actualizado OK.`);
 
       // 📌 H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA SOLO SI HUBO CAMBIO DE AD O DE TRATAMIENTO
       const adChanged = latestAdId && latestAdId !== currentAdId;
@@ -712,7 +712,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       // 🛡️ AUTO-HEALING: Errores de servidor GHL (500/502/503)
       // Marcar el contacto para re-proceso en el siguiente ciclo del Radar
       if (updateRes.status >= 500) {
-        console.warn(`[Agente 3] ⚠️ GHL devolvió ${updateRes.status} para ${contactId}. Marcando para re-proceso en el siguiente ciclo.`);
+        console.warn(`[Agente 3] [WARN] GHL devolvió ${updateRes.status} para ${contactId}. Marcando para re-proceso en el siguiente ciclo.`);
         return 'RETRY';
       }
 
@@ -724,7 +724,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           
           if (conflictField && updatePayload[conflictField]) {
             const rescateValor = updatePayload[conflictField];
-            console.log(`[Agente 3] ⚠️ Auto-Heal: Conflicto de duplicado en '${conflictField}'. Contacto real: ${errObj.meta.contactId}. Reintentando sin este campo...`);
+            console.log(`[Agente 3] [WARN] [AUTO-HEAL] Conflicto de duplicado en '${conflictField}'. Contacto real: ${errObj.meta.contactId}. Reintentando sin este campo...`);
             
             // 1. Remover el campo que causa el conflicto (GHL no permite 2 contactos con el mismo teléfono)
             delete updatePayload[conflictField];
@@ -740,23 +740,23 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             }, 1, isLive);
             
             if (retryRes.status === 200) {
-               console.log(`[Agente 3] ✅ Auto-Heal Exitoso para ${contactId} tras esquivar conflicto de duplicado.`);
+               console.log(`[Agente 3] [SUCCESS] [AUTO-HEAL] Auto-Heal Exitoso para ${contactId} tras esquivar conflicto de duplicado.`);
                
                if (rescateValor && isLive) {
                  try {
-                   const notaText = `⚠️ NÚMERO RESCATADO DE VTIGER: ${rescateValor}\n(GHL bloqueó la inserción automática porque este número ya le pertenece a otro familiar. Usa este número para llamar.)`;
+                   const notaText = `[AVISO] NÚMERO RESCATADO DE VTIGER: ${rescateValor}\n(GHL bloqueó la inserción automática porque este número ya le pertenece a otro familiar. Usa este número para llamar.)`;
                    await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/notes`, {
                      method: 'POST',
                      headers: HEADERS,
                      body: JSON.stringify({ body: notaText, userId: updatePayload.assignedTo || null })
                    }, 1, true);
-                   console.log(`[Agente 3] 📝 Nota de Rescate insertada exitosamente en GHL para ${contactId}.`);
+                   console.log(`[Agente 3] [NOTE] Nota de Rescate insertada exitosamente en GHL para ${contactId}.`);
                  } catch (noteErr) {
-                   console.log(`[Agente 3] ⚠️ No se pudo insertar la nota de rescate: ${noteErr.message}`);
+                   console.log(`[Agente 3] [WARN] No se pudo insertar la nota de rescate: ${noteErr.message}`);
                  }
                }
             } else {
-               console.error(`[Agente 3] ❌ Auto-Heal falló para ${contactId}. Status: ${retryRes.status}`);
+               console.error(`[Agente 3] [ERROR] [AUTO-HEAL] Auto-Heal falló para ${contactId}. Status: ${retryRes.status}`);
             }
           }
         } catch (parseErr) {

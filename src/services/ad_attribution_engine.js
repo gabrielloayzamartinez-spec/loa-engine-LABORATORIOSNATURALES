@@ -104,7 +104,7 @@ export async function auditAdAttribution(contactId, options = {}) {
 
     const conversations = convData.conversations || [];
     if (conversations.length === 0) {
-      if (!isSilent) console.log(`  ℹ️ El contacto ${fullName} no tiene conversaciones registradas.`);
+      if (!isSilent) console.log(`  [INFO] El contacto ${fullName} no tiene conversaciones registradas.`);
       return { success: true, totalAdClicks: 0, reason: 'no_conversations' };
     }
 
@@ -154,7 +154,7 @@ export async function auditAdAttribution(contactId, options = {}) {
 
     // Si no hay clics de pauta en los chats
     if (rawAdInteractions.length === 0) {
-      if (!isSilent) console.log(`  ℹ️ No se detectaron clics de pauta directa para ${fullName}.`);
+      if (!isSilent) console.log(`  [INFO] No se detectaron clics de pauta directa para ${fullName}.`);
       return { success: true, totalAdClicks: 0, isOrganic: true };
     }
 
@@ -232,8 +232,8 @@ export async function auditAdAttribution(contactId, options = {}) {
     const isMultipleClick = totalAdClicks > 1;
     const clicksToDiscount = reentriesCount;
 
-    // 🏢 Detección del Estatus Comercial (vTiger CRM + GHL)
-    let commercialStatus = '💬 CURIOSO (En chat preliminar / Sin teléfono ni compra)';
+    // Detección del Estatus Comercial (vTiger CRM + GHL)
+    let commercialStatus = 'SIN VENTA (En chat preliminar / Sin teléfono ni compra)';
     try {
       const vContact = await findVTigerContact(contact);
       if (vContact) {
@@ -241,15 +241,15 @@ export async function auditAdAttribution(contactId, options = {}) {
         const montoTotal = parseFloat(vContact.cf_3392 || vContact.cf_3238 || '0');
         const isWon = vContact.cf_1876 === 'CONVERTIDO' || numCompras > 0 || montoTotal > 0;
         if (isWon) {
-          commercialStatus = `🛍️ CLIENTE COMPRADOR (${numCompras || 1} compra(s) en vTiger / $${montoTotal || 0})`;
+          commercialStatus = `CONVERTIDO (${numCompras || 1} compra(s) en vTiger / $${montoTotal || 0})`;
         } else if (contact.phone) {
-          commercialStatus = `📞 PROSPECTO CALIFICADO (Datos para envío / Sin compra aún)`;
+          commercialStatus = `PROSPECTO CALIFICADO (Datos para envío / Sin compra aún)`;
         }
       } else if (contact.phone) {
-        commercialStatus = `📞 PROSPECTO CALIFICADO (Con teléfono)`;
+        commercialStatus = `PROSPECTO CALIFICADO (Con teléfono)`;
       }
     } catch (e) {
-      if (contact.phone) commercialStatus = `📞 PROSPECTO CALIFICADO (Con teléfono)`;
+      if (contact.phone) commercialStatus = `PROSPECTO CALIFICADO (Con teléfono)`;
     }
 
     // 🧬 Intereses Clínicos Acumulados
@@ -265,7 +265,7 @@ export async function auditAdAttribution(contactId, options = {}) {
     } else if (allTreatmentsList.length === 2) {
       treatmentsLabel = `${allTreatmentsList[0]} + ${allTreatmentsList[1]} (Interés en 2 tratamientos)`;
     } else if (allTreatmentsList.length >= 3) {
-      treatmentsLabel = `⚠️ MULTICONSULTA: ${allTreatmentsList.join(', ')} (${allTreatmentsList.length} tratamientos)`;
+      treatmentsLabel = `MULTICONSULTA: ${allTreatmentsList.join(', ')} (${allTreatmentsList.length} tratamientos)`;
     }
 
     // 5. Determinar Clasificación y Etiquetas
@@ -372,7 +372,7 @@ export async function auditAdAttribution(contactId, options = {}) {
     };
 
   } catch (error) {
-    console.error(`  ❌ Error en auditoría de pauta para contacto ${contactId}:`, error.message);
+    console.error(`  [ERROR] Error en auditoría de pauta para contacto ${contactId}:`, error.message);
     return { success: false, error: error.message };
   }
 }
@@ -452,24 +452,24 @@ async function injectAuditFinancialNote(contactId, fullName, info = {}) {
     if (doubleEntries.length > 0) {
       statusSummary = `⭐ DOBLE INGRESO VÁLIDO: Cliente con ${touchpoints.length} interacciones legítimas en campañas/sedes independientes. Todos los ingresos son válidos.`;
     } else if (touchpoints.length > 1) {
-      statusSummary = `🟡 REINGRESO (Mismo Producto): El asesor continúa el seguimiento del caso original.`;
+      statusSummary = `REINGRESO (Mismo Producto): El asesor continúa el seguimiento del caso original.`;
     } else {
-      statusSummary = `🟢 LEAD NUEVO: Primer contacto directo desde anuncio publicitario. Sin ingresos previos.`;
+      statusSummary = `LEAD NUEVO: Primer contacto directo desde anuncio publicitario. Sin ingresos previos.`;
     }
 
-    const noteContent = `📌 FICHA DE INGRESO Y PERFIL DEL CLIENTE
+    const noteContent = `FICHA DE INGRESO Y PERFIL DEL CLIENTE
 --------------------------------------------------
-👤 Cliente: ${fullName}
-📍 Sede Actual: ${info.pageName || 'Sede Central'}
-💰 Estatus Comercial: ${info.commercialStatus || 'Sin compras previas'}
-🩺 Tratamiento Actual: ${info.treatment || 'General'}
-🧬 Intereses Clínicos: ${info.treatmentsLabel || 'General'}
-📣 Campaña Actual: ${info.adTitle || 'Directa / Chat'} ${info.adId && info.adId !== 'N/A' ? `(Ad ID: ${info.adId})` : ''}
+Cliente: ${fullName}
+Sede Actual: ${info.pageName || 'Sede Central'}
+Estatus Comercial: ${info.commercialStatus || 'Sin compras previas'}
+Tratamiento Actual: ${info.treatment || 'General'}
+Intereses Clínicos: ${info.treatmentsLabel || 'General'}
+Campaña Actual: ${info.adTitle || 'Directa / Chat'} ${info.adId && info.adId !== 'N/A' ? `(Ad ID: ${info.adId})` : ''}
 
-🔄 HISTORIAL DE INGRESOS:
+HISTORIAL DE INGRESOS:
 ${historyLines}
 
-💡 ESTADO COMERCIAL:
+ESTADO COMERCIAL:
 ${statusSummary}`;
 
     if (existingAuditNote) {
@@ -504,7 +504,7 @@ export async function runHistoricalAdAttributionSweep() {
   const csvFilename = `reporte_descuentos_agencia_${new Date().toISOString().split('T')[0]}.csv`;
   const csvHeaders = "Fecha Auditoria,Nombre del Lead,ID GHL,Página/Sede,Total Toques,Leads Reales,Leads a Descontar,Clasificacion\n";
   fs.writeFileSync(csvFilename, csvHeaders);
-  console.log(`📝 Creado archivo de reporte: ${csvFilename}\n`);
+  console.log(`[REPORT] Creado archivo de reporte: ${csvFilename}\n`);
 
   let url = `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=100`;
   const allContacts = [];
@@ -560,19 +560,19 @@ export async function runHistoricalAdAttributionSweep() {
 
     const progress = Math.min(i + CONCURRENCY, allContacts.length);
     if (progress % 50 === 0 || progress === allContacts.length) {
-      console.log(`[PROGRESO] ${progress}/${allContacts.length} auditados | 🟢 X1 Nuevos: ${singleClicks} | ⚠️ Reingresos (Descuentos): ${multiClicks} (Total a descontar: ${totalClicksDiscountable} leads)...`);
+      console.log(`[PROGRESO] ${progress}/${allContacts.length} auditados | [NUEVOS X1]: ${singleClicks} | [REINGRESOS]: ${multiClicks} (Total a descontar: ${totalClicksDiscountable} leads)...`);
     }
     await sleep(200);
   }
 
   console.log(`\n=================================================`);
-  console.log(`🎉 REPORTE FINAL DE AUDITORÍA MULTI-TOUCH:`);
+  console.log(`[REPORTE] RESUMEN DE AUDITORÍA MULTI-TOUCH:`);
   console.log(`=================================================`);
-  console.log(`👥 Total Contactos Auditados: ${totalAudited}`);
-  console.log(`🟢 Leads Nuevos Únicos (X1): ${singleClicks}`);
-  console.log(`⚠️ Casos de Reingreso (X2, X3, X4+): ${multiClicks}`);
-  console.log(`💰 TOTAL LEADS A DESCONTAR A AGENCIAS: ${totalClicksDiscountable} leads`);
-  console.log(`📄 Archivo guardado como: ${csvFilename}`);
+  console.log(`Total Contactos Auditados: ${totalAudited}`);
+  console.log(`Leads Nuevos Únicos (X1): ${singleClicks}`);
+  console.log(`Casos de Reingreso (X2, X3, X4+): ${multiClicks}`);
+  console.log(`TOTAL LEADS A DESCONTAR A AGENCIAS: ${totalClicksDiscountable} leads`);
+  console.log(`Archivo guardado como: ${csvFilename}`);
   console.log(`=================================================\n`);
 }
 

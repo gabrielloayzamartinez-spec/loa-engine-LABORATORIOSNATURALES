@@ -121,13 +121,13 @@ export function runPreFlightSanityCheck() {
       test.run();
       passed++;
     } catch (err) {
-      console.error(`❌ FALLÓ TEST PROTOCOLAR: ${test.name}`);
+      console.error(`[ERROR] FALLÓ TEST PROTOCOLAR: ${test.name}`);
       console.error(`   Detalle: ${err.message}`);
       return false;
     }
   }
 
-  console.log(`🛡️ [PRE-FLIGHT SANITY CHECK] ${passed}/${tests.length} Reglas protocolares validadas al 100%.`);
+  console.log(`[PRE-FLIGHT SANITY CHECK] [SUCCESS] ${passed}/${tests.length} Reglas protocolares validadas al 100%.`);
   return true;
 }
 

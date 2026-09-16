@@ -152,7 +152,7 @@ class LearningBrain {
       for (const k of keysToRemove) {
         delete this.memory.vocabularyWeights[k];
       }
-      console.log(`[LearningBrain] 🧹 Poda de memoria: Eliminadas ${keysToRemove.length} frases menos relevantes.`);
+      console.log(`[LearningBrain] [CLEANUP] Poda de memoria: Eliminadas ${keysToRemove.length} frases menos relevantes.`);
     }
 
     this._saveTimeout = setTimeout(() => {
@@ -307,7 +307,7 @@ class LearningBrain {
     }
 
     this.save();
-    console.log(`[LearningBrain] 🧠 Aprendido de vTiger: Venta de [${treatment}] reforzada en memoria.`);
+    console.log(`[LearningBrain] [LEARNING] Aprendido de vTiger: Venta de [${treatment}] reforzada en memoria.`);
   }
 
   /**
@@ -355,7 +355,7 @@ class LearningBrain {
     }
 
     this.save();
-    console.log(`[LearningBrain] ⚖️ Penalización aplicada: [${phrase}] desligado de [${incorrectTreatment}] y vinculado a [${correctTreatment || 'N/A'}].`);
+    console.log(`[LearningBrain] [PENALTY] Penalización aplicada: [${phrase}] desligado de [${incorrectTreatment}] y vinculado a [${correctTreatment || 'N/A'}].`);
   }
 
   getMetrics() {

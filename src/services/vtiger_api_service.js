@@ -54,7 +54,7 @@ export async function loginToVTiger() {
   }
   
   currentSessionName = loginData.result.sessionName;
-  console.log(`[VTiger API] ✅ Login exitoso. Session: ${currentSessionName.substring(0,6)}...`);
+  console.log(`[VTiger API] [SUCCESS] Login exitoso. Session: ${currentSessionName.substring(0,6)}...`);
   return currentSessionName;
 }
 
@@ -74,7 +74,7 @@ export async function queryVTiger(queryStr) {
   if (!data.success) {
     const errMsg = data.error?.message || '';
     if (errMsg.toLowerCase().includes('session') || errMsg.toLowerCase().includes('auth')) {
-      console.log(`[VTiger API] 🔄 Sesión expirada. Reautenticando...`);
+      console.log(`[VTiger API] [REAUTH] Sesión expirada. Reautenticando...`);
       await loginToVTiger();
       res = await fetch(`${endpoint}?operation=query&sessionName=${currentSessionName}&query=${encodeURIComponent(cleanQuery)}`);
       data = await res.json();
@@ -204,7 +204,7 @@ export async function getSalesHistory(contactId) {
     const sales = await queryVTiger(q);
     return sales;
   } catch(e) {
-    console.log(`[VTiger API] ⚠️ No se pudo consultar SalesOrder: ${e.message}`);
+    console.log(`[VTiger API] [WARN] No se pudo consultar SalesOrder: ${e.message}`);
     return [];
   }
 }
@@ -228,7 +228,7 @@ export async function fetchRecentConfirmedSales(limit = 25) {
  */
 export async function syncVtigerGroundTruthToBrain(limit = 25) {
   try {
-    console.log(`[VTiger Sync] 🔄 Consultando últimas ${limit} ventas en vTiger para calibrar el Cerebro...`);
+    console.log(`[VTiger Sync] [SYNC] Consultando últimas ${limit} ventas en vTiger para calibrar el Cerebro...`);
     const recentContacts = await fetchRecentConfirmedSales(limit);
     let trainedCount = 0;
 
@@ -257,10 +257,10 @@ export async function syncVtigerGroundTruthToBrain(limit = 25) {
       }
     }
 
-    console.log(`[VTiger Sync] ✅ Calibración completada: ${trainedCount} registros de vTiger entrenaron el Cerebro.`);
+    console.log(`[VTiger Sync] [SUCCESS] Calibración completada: ${trainedCount} registros de vTiger entrenaron el Cerebro.`);
     return { success: true, trainedCount };
   } catch (err) {
-    console.error(`[VTiger Sync] ⚠️ Error en calibración de vTiger:`, err.message);
+    console.error(`[VTiger Sync] [WARN] Error en calibración de vTiger:`, err.message);
     return { success: false, error: err.message };
   }
 }

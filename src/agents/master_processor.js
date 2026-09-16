@@ -252,7 +252,7 @@ export async function processMasterContact(contactInput, options = {}) {
     try {
       vContact = await findVTigerContact(contact);
     } catch (e) {
-      console.warn(`[Master] ⚠️ Error conectando con vTiger para ${contactId}. Encolando.`);
+      console.warn(`[Master] [WARN] Error conectando con vTiger para ${contactId}. Encolando.`);
       enqueueVtigerRetry(contactId);
     }
 
@@ -304,13 +304,13 @@ export async function processMasterContact(contactInput, options = {}) {
           if (hoursSinceRef <= GRACE_PERIOD_WON_HOURS) {
             // Menor o igual a 30 días: Bloquear mudanza para proteger recompra en oficina de venta
             cooldownBlocked = true;
-            cooldownNote = `[🛡️ GRACIA 1 MES - CLIENTE VENDIDO] Intento de reasignación a ${detectedPageName} bloqueado. El cliente compró en su sede actual y tiene exclusividad de recompra durante 30 días (${Math.round(hoursSinceRef / 24)} días transcurridos).`;
+            cooldownNote = `[GRACIA 1 MES - CLIENTE VENDIDO] Intento de reasignación a ${detectedPageName} bloqueado. El cliente compró en su sede actual y tiene exclusividad de recompra durante 30 días (${Math.round(hoursSinceRef / 24)} días transcurridos).`;
             targetAdvisorId = contact.assignedTo;
             targetAdvisorName = 'Oficina de Venta (Gracia 1 Mes Activa)';
           } else {
             // Mayor a 30 días (1 mes) sin recompra: MUDANZA LEGÍTIMA A NUEVA SEDE
             cooldownBlocked = false;
-            cooldownNote = `[🔄 MUDANZA LEGÍTIMA TRAS 1 MES] Cliente con venta transferido a ${detectedPageName} tras expirar el periodo de gracia de 30 días (${Math.round(hoursSinceRef / 24)} días sin recompra en la sede original).`;
+            cooldownNote = `[MUDANZA LEGÍTIMA TRAS 1 MES] Cliente con venta transferido a ${detectedPageName} tras expirar el periodo de gracia de 30 días (${Math.round(hoursSinceRef / 24)} días sin recompra en la sede original).`;
             // targetAdvisorId se mantiene como el nuevo asesor
           }
         } else {
@@ -318,13 +318,13 @@ export async function processMasterContact(contactInput, options = {}) {
           if (hoursSinceRef <= GRACE_PERIOD_LEAD_HOURS) {
             // Menor o igual a 4 días (96h): Bloquear mudanza para proteger exclusividad
             cooldownBlocked = true;
-            cooldownNote = `[🛡️ TIEMPO DE GRACIA 4 DÍAS] Intento de reasignación a ${detectedPageName} bloqueado. El lead está en gestión exclusiva de su sede actual (${Math.round(hoursSinceRef)}h transcurridas de 96h).`;
+            cooldownNote = `[TIEMPO DE GRACIA 4 DÍAS] Intento de reasignación a ${detectedPageName} bloqueado. El lead está en gestión exclusiva de su sede actual (${Math.round(hoursSinceRef)}h transcurridas de 96h).`;
             targetAdvisorId = contact.assignedTo;
             targetAdvisorName = 'Asesor Actual (Protegido por Gracia 4 Días)';
           } else {
             // Mayor a 4 días (96h) sin venta: MUDANZA LEGÍTIMA AL NUEVO ENCARGADO
             cooldownBlocked = false;
-            cooldownNote = `[🔄 MUDANZA LEGÍTIMA] Transferido a ${detectedPageName} tras expirar los 4 días de gracia (${Math.round(hoursSinceRef)}h) sin venta en la sede anterior.`;
+            cooldownNote = `[MUDANZA LEGÍTIMA] Transferido a ${detectedPageName} tras expirar los 4 días de gracia (${Math.round(hoursSinceRef)}h) sin venta en la sede anterior.`;
             // targetAdvisorId se mantiene como el nuevo asesor
           }
         }
@@ -442,12 +442,12 @@ export async function processMasterContact(contactInput, options = {}) {
     const isMultipleClick = totalAdClicks > 1;
     const clicksToDiscount = reentriesCount;
 
-    // 🏢 Detección del Estatus Comercial (vTiger CRM + GHL)
-    let commercialStatus = '💬 SIN VENTA (En chat preliminar / Sin teléfono ni compra)';
+    // Detección del Estatus Comercial (vTiger CRM + GHL)
+    let commercialStatus = 'SIN VENTA (En chat preliminar / Sin teléfono ni compra)';
     if (isWon) {
-      commercialStatus = `🛍️ CONVERTIDO (${numCompras || 1} compra(s) en vTiger / $${montoTotalVtiger || 0})`;
+      commercialStatus = `CONVERTIDO (${numCompras || 1} compra(s) en vTiger / $${montoTotalVtiger || 0})`;
     } else if (contact.phone || hasPhone) {
-      commercialStatus = `📞 SIN VENTA (Prospecto Calificado con Teléfono / Sin compra)`;
+      commercialStatus = `SIN VENTA (Prospecto Calificado con Teléfono / Sin compra)`;
     }
 
     // 🧬 Radiografía de Intereses Clínicos Acumulados (Multiconsulta)
@@ -477,7 +477,7 @@ export async function processMasterContact(contactInput, options = {}) {
     } else if (allTreatmentsList.length === 2) {
       treatmentsLabel = `${allTreatmentsList[0]} + ${allTreatmentsList[1]} (Interés en 2 tratamientos)`;
     } else if (allTreatmentsList.length >= 3) {
-      treatmentsLabel = `⚠️ MULTICONSULTA: ${allTreatmentsList.join(', ')} (${allTreatmentsList.length} tratamientos)`;
+      treatmentsLabel = `MULTICONSULTA: ${allTreatmentsList.join(', ')} (${allTreatmentsList.length} tratamientos)`;
     }
 
     // CLASIFICACIÓN Y RADAR
@@ -701,7 +701,7 @@ export async function processMasterContact(contactInput, options = {}) {
     // 9. Ficha Limpia de Ingreso y Notas de vTiger
     await injectAuditNoteOnce(contactId, fullName, {
       touchpoints: distinctAdTouches,
-      commercialStatus: commercialStatus || (monetaryValue > 0 ? '🛍️ CLIENTE COMPRADOR' : '💬 PROSPECTO'),
+      commercialStatus: commercialStatus || (monetaryValue > 0 ? 'CLIENTE COMPRADOR' : 'PROSPECTO'),
       currentTreatment: targetTratamiento,
       treatmentsLabel,
       currentSede: pageLabel,
@@ -755,7 +755,7 @@ export async function processMasterContact(contactInput, options = {}) {
     };
 
   } catch (error) {
-    console.error(`❌ [Master Processor Error] Contacto ${contactInput?.id || contactInput}:`, error.message);
+    console.error(`[ERROR] [Master Processor] Contacto ${contactInput?.id || contactInput}:`, error.message);
     return { success: false, error: error.message };
   }
 }
@@ -782,30 +782,30 @@ async function injectAuditNoteOnce(contactId, fullName, { touchpoints, commercia
     } else if (touchpoints && touchpoints.length > 1) {
       statusSummary = `🟡 REINGRESO (Mismo Producto): El asesor continúa el seguimiento del caso original.`;
     } else {
-      statusSummary = `🟢 LEAD NUEVO: Primer contacto directo desde anuncio publicitario. Sin ingresos previos.`;
+      statusSummary = `LEAD NUEVO: Primer contacto directo desde anuncio publicitario. Sin ingresos previos.`;
     }
 
-    let noteContent = `📌 FICHA DE INGRESO Y PERFIL DEL CLIENTE
+    let noteContent = `FICHA DE INGRESO Y PERFIL DEL CLIENTE
 --------------------------------------------------
-👤 Cliente: ${fullName}
-📍 Sede Actual: ${currentSede || 'Sede Central'}
-💰 Estatus Comercial: ${commercialStatus || 'Sin compras previas'}
-🩺 Tratamiento Actual: ${currentTreatment || 'General'}
-🧬 Intereses Clínicos: ${treatmentsLabel || 'General'}
-📣 Campaña Actual: ${currentCampaign || 'Directa / Chat'} ${currentAdId ? `(Ad ID: ${currentAdId})` : ''}
+Cliente: ${fullName}
+Sede Actual: ${currentSede || 'Sede Central'}
+Estatus Comercial: ${commercialStatus || 'Sin compras previas'}
+Tratamiento Actual: ${currentTreatment || 'General'}
+Intereses Clínicos: ${treatmentsLabel || 'General'}
+Campaña Actual: ${currentCampaign || 'Directa / Chat'} ${currentAdId ? `(Ad ID: ${currentAdId})` : ''}
 
-🔄 HISTORIAL DE INGRESOS:
+HISTORIAL DE INGRESOS:
 ${historyLines}
 
-💡 ESTADO COMERCIAL:
+ESTADO COMERCIAL:
 ${statusSummary}`;
 
     if (cooldownNote) {
-      noteContent += `\n\n🛡️ Blindaje de Sede:\n${cooldownNote}`;
+      noteContent += `\n\nBlindaje de Sede:\n${cooldownNote}`;
     }
 
     if (vTigerNotes) {
-      noteContent += `\n\n📝 Historial vTiger CRM:\n${vTigerNotes}`;
+      noteContent += `\n\nHistorial vTiger CRM:\n${vTigerNotes}`;
     }
 
     if (existingAuditNote) {
