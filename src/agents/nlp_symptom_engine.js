@@ -288,3 +288,16 @@ export function buildVtigerSource({ sedeName, provider = 'CLICK2RING', channel =
 
   return `${cleanSede}-${provider}-${channel}-${cleanTreatment}`;
 }
+
+/**
+ * Valida si un valor corresponde a un identificador numérico de anuncio de Meta Ads.
+ * Meta Ad IDs son secuencias numéricas de 8 a 25 dígitos (ej: 120226588408570607).
+ * Rechaza cadenas de origen o texto como "PALACIOS-ERNESTO-FB-MSGR-Artritis", "N/A", etc.
+ * @param {any} val
+ * @returns {boolean}
+ */
+export function isValidMetaAdId(val) {
+  if (!val) return false;
+  const str = String(val).trim();
+  return /^\d{8,25}$/.test(str);
+}

@@ -1,6 +1,6 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
-import { analyzeSymptoms, extractShippingData, buildVtigerSource, inferTreatmentFromCampaignOrUtm } from './nlp_symptom_engine.js';
+import { analyzeSymptoms, extractShippingData, buildVtigerSource, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
@@ -287,7 +287,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const UTM_CONTENT_FIELD = 'Vmzz5BxbMcrlInmuiblM';
 
     const existingCustomFields = contact.customFields || [];
-    const currentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
+    const rawCurrentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
+    const currentAdId = isValidMetaAdId(rawCurrentAdId) ? String(rawCurrentAdId).trim() : null;
     const currentTratamiento = existingCustomFields.find(f => f.id === TRATAMIENTO_FIELD && f.value)?.value;
     const currentVtigerNota = existingCustomFields.find(f => f.id === VTIGER_NOTAS_FIELD && f.value)?.value;
 
@@ -299,24 +300,26 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // 1. Mensajes de Facebook más recientes (prioridad máxima)
     for (const m of allMessages) {
       const fbMeta = m.meta?.fb || {};
-      if (fbMeta.adId && fbMeta.adId !== 'N/A') {
-        latestAdId = String(fbMeta.adId);
+      if (fbMeta.adId && fbMeta.adId !== 'N/A' && isValidMetaAdId(fbMeta.adId)) {
+        latestAdId = String(fbMeta.adId).trim();
         break;
       }
     }
 
     // 2. attributionSource nativo de GHL
     if (contact.attributionSource) {
-      if (!latestAdId && contact.attributionSource.adId) latestAdId = String(contact.attributionSource.adId);
+      if (!latestAdId && isValidMetaAdId(contact.attributionSource.adId)) latestAdId = String(contact.attributionSource.adId).trim();
       if (!latestCampaign) latestCampaign = contact.attributionSource.utmCampaign || contact.attributionSource.campaign;
       if (!latestMedium) latestMedium = contact.attributionSource.utmMedium;
     }
 
-    // 3. Última Atribución registrada en GHL (isLast: true)
+    // 3. Última Atribución registrada en GHL con datos de pauta
     if (contact.attributions && contact.attributions.length > 0) {
-      const lastAttr = contact.attributions.find(a => a.isLast) || contact.attributions[contact.attributions.length - 1];
+      const attrWithData = [...contact.attributions].reverse().find(a => a.utmAdId || a.adId || a.utmCampaign || a.utmMedium);
+      const lastAttr = attrWithData || contact.attributions.find(a => a.isLast) || contact.attributions[contact.attributions.length - 1];
       if (lastAttr) {
-        if (!latestAdId && (lastAttr.utmAdId || lastAttr.adId)) latestAdId = String(lastAttr.utmAdId || lastAttr.adId);
+        const rawAttrId = lastAttr.utmAdId || lastAttr.adId;
+        if (!latestAdId && isValidMetaAdId(rawAttrId)) latestAdId = String(rawAttrId).trim();
         if (!latestCampaign && lastAttr.utmCampaign) latestCampaign = lastAttr.utmCampaign;
         if (!latestMedium && lastAttr.utmMedium) latestMedium = lastAttr.utmMedium;
       }
@@ -324,27 +327,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // 4. Fallback a lastAttributionSource nativo
     if (contact.lastAttributionSource) {
-      if (!latestAdId && contact.lastAttributionSource.adId) latestAdId = String(contact.lastAttributionSource.adId);
+      if (!latestAdId && isValidMetaAdId(contact.lastAttributionSource.adId)) latestAdId = String(contact.lastAttributionSource.adId).trim();
       if (!latestCampaign && contact.lastAttributionSource.utmCampaign) latestCampaign = contact.lastAttributionSource.utmCampaign;
       if (!latestMedium && contact.lastAttributionSource.utmMedium) latestMedium = contact.lastAttributionSource.utmMedium;
     }
 
-    let targetAdId = latestAdId || currentAdId || null;
-    let targetAdName = null;
-
-    // 🔥 ACTUALIZACIÓN CONSTANTE DE UTMs EN VIVO (Meta Graph)
-    if (targetAdId && targetAdId !== 'N/A') {
-      const metaDetails = await getMetaAdDetails(targetAdId);
-      if (metaDetails) {
-        latestCampaign = metaDetails.campaignName || latestCampaign;
-        targetAdName = metaDetails.adName || metaDetails.creativeTitle;
-        console.log(`[Agente 3] 🎯 UTMs Actualizados en vivo desde Meta: Campaña [${latestCampaign}], Ad [${targetAdName}]`);
-      }
-    }
-
     // 🧠 B. ANÁLISIS INTELIGENTE DE SÍNTOMAS (NLP + LEARNING BRAIN) Y DATOS DE ENVÍO
     const combinedText = allMessages.map(m => m.body || '').join(' \n ');
-    const nlpAnalysis = analyzeSymptoms(combinedText, latestCampaign, latestMedium);
     const shippingData = extractShippingData(combinedText, contact.phone);
 
     // 🏢 C. GROUND TRUTH DE VTIGER CRM: Verdad Clínica y Comercial Confirmada
@@ -363,10 +352,33 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             campaignName: latestCampaign
           });
         }
+        // 🎯 RECUPERACIÓN DE META AD ID REAL DESDE VTIGER (cf_2850)
+        if (!latestAdId && isValidMetaAdId(vContact.cf_2850)) {
+          latestAdId = String(vContact.cf_2850).trim();
+          console.log(`[Agente 3] [VTIGER] Meta Ad ID recuperado desde vTiger (cf_2850): ${latestAdId}`);
+        }
+        if (!latestCampaign && vContact.cf_3472) {
+          latestCampaign = vContact.cf_3472;
+        }
       }
     } catch (vErr) {
       // Continuar con NLP si vTiger no responde
     }
+
+    let targetAdId = latestAdId || currentAdId || null;
+    let targetAdName = null;
+
+    // 🔥 ACTUALIZACIÓN CONSTANTE DE UTMs EN VIVO (Meta Graph)
+    if (targetAdId && isValidMetaAdId(targetAdId)) {
+      const metaDetails = await getMetaAdDetails(targetAdId);
+      if (metaDetails) {
+        latestCampaign = metaDetails.campaignName || latestCampaign;
+        targetAdName = metaDetails.adName || metaDetails.creativeTitle;
+        console.log(`[Agente 3] [META] UTMs Actualizados en vivo desde Meta: Campaña [${latestCampaign}], Ad [${targetAdName}]`);
+      }
+    }
+
+    const nlpAnalysis = analyzeSymptoms(combinedText, latestCampaign, latestMedium);
 
     // 🔬 D. Inferencia Clínica y de Pauta Ponderada:
     // Prioridad 1: Síntomas clínicos y Cerebro de Aprendizaje (NLP) - (La intención ACTUAL del cliente)
@@ -413,8 +425,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
                 const trat = mCF.find(f => f.id === TRATAMIENTO_FIELD && f.value);
                 const attrA = (m.attributions || []).find(a => a.utmAdId || a.adId);
 
-                if (!targetVtigerNota && vN) targetVtigerNota = vN.value;
-                if (!targetAdId && (aId || attrA)) targetAdId = String(aId?.value || attrA?.utmAdId || attrA?.adId);
+                const candidateAId = aId?.value || attrA?.utmAdId || attrA?.adId;
+                if (!targetAdId && isValidMetaAdId(candidateAId)) targetAdId = String(candidateAId).trim();
                 if (!targetTratamiento && trat) targetTratamiento = trat.value;
               }
             }
@@ -516,9 +528,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // 📝 F. PREPARAR CUSTOM FIELDS (FULL DATA STACK)
     const customFieldsToUpdate = [];
-    if (targetAdId) {
+    if (targetAdId && isValidMetaAdId(targetAdId)) {
       customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, key: 'contact.id_de_anuncio', field_value: String(targetAdId) });
       customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, key: 'contact.ad_id', field_value: String(targetAdId) });
+    } else if (rawCurrentAdId && !isValidMetaAdId(rawCurrentAdId)) {
+      // 🧹 PURGA QUIRÚRGICA: Si el contacto tenía una cadena de origen (ej: PALACIOS-...) en el Ad ID, limpiarlo
+      console.log(`[Agente 3] [PURGE] Limpiando Ad ID invalido ("${rawCurrentAdId}") para ${contactId}`);
+      customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, key: 'contact.id_de_anuncio', field_value: '' });
+      customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, key: 'contact.ad_id', field_value: '' });
     }
     if (targetTratamiento && targetTratamiento !== 'General') {
       customFieldsToUpdate.push({ id: TRATAMIENTO_FIELD, key: 'contact.tratamiento_comprado', field_value: targetTratamiento });

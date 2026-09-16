@@ -146,6 +146,21 @@ async function runExpressAssignment() {
 
     const data = await res.json();
     const contacts = data.contacts || [];
+
+    // Capturar también actividad reciente en conversaciones (Facebook Messenger / DM)
+    try {
+      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=5`;
+      const convRes = await fetchWithRetry(convUrl, { headers: { ...HEADERS_CONTACTS, 'Version': '2021-04-15' } });
+      if (convRes.status === 200) {
+        const convData = await convRes.json();
+        for (const cv of (convData.conversations || [])) {
+          if (cv.contactId && !contacts.some(c => c.id === cv.contactId)) {
+            contacts.push({ id: cv.contactId, dateUpdated: cv.lastMessageDate, firstName: cv.contactName || 'Lead Chat' });
+          }
+        }
+      }
+    } catch (cErr) {}
+
     let countNew = 0;
 
     for (const contact of contacts) {

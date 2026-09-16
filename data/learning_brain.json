@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
   "stats": {
-    "totalInferences": 0,
-    "learnedFromSales": 0,
+    "totalInferences": 2,
+    "learnedFromSales": 1,
     "learnedFromAdvisors": 0,
-    "falsePositivesPenalized": 0,
-    "lastLearnedAt": null
+    "falsePositivesPenalized": 1,
+    "lastLearnedAt": "2026-09-16T20:05:06.858Z"
   },
   "treatments": [
     "Potencia",
@@ -17,6 +17,15 @@
     "Artritis"
   ],
   "vocabularyWeights": {
+    "783": {
+      "Artritis": 10
+    },
+    "831": {
+      "Artritis": 10
+    },
+    "7630": {
+      "Artritis": 10
+    },
     "muestra gratis potencia": {
       "Potencia": 25
     },
@@ -205,6 +214,240 @@
     },
     "reuma": {
       "Artritis": 12
+    },
+    "muy": {
+      "Artritis": 10
+    },
+    "muy amable": {
+      "Artritis": 10
+    },
+    "muy amable jose": {
+      "Artritis": 10
+    },
+    "amable": {
+      "Artritis": 10
+    },
+    "amable jose": {
+      "Artritis": 10
+    },
+    "amable jose breve": {
+      "Artritis": 10
+    },
+    "jose": {
+      "Artritis": 10
+    },
+    "jose breve": {
+      "Artritis": 10
+    },
+    "jose breve nos": {
+      "Artritis": 10
+    },
+    "breve": {
+      "Artritis": 10
+    },
+    "breve nos": {
+      "Artritis": 10
+    },
+    "breve nos comunicaremos": {
+      "Artritis": 10
+    },
+    "nos": {
+      "Artritis": 10
+    },
+    "nos comunicaremos": {
+      "Artritis": 10
+    },
+    "nos comunicaremos contigo": {
+      "Artritis": 10
+    },
+    "comunicaremos": {
+      "Artritis": 10
+    },
+    "comunicaremos contigo": {
+      "Artritis": 10
+    },
+    "comunicaremos contigo muestra": {
+      "Artritis": 10
+    },
+    "contigo": {
+      "Artritis": 10
+    },
+    "contigo muestra": {
+      "Artritis": 10
+    },
+    "contigo muestra gratis": {
+      "Artritis": 10
+    },
+    "muestra gratis": {
+      "Artritis": 10
+    },
+    "muestra gratis solo": {
+      "Artritis": 10
+    },
+    "gratis solo": {
+      "Artritis": 10
+    },
+    "gratis solo activa": {
+      "Artritis": 10
+    },
+    "solo": {
+      "Artritis": 10
+    },
+    "solo activa": {
+      "Artritis": 10
+    },
+    "solo activa hoy": {
+      "Artritis": 10
+    },
+    "activa": {
+      "Artritis": 10
+    },
+    "activa hoy": {
+      "Artritis": 10
+    },
+    "activa hoy atender": {
+      "Artritis": 10
+    },
+    "hoy": {
+      "Artritis": 10
+    },
+    "hoy atender": {
+      "Artritis": 10
+    },
+    "hoy atender llamada": {
+      "Artritis": 10
+    },
+    "atender": {
+      "Artritis": 10
+    },
+    "atender llamada": {
+      "Artritis": 10
+    },
+    "atender llamada 831": {
+      "Artritis": 10
+    },
+    "llamada": {
+      "Artritis": 10
+    },
+    "llamada 831": {
+      "Artritis": 10
+    },
+    "llamada 831 783": {
+      "Artritis": 10
+    },
+    "831 783": {
+      "Artritis": 10
+    },
+    "831 783 7630": {
+      "Artritis": 10
+    },
+    "783 7630": {
+      "Artritis": 10
+    },
+    "783 7630 opportunity": {
+      "Artritis": 10
+    },
+    "7630 opportunity": {
+      "Artritis": 10
+    },
+    "7630 opportunity created": {
+      "Artritis": 10
+    },
+    "opportunity": {
+      "Artritis": 10
+    },
+    "opportunity created": {
+      "Artritis": 10
+    },
+    "opportunity created finalizar": {
+      "Artritis": 10
+    },
+    "created": {
+      "Artritis": 10
+    },
+    "created finalizar": {
+      "Artritis": 10
+    },
+    "created finalizar registro": {
+      "Artritis": 10
+    },
+    "finalizar": {
+      "Artritis": 10
+    },
+    "finalizar registro": {
+      "Artritis": 10
+    },
+    "finalizar registro muestra": {
+      "Artritis": 10
+    },
+    "registro": {
+      "Artritis": 10
+    },
+    "registro muestra": {
+      "Artritis": 10
+    },
+    "registro muestra gratis": {
+      "Artritis": 10
+    },
+    "muestra gratis indicame": {
+      "Artritis": 10
+    },
+    "gratis indicame": {
+      "Artritis": 10
+    },
+    "gratis indicame entrega": {
+      "Artritis": 10
+    },
+    "indicame": {
+      "Artritis": 10
+    },
+    "indicame entrega": {
+      "Artritis": 10
+    },
+    "indicame entrega jose": {
+      "Artritis": 10
+    },
+    "entrega": {
+      "Artritis": 10
+    },
+    "entrega jose": {
+      "Artritis": 10
+    },
+    "entrega jose ahora": {
+      "Artritis": 10
+    },
+    "jose ahora": {
+      "Artritis": 10
+    },
+    "jose ahora enviarte": {
+      "Artritis": 10
+    },
+    "ahora": {
+      "Artritis": 10
+    },
+    "ahora enviarte": {
+      "Artritis": 10
+    },
+    "ahora enviarte muestra": {
+      "Artritis": 10
+    },
+    "enviarte": {
+      "Artritis": 10
+    },
+    "enviarte muestra": {
+      "Artritis": 10
+    },
+    "enviarte muestra gratis": {
+      "Artritis": 10
+    },
+    "muestra gratis muestra": {
+      "Artritis": 10
+    },
+    "gratis muestra": {
+      "Artritis": 10
+    },
+    "gratis muestra gratis": {
+      "Artritis": 10
     }
   },
   "campaignWeights": {
