@@ -707,24 +707,17 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     } else {
       const errText = await updateRes.text();
-      console.error(`[Agente 3] Falló actualización atómica de ${contactId}. Status: ${updateRes.status} - Detalles: ${errText}`);
+      const isDuplicateConflict = updateRes.status === 400 && errText.includes('duplicated contacts') && errText.includes('matchingField');
       
-      // 🛡️ AUTO-HEALING: Errores de servidor GHL (500/502/503)
-      // Marcar el contacto para re-proceso en el siguiente ciclo del Radar
-      if (updateRes.status >= 500) {
-        console.warn(`[Agente 3] [WARN] GHL devolvió ${updateRes.status} para ${contactId}. Marcando para re-proceso en el siguiente ciclo.`);
-        return 'RETRY';
-      }
-
       // 🛡️ AUTO-HEALING: Conflicto de Contacto Duplicado (Phone/Email)
-      if (updateRes.status === 400 && errText.includes('duplicated contacts') && errText.includes('matchingField')) {
+      if (isDuplicateConflict) {
         try {
           const errObj = JSON.parse(errText);
           const conflictField = errObj.meta && errObj.meta.matchingField;
           
           if (conflictField && updatePayload[conflictField]) {
             const rescateValor = updatePayload[conflictField];
-            console.log(`[Agente 3] [WARN] [AUTO-HEAL] Conflicto de duplicado en '${conflictField}'. Contacto real: ${errObj.meta.contactId}. Reintentando sin este campo...`);
+            console.log(`[Agente 3] [AUTO-HEAL] Conflicto de duplicado en '${conflictField}'. Contacto existente en GHL: ${errObj.meta.contactId}. Aplicando protocolo de rescate...`);
             
             // 1. Remover el campo que causa el conflicto (GHL no permite 2 contactos con el mismo teléfono)
             delete updatePayload[conflictField];
@@ -740,11 +733,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             }, 1, isLive);
             
             if (retryRes.status === 200) {
-               console.log(`[Agente 3] [SUCCESS] [AUTO-HEAL] Auto-Heal Exitoso para ${contactId} tras esquivar conflicto de duplicado.`);
+               console.log(`[Agente 3] [SUCCESS] [AUTO-HEAL] Contacto ${contactId} actualizado exitosamente tras esquivar conflicto de duplicado.`);
                
                if (rescateValor && isLive) {
                  try {
-                   const notaText = `[AVISO] NÚMERO RESCATADO DE VTIGER: ${rescateValor}\n(GHL bloqueó la inserción automática porque este número ya le pertenece a otro familiar. Usa este número para llamar.)`;
+                   const notaText = `[AVISO] NÚMERO RESCATADO DE VTIGER: ${rescateValor}\n(GHL bloqueó la inserción automática porque este número ya le pertenece a otro contacto/familiar en esta ubicación. Usa este número para llamar.)`;
                    await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/notes`, {
                      method: 'POST',
                      headers: HEADERS,
@@ -755,13 +748,23 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
                    console.log(`[Agente 3] [WARN] No se pudo insertar la nota de rescate: ${noteErr.message}`);
                  }
                }
+               return;
             } else {
                console.error(`[Agente 3] [ERROR] [AUTO-HEAL] Auto-Heal falló para ${contactId}. Status: ${retryRes.status}`);
             }
           }
         } catch (parseErr) {
-           console.error("[Agente 3] Error en protocolo de Auto-Heal:", parseErr.message);
+           console.error("[Agente 3] [ERROR] Error en protocolo de Auto-Heal:", parseErr.message);
         }
+      } else {
+        console.error(`[Agente 3] [ERROR] Falló actualización atómica de ${contactId}. Status: ${updateRes.status} - Detalles: ${errText}`);
+      }
+
+      // 🛡️ AUTO-HEALING: Errores de servidor GHL (500/502/503)
+      // Marcar el contacto para re-proceso en el siguiente ciclo del Radar
+      if (updateRes.status >= 500) {
+        console.warn(`[Agente 3] [WARN] GHL devolvió ${updateRes.status} para ${contactId}. Marcando para re-proceso en el siguiente ciclo.`);
+        return 'RETRY';
       }
     }
 
