@@ -614,7 +614,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // 4. Ciudad (city)
     if (!contact.city) {
       if (shippingData && shippingData.city) updatePayload.city = shippingData.city;
-      else if (vContact && vContact.mailingcity) updatePayload.city = String(vContact.mailingcity).trim();
+      else if (vContact && (vContact.cf_1157 || vContact.mailingcity)) updatePayload.city = String(vContact.cf_1157 || vContact.mailingcity).trim();
     }
 
     // 5. Región / Estado (state: e.g. TX, FL, CA, NY)

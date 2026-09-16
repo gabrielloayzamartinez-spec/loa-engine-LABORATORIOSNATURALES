@@ -159,7 +159,7 @@ export async function auditAndCureContact(contact) {
     if (!contact.phone && vPhone) needsBaseInfoSync = true;
     else if (!contact.email && vContact.email) needsBaseInfoSync = true;
     else if (!contact.address1 && vContact.mailingstreet) needsBaseInfoSync = true;
-    else if (!contact.city && vContact.mailingcity) needsBaseInfoSync = true;
+    else if (!contact.city && (vContact.cf_1157 || vContact.mailingcity)) needsBaseInfoSync = true;
     else if ((!contact.state || contact.state === '--') && (vContact.mailingstate || vContact.splareacodes_state)) needsBaseInfoSync = true;
     else if (!contact.postalCode && (vContact.mailingzip || vContact.mailingpobox)) needsBaseInfoSync = true;
   }
@@ -210,8 +210,8 @@ export async function auditAndCureContact(contact) {
     if (!contact.address1 && vContact.mailingstreet) {
       updatePayload.address1 = String(vContact.mailingstreet).trim();
     }
-    if (!contact.city && vContact.mailingcity) {
-      updatePayload.city = String(vContact.mailingcity).trim();
+    if (!contact.city && (vContact.cf_1157 || vContact.mailingcity)) {
+      updatePayload.city = String(vContact.cf_1157 || vContact.mailingcity).trim();
     }
     if ((!contact.state || contact.state === '--') && (vContact.mailingstate || vContact.splareacodes_state)) {
       updatePayload.state = String(vContact.mailingstate || vContact.splareacodes_state).trim();
