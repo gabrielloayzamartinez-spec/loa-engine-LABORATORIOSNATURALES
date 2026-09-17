@@ -31,11 +31,8 @@ export async function saveAdHistoryNote(contactId, { newAdId, oldAdId, campaign,
 - Campaña Detectada: ${campaign || 'N/A'}
 - Interacción: Clic #${clickCount || 1}
 - Estado de Pauta: ${isDiffAd ? 'ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)' : 'VINCULADO'}
-
 ----------------------------------------
-Powered by LOA Engine
-Desarrollado por Gabriel Loayza
-Marketing GHL Solutions`;
+Powered by LOA Engine - Gabriel Loayza`;
 
   try {
     const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
