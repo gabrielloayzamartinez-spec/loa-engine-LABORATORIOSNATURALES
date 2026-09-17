@@ -15,15 +15,22 @@ const { apiKey, locationId } = GHL_CONFIG;
  */
 export async function saveAdHistoryNote(contactId, { newAdId, oldAdId, campaign, pageName, clickCount, source, treatment }) {
   const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
-  const noteBody = `[SAVE PROCESS: Ruteo y Diagnostico]
+  const isDiffAd = Boolean(oldAdId && oldAdId !== 'Ninguna previa' && oldAdId !== 'Ninguna previa (Orgánico)' && oldAdId !== newAdId);
+  const noteTitle = isDiffAd
+    ? `🚨 [SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]`
+    : `[SAVE PROCESS: Ruteo y Diagnostico de Pauta]`;
+
+  const noteBody = `${noteTitle}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Fecha: ${dateStr} (EST)
 - Origen/Fuente Asignada: ${source || 'N/A'}
 - Tratamiento Detectado: ${treatment || 'General'}
-- Nuevo Ad ID: ${newAdId || 'Organico / Sin Ad'}
-- Anuncio / Campana Previa: ${oldAdId || 'Ninguna previa'}
+- Nuevo Ad ID: ${newAdId || 'Orgánico / Sin Ad'}
+- Anuncio / Campaña Previa: ${oldAdId || 'Ninguna previa (Orgánico)'}
 - Fanpage de Entrada: ${pageName || 'N/A'}
-- Campana Detectada: ${campaign || 'N/A'}
-- Interaccion: Clic #${clickCount || 1}
+- Campaña Detectada: ${campaign || 'N/A'}
+- Interacción: Clic #${clickCount || 1}
+- Estado de Pauta: ${isDiffAd ? 'ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)' : 'VINCULADO'}
 
 ----------------------------------------
 Powered by LOA Engine
@@ -191,12 +198,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const fbMeta = m.meta?.fb || {};
       const pageId = fbMeta.fromPageId || fbMeta.pageId;
       if (pageId) {
+        const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
+        const validAd = rawAd && rawAd !== 'N/A' && isValidMetaAdId(rawAd) ? String(rawAd).trim() : null;
         fbMessages.push({
           id: m.id,
           pageId: String(pageId),
           timestamp: new Date(m.dateAdded).getTime(),
           dateStr: m.dateAdded,
-          adId: fbMeta.adId && fbMeta.adId !== 'N/A' ? String(fbMeta.adId) : null
+          adId: validAd
         });
       }
     }
@@ -355,8 +364,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // 1. Mensajes de Facebook más recientes (prioridad máxima)
     for (const m of allMessages) {
       const fbMeta = m.meta?.fb || {};
-      if (fbMeta.adId && fbMeta.adId !== 'N/A' && isValidMetaAdId(fbMeta.adId)) {
-        latestAdId = String(fbMeta.adId).trim();
+      const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
+      if (rawAd && rawAd !== 'N/A' && isValidMetaAdId(rawAd)) {
+        latestAdId = String(rawAd).trim();
         break;
       }
     }
@@ -497,17 +507,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // 🏷️ D. PREPARACIÓN DE FUENTE ESTILO VTIGER: [SEDE]-[PROVEEDOR]-[CANAL]-[TRATAMIENTO]
+    // Un lead es pauta pagada si tiene un Meta Ad ID numérico válido O parámetros explícitos de cobro (Paid Social / cpc)
     const isPaidAd = Boolean(
-      targetAdId ||
+      (targetAdId && isValidMetaAdId(targetAdId)) ||
       contact.attributionSource?.sessionSource === 'Paid Social' ||
-      contact.attributionSource?.medium === 'facebook' ||
-      contact.attributionSource?.adId ||
-      contact.attributionSource?.utmCampaign ||
-      latestCampaign ||
-      latestAdSetName ||
-      (contact.tags || []).includes('meta-ads') ||
-      (contact.source || '').includes('CLICK2RING') ||
-      (contact.source || '').includes('ERNESTO')
+      contact.attributionSource?.utmMedium === 'cpc' ||
+      contact.attributionSource?.utmMedium === 'paid' ||
+      latestMedium === 'cpc' ||
+      latestMedium === 'paid'
     );
 
     const targetProvider = resolveLeadProvider({
@@ -529,8 +536,21 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // 🏷️ E. ETIQUETADO INTELIGENTE Y MULTI-CONDICIÓN
     const newTagsSet = new Set((contact.tags || []).map(t => String(t).trim()));
-    newTagsSet.add('meta-ads');
     newTagsSet.add('facebook-messenger');
+
+    if (isPaidAd) {
+      newTagsSet.add('meta-ads');
+      newTagsSet.delete('organico');
+    } else {
+      newTagsSet.add('organico');
+      // Si entra puramente orgánico sin historial previo de pauta, purgar meta-ads erróneo
+      if (!currentAdId && !targetAdId) {
+        newTagsSet.delete('meta-ads');
+        if ((contact.tags || []).includes('meta-ads')) {
+          tagsToRemove.push('meta-ads');
+        }
+      }
+    }
 
     if (targetPageName) {
       const pageSlug = targetPageName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -591,6 +611,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     );
 
     if (isMudanzaDeSede) {
+      if (!latestAdId) {
+        targetAdId = null;
+      }
       newTagsSet.add('mudanza-gracia-expirada');
       newTagsSet.add('mudanza-de-sede');
       if (previousSede) newTagsSet.add(`mudanza-desde-${previousSede.toLowerCase()}`);
@@ -648,6 +671,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     } else if (rawCurrentAdId && !isValidMetaAdId(rawCurrentAdId)) {
       // 🧹 PURGA QUIRÚRGICA: Si el contacto tenía una cadena de origen (ej: PALACIOS-...) en el Ad ID, limpiarlo
       console.log(`[Agente 3] [PURGE] Limpiando Ad ID invalido ("${rawCurrentAdId}") para ${contactId}`);
+      customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, key: 'contact.id_de_anuncio', field_value: '' });
+      customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, key: 'contact.ad_id', field_value: '' });
+    } else if (isMudanzaDeSede && !latestAdId) {
+      // Desvincular en GHL el Ad ID de la sede previa tras mudanza orgánica
       customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, key: 'contact.id_de_anuncio', field_value: '' });
       customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, key: 'contact.ad_id', field_value: '' });
     }
@@ -823,13 +850,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] [SUCCESS] ${contact.firstName || ''} ${contact.lastName || ''} (${contactId}) | Ad ID: ${targetAdId || 'N/A'} | Fuente: ${vtigerSource} | Estado: ${updatePayload.state || contact.state || '--'} | Actualizado OK.`);
 
       // 📌 H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA SOLO SI HUBO CAMBIO DE AD O DE TRATAMIENTO
-      const adChanged = latestAdId && latestAdId !== currentAdId;
+      const adChanged = Boolean(
+        (latestAdId && currentAdId && latestAdId !== currentAdId) ||
+        (latestAdId && !currentAdId)
+      );
       const treatmentChanged = targetTratamiento && targetTratamiento !== currentTratamiento;
 
       if (adChanged || treatmentChanged) {
         await saveAdHistoryNote(contactId, {
           newAdId: latestAdId,
-          oldAdId: currentAdId || 'Ninguna previa',
+          oldAdId: currentAdId || 'Ninguna previa (Orgánico)',
           campaign: latestCampaign || 'Pauta Reciente',
           pageName: targetPageName,
           clickCount: duplicateCount,

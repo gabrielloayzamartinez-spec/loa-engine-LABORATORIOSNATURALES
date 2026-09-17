@@ -273,6 +273,13 @@ export function resolveLeadProvider({
   isPaidAd = true,
   existingSource = ''
 } = {}) {
+  // 0. Regla Universal Orgánica (Aplicable a todas las páginas en general):
+  // Si NO es pauta paga (tráfico orgánico por goteo sin Meta Ad ID ni parámetros de cobro),
+  // el proveedor es estrictamente IN_HOUSE en cualquier fanpage.
+  if (!isPaidAd) {
+    return 'IN_HOUSE';
+  }
+
   const combinedMetaText = `${campaignName} ${adsetName} ${adName} ${existingSource}`.toUpperCase();
   const cleanPageName = (pageName || '').toUpperCase();
   const cleanPageId = String(pageId || '').trim();
@@ -300,7 +307,7 @@ export function resolveLeadProvider({
   // 2. Regla confirmada de ULTRA por el usuario:
   // "todo lo que viene de pauta de ULTRA PROVEIENE DE CLICK2RING."
   if (cleanPageId === '111906554968800' || cleanPageName.includes('ULTRA')) {
-    return isPaidAd ? 'CLICK2RING' : 'IN_HOUSE';
+    return 'CLICK2RING';
   }
 
   // 3. Regla confirmada de NATURALES BIONATURAL:
@@ -309,7 +316,7 @@ export function resolveLeadProvider({
     cleanPageId === '566501466542620' ||
     cleanPageName.includes('NATURALES BIONATURAL')
   ) {
-    return isPaidAd ? 'ERNESTO' : 'IN_HOUSE';
+    return 'ERNESTO';
   }
 
   // 3B. Regla confirmada de LABORATORIOS NATURALES BIO:
@@ -322,8 +329,8 @@ export function resolveLeadProvider({
     return 'IN_HOUSE';
   }
 
-  // 4. Default si no coincide ninguna regla previa
-  return isPaidAd ? 'CLICK2RING' : 'IN_HOUSE';
+  // 4. Default para pauta paga no clasificada
+  return 'CLICK2RING';
 }
 
 /**
@@ -333,19 +340,20 @@ export function buildVtigerSource({ sedeName, provider = 'CLICK2RING', channel =
   let cleanSede = 'PALACIOS';
   const sUpper = (sedeName || '').toUpperCase();
 
-  // Mapeo exacto por nombres de Fanpage para evitar caídas al valor por defecto
-  if (sUpper.includes('NATURAL BIO') || sUpper === 'BIONATURAL' || sUpper.includes('PIURA')) {
-    cleanSede = 'PIURA';
-  } else if (sUpper.includes('BENAVIDES 2') || sUpper.includes('FUERZA')) {
+  // Mapeo exacto por nombres de Fanpage / Sede para evitar caídas al valor por defecto
+  if (sUpper.includes('BENAVIDES 2') || sUpper.includes('BENAVIDES_2') || sUpper.includes('FUERZA')) {
     cleanSede = 'BENAVIDES_2';
-  } else if (sUpper.includes('BENAVIDES') || sUpper.includes('CORP') || sUpper === 'BIO NATURAL') {
+  } else if (sUpper.includes('BENAVIDES') || sUpper.includes('CORP')) {
     cleanSede = 'BENAVIDES';
-  } else if (sUpper.includes('ROOSEVELT') || sUpper.includes('ROOSVELT') || sUpper.includes('BIO NATURALES') || sUpper.includes('BIONATURAL PLUS')) {
+  } else if (sUpper.includes('ROOSEVELT') || sUpper.includes('ROOSVELT') || sUpper.includes('PLUS')) {
     cleanSede = 'ROOSEVELT';
-  } else if (sUpper.includes('ULTRA')) {
+  } else if (sUpper.includes('PIURA')) {
+    cleanSede = 'PIURA';
+  } else if (sUpper.includes('ULTRA') || sUpper.includes('PALACIOS') || sUpper.includes('NATURALES BIONATURAL') || sUpper.includes('LABORATORIOS NATURALES BIO')) {
     cleanSede = 'PALACIOS';
-  } else if (sUpper.includes('PALACIOS') || sUpper.includes('NATURALES BIONATURAL') || sUpper.includes('LABORATORIOS NATURALES BIO')) {
-    cleanSede = 'PALACIOS';
+  } else if (sUpper.includes('NATURAL BIO') || sUpper === 'BIONATURAL' || sUpper === 'BIO NATURAL') {
+    // Fanpage histórica 'Natural Bio' asignada a Piura
+    cleanSede = 'PIURA';
   }
 
   let cleanTreatment = treatment || 'General';

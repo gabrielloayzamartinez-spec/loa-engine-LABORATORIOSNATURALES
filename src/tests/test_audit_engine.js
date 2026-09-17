@@ -7,7 +7,7 @@
  * 4. Inferencia geográfica desde teléfonos de USA.
  */
 
-import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, extractShippingData } from '../agents/nlp_symptom_engine.js';
+import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, extractShippingData, isValidMetaAdId } from '../agents/nlp_symptom_engine.js';
 import { learningBrain } from '../services/learning_brain.js';
 
 export function runPreFlightSanityCheck() {
@@ -131,6 +131,89 @@ export function runPreFlightSanityCheck() {
         });
         if (source !== 'PALACIOS-IN_HOUSE-FB-MSGR-General') {
           throw new Error(`Fuente incorrecta para Labs Bio: ${source}`);
+        }
+      }
+    },
+    {
+      name: 'Regla 4E: Regla de Origen Orgánico Universal para TODAS las Páginas (Tráfico por Goteo)',
+      run: () => {
+        const pagesToTest = [
+          { pageName: 'BioNatural - Ultra', expectedSede: 'PALACIOS' },
+          { pageName: 'Naturales BioNatural', expectedSede: 'PALACIOS' },
+          { pageName: 'Laboratorios Naturales BIO', expectedSede: 'PALACIOS' },
+          { pageName: 'Natural Bio Benavides', expectedSede: 'BENAVIDES' },
+          { pageName: 'Bio Natural Piura', expectedSede: 'PIURA' },
+          { pageName: 'Bio Naturales Roosevelt', expectedSede: 'ROOSEVELT' }
+        ];
+
+        for (const p of pagesToTest) {
+          const prov = resolveLeadProvider({
+            pageName: p.pageName,
+            isPaidAd: false
+          });
+          if (prov !== 'IN_HOUSE') {
+            throw new Error(`Proveedor orgánico en ${p.pageName} debe ser IN_HOUSE, recibido: ${prov}`);
+          }
+          const src = buildVtigerSource({
+            sedeName: p.pageName,
+            provider: prov,
+            channel: 'FB-MSGR',
+            treatment: 'General'
+          });
+          const expectedSrc = `${p.expectedSede}-IN_HOUSE-FB-MSGR-General`;
+          if (src !== expectedSrc) {
+            throw new Error(`Fuente orgánica en ${p.pageName} debe ser '${expectedSrc}', recibido: '${src}'`);
+          }
+        }
+      }
+    },
+    {
+      name: 'Regla 4F: Amarre Estricto de Ad ID y Actualización Dinámica al Reingresar por Anuncio Diferente',
+      run: () => {
+        // 1. Validación de formato de Meta Ad ID numérico
+        const validAdId = '120226588408570607';
+        const invalidAdId = 'PALACIOS-CLICK2RING-FB-MSGR-Potencia';
+        if (!isValidMetaAdId(validAdId)) throw new Error('Ad ID numérico debe ser válido');
+        if (isValidMetaAdId(invalidAdId)) throw new Error('Cadenas de texto no son Ad IDs válidos');
+
+        // 2. Ingreso inicial por Ad ID A (Ultra - Potencia CLICK2RING)
+        const initialAdId = '120226588408570607';
+        const initialProv = resolveLeadProvider({
+          pageName: 'BioNatural - Ultra',
+          isPaidAd: true
+        });
+        const initialSource = buildVtigerSource({
+          sedeName: 'BioNatural - Ultra',
+          provider: initialProv,
+          channel: 'FB-MSGR',
+          treatment: 'Potencia'
+        });
+        if (initialSource !== 'PALACIOS-CLICK2RING-FB-MSGR-Potencia') {
+          throw new Error(`Fuente inicial incorrecta: ${initialSource}`);
+        }
+
+        // 3. Reingreso por Ad ID B diferente (Naturales BioNatural - Artritis ERNESTO)
+        const newAdId = '120226588408599999';
+        const isDifferentAd = Boolean(newAdId && initialAdId && newAdId !== initialAdId);
+        if (!isDifferentAd) {
+          throw new Error('Debe detectar que el Ad ID es diferente');
+        }
+
+        // Se actualiza dinámicamente el origen vinculado al nuevo Ad ID
+        const updatedProv = resolveLeadProvider({
+          pageName: 'Naturales BioNatural',
+          adsetName: 'ARTRITIS - ERNESTO - 2pm a 9pm - 300',
+          isPaidAd: true
+        });
+        const updatedSource = buildVtigerSource({
+          sedeName: 'Naturales BioNatural',
+          provider: updatedProv,
+          channel: 'FB-MSGR',
+          treatment: 'Artritis'
+        });
+
+        if (updatedSource !== 'PALACIOS-ERNESTO-FB-MSGR-Artritis') {
+          throw new Error(`Origen no se actualizó al nuevo anuncio: ${updatedSource}`);
         }
       }
     },

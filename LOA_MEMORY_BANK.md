@@ -58,6 +58,26 @@
   - **Etiquetas de Telemetría:** `mudanza-gracia-expirada`, `mudanza-de-sede`, `mudanza-desde-[sede_previa]`, `sede-[nueva_sede]`.
   - **Rotulado en Pipeline:** `[PRODUCTO] Nombre Cliente | SEDE | Anuncio`.
 
+### H. Regla Universal de Origen Orgánico y Amarre Dinámico de Ad ID
+- **Regla Universal Orgánica (Tráfico por Goteo):**
+  - Aplica para **todas las páginas en general**: si un contacto no viene de pauta paga (`!isPaidAd`), su proveedor es estrictamente **`IN_HOUSE`** en cualquier sede (`[SEDE]-IN_HOUSE-FB-MSGR-[TRATAMIENTO]`).
+  - Medium UTM para orgánico: `messenger` (no `cpc`).
+  - Etiquetado inteligente: `organico` y `facebook-messenger` (se purga `meta-ads` erróneo si no tiene pauta previa).
+- **Amarre Estricto de Ad ID con su Origen:**
+  - Todo ingreso por pauta amarra forzosamente su Meta Ad ID numérico (`/^\d{8,25}$/`) a su campaña y origen estructurado.
+  - Inyectado simultáneamente en `contact.id_de_anuncio` (`6w3yMjLgIw6npUKWIosr`) y `contact.ad_id` (`ujLG5Ogp94WfynVubapT`).
+- **Actualización Dinámica ("Si es diferente? Se actualiza"):**
+  - Si un contacto reingresa con un Ad ID diferente (`latestAdId && currentAdId && latestAdId !== currentAdId`) o transiciona de orgánico a pauta:
+    1. Se actualiza su Ad ID en ambos campos custom.
+    2. Se consultan detalles de campaña en vivo en Meta Graph API (`getMetaAdDetails`).
+    3. Se actualiza `contact.source` al nuevo origen de pauta (`[SEDE]-[PROVEEDOR]-FB-MSGR-[TRATAMIENTO]`).
+    4. Se actualizan UTMs (`utm_campaign`, `utm_content`, `utm_medium = 'cpc'`).
+    5. Se añade etiqueta `doble-ingreso-publicitario`.
+    6. Se inyecta la tarjeta de nota en GHL (`saveAdHistoryNote`) registrando la comparativa del Ad previo vs Ad nuevo.
+  - Si el contacto continúa conversando sin un nuevo clic de anuncio, mantiene su Ad ID y origen vinculado sin alteraciones espurias.
+- **Batería de Pruebas Protocolares:**
+  - Ampliada a **13/13 Reglas protocolares aprobadas (100%)** en `test_audit_engine.js`.
+
 ---
 
 ## 2. ARQUITECTURA OPERATIVA DEL PROYECTO
