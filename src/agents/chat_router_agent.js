@@ -489,9 +489,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let targetAdName = null;
     let latestAdSetName = null;
 
-    // 🔥 ACTUALIZACIÓN CONSTANTE DE UTMs EN VIVO (Meta Graph)
     if (targetAdId && isValidMetaAdId(targetAdId)) {
-      const metaDetails = await getMetaAdDetails(targetAdId);
+      const metaDetails = await getMetaAdDetails(targetAdId, {
+        sede: currentSedeName,
+        pageId: targetPageId,
+        locationId
+      });
       if (metaDetails) {
         latestCampaign = metaDetails.campaignName || latestCampaign;
         targetAdName = metaDetails.adName || metaDetails.creativeTitle;

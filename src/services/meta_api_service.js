@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { META_CONFIG, PAGE_TAG_MAP, getMetaConfigBySede } from '../config/index.js';
+import { META_CONFIG, PAGE_TAG_MAP, SEDES_GATEWAY, getMetaConfigBySede } from '../config/index.js';
 
 const { graphApiVersion, accessToken, adAccountId, pixelId, exclusionAudienceId } = META_CONFIG;
 const GRAPH_BASE = `https://graph.facebook.com/${graphApiVersion}`;
@@ -36,24 +36,11 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hora
 /**
  * 1. Consultar Metadatos Reales de un Anuncio en Meta Graph API
  * Extrae: Nombre de Campaña, Conjunto de Anuncios y Título del Creativo
- * Admite token específico por sede para no saturar una sola Meta App
+ * Enruta dinámicamente a la Meta App de la sede respectiva para no saturar cuotas,
+ * con failover automático a tokens secundarios en caso de rate-limiting (HTTP 429).
  */
 export async function getMetaAdDetails(adId, options = {}) {
-  let effectiveToken = accessToken;
-  if (typeof options === 'string') {
-    effectiveToken = options;
-  } else if (options && typeof options === 'object') {
-    if (options.token) {
-      effectiveToken = options.token;
-    } else if (options.sede || options.pageId || options.locationId) {
-      const metaConf = getMetaConfigBySede(options);
-      if (metaConf?.accessToken) {
-        effectiveToken = metaConf.accessToken;
-      }
-    }
-  }
-
-  if (!adId || adId === 'N/A' || !effectiveToken) return null;
+  if (!adId || adId === 'N/A') return null;
 
   const now = Date.now();
   if (adCache.has(adId)) {
@@ -63,30 +50,66 @@ export async function getMetaAdDetails(adId, options = {}) {
     }
   }
 
-  try {
-    const url = `${GRAPH_BASE}/${adId}?fields=id,name,campaign{id,name},adset{id,name},creative{id,title,body}&access_token=${effectiveToken}`;
-    if (global.apiCounters) global.apiCounters.meta++;
-    const res = await fetch(url);
-    if (!res.ok) {
-      return null;
+  // 1. Resolver el token primario según sede / pageId / locationId
+  let primaryToken = null;
+  if (typeof options === 'string') {
+    primaryToken = options;
+  } else if (options && typeof options === 'object') {
+    if (options.token) {
+      primaryToken = options.token;
+    } else if (options.sede || options.pageId || options.locationId) {
+      const metaConf = getMetaConfigBySede(options);
+      if (metaConf?.accessToken) {
+        primaryToken = metaConf.accessToken;
+      }
     }
-    const data = await res.json();
-    const details = {
-      adId: data.id,
-      adName: data.name || 'Anuncio Meta',
-      campaignId: data.campaign?.id || null,
-      campaignName: data.campaign?.name || 'Campaña Meta',
-      adsetId: data.adset?.id || null,
-      adsetName: data.adset?.name || 'Conjunto de Anuncios',
-      creativeTitle: data.creative?.title || data.creative?.body || 'Creativo'
-    };
-
-    adCache.set(adId, { timestamp: now, data: details });
-    return details;
-  } catch (err) {
-    console.error(`[Meta API] Error obteniendo anuncio ${adId}:`, err.message);
-    return null;
   }
+  if (!primaryToken) primaryToken = accessToken;
+
+  // 2. Construir lista ordenada de tokens (Failover & Load Balancer Multi-App)
+  const candidateTokens = [primaryToken];
+  if (SEDES_GATEWAY) {
+    for (const [, sConf] of Object.entries(SEDES_GATEWAY)) {
+      const t = sConf?.meta?.accessToken;
+      if (t && !candidateTokens.includes(t)) {
+        candidateTokens.push(t);
+      }
+    }
+  }
+
+  // 3. Probar candidateTokens en orden
+  for (const token of candidateTokens) {
+    if (!token) continue;
+    try {
+      const url = `${GRAPH_BASE}/${adId}?fields=id,name,campaign{id,name},adset{id,name},creative{id,title,body}&access_token=${token}`;
+      if (global.apiCounters) global.apiCounters.meta++;
+      const res = await fetch(url);
+      if (!res.ok) {
+        // En caso de rate-limit (429) o error de app, reintentar con el siguiente token candidato
+        continue;
+      }
+      const data = await res.json();
+      if (!data || data.error) continue;
+
+      const details = {
+        adId: data.id,
+        adName: data.name || 'Anuncio Meta',
+        campaignId: data.campaign?.id || null,
+        campaignName: data.campaign?.name || 'Campaña Meta',
+        adsetId: data.adset?.id || null,
+        adsetName: data.adset?.name || 'Conjunto de Anuncios',
+        creativeTitle: data.creative?.title || data.creative?.body || 'Creativo'
+      };
+
+      adCache.set(adId, { timestamp: now, data: details });
+      return details;
+    } catch (err) {
+      // Error de red puntual, continuar con el siguiente token
+      continue;
+    }
+  }
+
+  return null;
 }
 
 /**

@@ -30,6 +30,26 @@ services:
         sync: false
       - key: META_ACCESS_TOKEN
         sync: false
+      - key: META_ACCESS_TOKEN_PALACIOS
+        sync: false
+      - key: META_APP_ID_PALACIOS
+        sync: false
+      - key: META_APP_SECRET_PALACIOS
+        sync: false
+      - key: META_AD_ACCOUNT_ID_PALACIOS
+        sync: false
+      - key: META_ACCESS_TOKEN_BENAVIDES
+        sync: false
+      - key: META_APP_ID_BENAVIDES
+        sync: false
+      - key: META_APP_SECRET_BENAVIDES
+        sync: false
+      - key: META_AD_ACCOUNT_ID_BENAVIDES
+        sync: false
+      - key: META_ACCESS_TOKEN_ROOSEVELT
+        sync: false
+      - key: META_ACCESS_TOKEN_PIURA
+        sync: false
       - key: META_AD_ACCOUNT_ID
         sync: false
       - key: META_PIXEL_ID
