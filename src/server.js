@@ -730,8 +730,20 @@ app.get('/', (req, res) => res.redirect('/health'));
 
 app.post('/webhook/ghl-contact', async (req, res) => {
   try {
-    const contactPayload = req.body;
-    fs.appendFileSync(path.join(process.cwd(), 'scratch', 'webhook_logs.txt'), JSON.stringify(contactPayload) + '\n');
+    const logPath = path.join(process.cwd(), 'scratch', 'webhook_logs.txt');
+    try {
+      if (fs.existsSync(logPath)) {
+        const logStat = fs.statSync(logPath);
+        if (logStat.size > 4 * 1024 * 1024) {
+          const logContent = fs.readFileSync(logPath, 'utf8');
+          const logLines = logContent.split('\n');
+          fs.writeFileSync(logPath, logLines.slice(-500).join('\n'), 'utf8');
+        }
+      }
+      fs.appendFileSync(logPath, JSON.stringify(contactPayload) + '\n');
+    } catch (e) {
+      // safe fallback
+    }
     let contactData = contactPayload.contact || contactPayload;
 
     // Si el payload no tiene ID de GHL, debemos crearlo/actualizarlo (Upsert) primero
