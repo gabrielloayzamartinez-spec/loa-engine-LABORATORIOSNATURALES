@@ -7,7 +7,7 @@
  * 4. Inferencia geográfica desde teléfonos de USA.
  */
 
-import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, extractShippingData } from '../agents/nlp_symptom_engine.js';
+import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, extractShippingData } from '../agents/nlp_symptom_engine.js';
 import { learningBrain } from '../services/learning_brain.js';
 
 export function runPreFlightSanityCheck() {
@@ -43,16 +43,72 @@ export function runPreFlightSanityCheck() {
       }
     },
     {
-      name: 'Regla 4: Fuente estructurada para pauta debe ser CLICK2RING',
+      name: 'Regla 4: Fuente estructurada para pauta de ULTRA debe ser PALACIOS-CLICK2RING',
       run: () => {
+        const prov = resolveLeadProvider({
+          pageId: '111906554968800',
+          pageName: 'BioNatural - Ultra',
+          isPaidAd: true
+        });
+        if (prov !== 'CLICK2RING') {
+          throw new Error(`Proveedor de ULTRA debe ser CLICK2RING, recibido: ${prov}`);
+        }
         const source = buildVtigerSource({
-          sedeName: 'Naturales BioNatural',
-          provider: 'CLICK2RING',
+          sedeName: 'BioNatural - Ultra',
+          provider: prov,
           channel: 'FB-MSGR',
           treatment: 'Potencia'
         });
         if (source !== 'PALACIOS-CLICK2RING-FB-MSGR-Potencia') {
-          throw new Error(`Fuente incorrecta: ${source}`);
+          throw new Error(`Fuente incorrecta para ULTRA: ${source}`);
+        }
+      }
+    },
+    {
+      name: 'Regla 4B: Pauta de Naturales BioNatural con IN HOUSE debe resolver PALACIOS-IN_HOUSE',
+      run: () => {
+        const prov = resolveLeadProvider({
+          pageId: '566501466542620',
+          pageName: 'Naturales BioNatural',
+          adsetName: 'TETOSTERONA - IN HOUSE - NO MGRATIS- CBO V1 - 100diario',
+          isPaidAd: true
+        });
+        if (prov !== 'IN_HOUSE') {
+          throw new Error(`Proveedor esperado IN_HOUSE, recibido: ${prov}`);
+        }
+        const trat = inferTreatmentFromCampaignOrUtm('TETOSTERONA - IN HOUSE - NO MGRATIS- CBO V1 - 100diario');
+        const source = buildVtigerSource({
+          sedeName: 'Naturales BioNatural',
+          provider: prov,
+          channel: 'FB-MSGR',
+          treatment: trat
+        });
+        if (source !== 'PALACIOS-IN_HOUSE-FB-MSGR-Potencia') {
+          throw new Error(`Fuente incorrecta para IN_HOUSE: ${source}`);
+        }
+      }
+    },
+    {
+      name: 'Regla 4C: Pauta de Naturales BioNatural con ERNESTO debe resolver PALACIOS-ERNESTO',
+      run: () => {
+        const prov = resolveLeadProvider({
+          pageId: '566501466542620',
+          pageName: 'Naturales BioNatural',
+          adsetName: 'ARTRITIS - ERNESTO - 2pm a 9pm - 300',
+          isPaidAd: true
+        });
+        if (prov !== 'ERNESTO') {
+          throw new Error(`Proveedor esperado ERNESTO, recibido: ${prov}`);
+        }
+        const trat = inferTreatmentFromCampaignOrUtm('ARTRITIS - ERNESTO - 2pm a 9pm - 300');
+        const source = buildVtigerSource({
+          sedeName: 'Naturales BioNatural',
+          provider: prov,
+          channel: 'FB-MSGR',
+          treatment: trat
+        });
+        if (source !== 'PALACIOS-ERNESTO-FB-MSGR-Artritis') {
+          throw new Error(`Fuente incorrecta para ERNESTO: ${source}`);
         }
       }
     },

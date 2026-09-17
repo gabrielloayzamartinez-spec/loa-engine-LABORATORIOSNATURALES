@@ -25,9 +25,22 @@
 - Cuando un cliente escribe en Facebook Messenger o Instagram (ej. caso Chago Diaz: "MUESTRA GRATIS POTENCIA"), el motor lo detecta en menos de 20 segundos sin depender de que el contacto sea editado manualmente.
 - Se corrigió la lectura de atribuciones para buscar en reversa la atribución que contenga datos de pauta (`attrWithData`), evitando que un reingreso orgánico borre los UTMs del anuncio original.
 
-### D. Estandarización de Logs Corporativos
+### D. Estandarización de Logs Corporativos y Sanity Checks
 - Todos los servicios (`chat_router_agent.js`, `learning_brain.js`, `server.js`, `vtiger_sync_agent.js`, etc.) operan bajo el estándar de logging enterprise sin emojis informales (`[SUCCESS]`, `[PROCESSING]`, `[UX-GUARD]`, `[SYNC]`, `[PURGE]`).
-- Pre-flight sanity check (`test_audit_engine.js`) validado al 100% (8/8 reglas aprobadas).
+- Pre-flight sanity check (`test_audit_engine.js`) validado al 100% (10/10 reglas aprobadas).
+
+### E. Matriz de Proveedores y Pauta Conectada (Sede PALACIOS)
+- **Regla Oficial ULTRA:** "Todo lo que viene de pauta de ULTRA proviene de CLICK2RING".
+  - Fanpage: `BioNatural - Ultra` (`111906554968800`).
+  - Responsable: `REDES PALACIOS ULTRA` (`mOA8p7H0G3MC0TEWrlKf`).
+  - Proveedor: `CLICK2RING`.
+  - Origen generado: `PALACIOS-CLICK2RING-FB-MSGR-[PADECIMIENTO]`. Sede fijada canónicamente en `PALACIOS` (purgado `PALACIOS_ULTRA` inexistente en vTiger).
+- **Regla Oficial NATURALES BIONATURAL:**
+  - Fanpage: `Naturales BioNatural` (`566501466542620`) y `Laboratorios Naturales BIO` (`718150351371765`).
+  - Responsable: `REDES PALACIOS ERNESTO` (`G1mp9WCw9jwkNhnSZ2ER`).
+  - Si el conjunto/campaña dice `IN HOUSE` (ej: `TETOSTERONA - IN HOUSE - ...`): Proveedor = `IN_HOUSE`, Origen = `PALACIOS-IN_HOUSE-FB-MSGR-[PADECIMIENTO]`.
+  - Si dice `ERNESTO` o por defecto en esta fanpage: Proveedor = `ERNESTO`, Origen = `PALACIOS-ERNESTO-FB-MSGR-[PADECIMIENTO]`.
+- **Captura en Vivo de `adsetName`:** Conectado directamente desde Meta Graph API (`getMetaAdDetails`) hacia `chat_router_agent.js` para detección instantánea de padecimientos y proveedores.
 
 ---
 
@@ -50,15 +63,11 @@
 
 ---
 
-## 3. PENDIENTES PRIORITARIOS PARA TRABAJAR MAÑANA
+## 3. PENDIENTES PRIORITARIOS
 
-### 📌 Tarea 1: Matriz Oficial de Proveedores y Sedes (Nomenclatura Meta)
-- **Contexto:** El usuario confirmó que la publicidad de la página *Naturales BioNatural* la gestiona **ERNESTO**, no `CLICK2RING`. En vTiger, el campo `cf_2572` ("Proveedor") contiene: `ERNESTO`, `CLICK2RING`, `IN_HOUSE` (además de `UP_IDEAS`, `ENZO`, `DIURNAY`).
-- **Acción:**
-  1. Recibir la lista estructurada del usuario con el mapeo:
-     - `[Sede, Proveedor, Fanpages Asociadas, Prefijo en Campaña/Anuncio]`.
-  2. Eliminar el valor quemado `provider: isPaidAd ? 'CLICK2RING' : 'IN_HOUSE'` en `chat_router_agent.js` y `nlp_symptom_engine.js`.
-  3. Mapear dinámicamente según la fanpage y el nombre de la campaña para construir la fuente exacta: `[SEDE]-[PROVEEDOR]-[CANAL]-[PADECIMIENTO]`.
+### 📌 Tarea 1: Matriz de Proveedores para Sedes Restantes (Benavides, Roosevelt, Piura)
+- **Estado:** Sede PALACIOS completada al 100%.
+- **Acción:** Recibir las filas restantes de la hoja de cálculo del usuario para configurar los proveedores de Benavides 1, Benavides 2, Roosevelt y Piura.
 
 ### 📌 Tarea 2: Creación de los 6 Pipelines Dedicados por Producto en GHL
 - **Contexto:** El usuario aprobó dividir las oportunidades en GoHighLevel según el desplegable oficial de **PADECIMIENTO** (`cf_2610`) de vTiger:

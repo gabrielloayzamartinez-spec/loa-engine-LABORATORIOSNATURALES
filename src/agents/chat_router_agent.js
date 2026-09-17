@@ -1,6 +1,6 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
-import { analyzeSymptoms, extractShippingData, buildVtigerSource, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
+import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
@@ -367,6 +367,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     let targetAdId = latestAdId || currentAdId || null;
     let targetAdName = null;
+    let latestAdSetName = null;
 
     // 🔥 ACTUALIZACIÓN CONSTANTE DE UTMs EN VIVO (Meta Graph)
     if (targetAdId && isValidMetaAdId(targetAdId)) {
@@ -374,7 +375,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       if (metaDetails) {
         latestCampaign = metaDetails.campaignName || latestCampaign;
         targetAdName = metaDetails.adName || metaDetails.creativeTitle;
-        console.log(`[Agente 3] [META] UTMs Actualizados en vivo desde Meta: Campaña [${latestCampaign}], Ad [${targetAdName}]`);
+        latestAdSetName = metaDetails.adsetName || null;
+        console.log(`[Agente 3] [META] UTMs Actualizados en vivo desde Meta: Campaña [${latestCampaign}], AdSet [${latestAdSetName}], Ad [${targetAdName}]`);
       }
     }
 
@@ -382,10 +384,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // 🔬 D. Inferencia Clínica y de Pauta Ponderada:
     // Prioridad 1: Síntomas clínicos y Cerebro de Aprendizaje (NLP) - (La intención ACTUAL del cliente)
-    // Prioridad 2: Campaña / Anuncio / UTM Medium (ej: "MUESTRA GRATIS POTENCIA")
+    // Prioridad 2: Conjunto de Anuncios / Campaña / Anuncio / UTM Medium (ej: "TETOSTERONA - IN HOUSE - ...", "ARTRITIS - ERNESTO - ...")
     // Prioridad 3: Ground Truth de Ventas vTiger CRM (Útil si el cliente solo dice "Hola" pero sabemos que es paciente crónico de algo)
     // Prioridad 4: Tratamiento previo registrado en GHL
-    const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(targetAdName) ||
+    const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(latestAdSetName) ||
+                                  inferTreatmentFromCampaignOrUtm(targetAdName) ||
                                   inferTreatmentFromCampaignOrUtm(latestMedium) ||
                                   inferTreatmentFromCampaignOrUtm(latestCampaign) ||
                                   inferTreatmentFromCampaignOrUtm(contact.attributionSource?.campaign) ||
@@ -445,13 +448,25 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       contact.attributionSource?.adId ||
       contact.attributionSource?.utmCampaign ||
       latestCampaign ||
+      latestAdSetName ||
       (contact.tags || []).includes('meta-ads') ||
-      (contact.source || '').includes('CLICK2RING')
+      (contact.source || '').includes('CLICK2RING') ||
+      (contact.source || '').includes('ERNESTO')
     );
+
+    const targetProvider = resolveLeadProvider({
+      pageId: targetPageId,
+      pageName: targetPageName,
+      campaignName: latestCampaign,
+      adsetName: latestAdSetName,
+      adName: targetAdName,
+      isPaidAd,
+      existingSource: contact.source
+    });
 
     const vtigerSource = buildVtigerSource({
       sedeName: targetPageName,
-      provider: isPaidAd ? 'CLICK2RING' : 'IN_HOUSE',
+      provider: targetProvider,
       channel: 'FB-MSGR',
       treatment: targetTratamiento || 'General'
     });

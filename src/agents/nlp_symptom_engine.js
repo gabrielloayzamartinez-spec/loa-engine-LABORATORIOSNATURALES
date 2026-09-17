@@ -235,7 +235,6 @@ export function extractShippingData(text, existingPhone = null) {
 
   // 6. Inferencia Geográfica a partir del Teléfono de USA
   const phoneGeo = phone ? getGeoFromPhone(phone) : null;
-
   const finalState = parsedAddress?.state || phoneGeo?.state || null;
   const finalTimezone = parsedAddress?.timezone || phoneGeo?.timezone || null;
 
@@ -257,7 +256,70 @@ export function extractShippingData(text, existingPhone = null) {
 }
 
 /**
- * 3. Genera la Fuente Estructurada Estilo vTiger: [SEDE]-[PROVEEDOR]-[CANAL]-[TRATAMIENTO]
+ * 3. Determina el Proveedor Publicitario Oficial conforme a la matriz de sedes y pauta.
+ * - Sede PALACIOS (Ultra): "todo lo que viene de pauta de ULTRA PROVIENE DE CLICK2RING".
+ * - Sede PALACIOS (Naturales BioNatural / Laboratorios Naturales BIO):
+ *     - Si el conjunto o campaña contiene 'IN HOUSE' -> IN_HOUSE
+ *     - Si el conjunto o campaña contiene 'ERNESTO' -> ERNESTO
+ *     - Por defecto para esta fanpage -> ERNESTO
+ * - Tráfico Orgánico sin pauta: IN_HOUSE
+ */
+export function resolveLeadProvider({
+  pageId = '',
+  pageName = '',
+  campaignName = '',
+  adsetName = '',
+  adName = '',
+  isPaidAd = true,
+  existingSource = ''
+} = {}) {
+  const combinedMetaText = `${campaignName} ${adsetName} ${adName} ${existingSource}`.toUpperCase();
+  const cleanPageName = (pageName || '').toUpperCase();
+  const cleanPageId = String(pageId || '').trim();
+
+  // 1. Detección explícita por palabra clave en campaña / conjunto de anuncios / anuncio
+  if (/IN[\s_-]*HOUSE/i.test(combinedMetaText)) {
+    return 'IN_HOUSE';
+  }
+  if (/ERNESTO/i.test(combinedMetaText)) {
+    return 'ERNESTO';
+  }
+  if (/CLIC?K?2RING/i.test(combinedMetaText)) {
+    return 'CLICK2RING';
+  }
+  if (/UP[\s_-]*IDEAS/i.test(combinedMetaText)) {
+    return 'UP_IDEAS';
+  }
+  if (/ENZO/i.test(combinedMetaText)) {
+    return 'ENZO';
+  }
+  if (/DIURNAY/i.test(combinedMetaText)) {
+    return 'DIURNAY';
+  }
+
+  // 2. Regla confirmada de ULTRA por el usuario:
+  // "todo lo que viene de pauta de ULTRA PROVEIENE DE CLICK2RING."
+  if (cleanPageId === '111906554968800' || cleanPageName.includes('ULTRA')) {
+    return isPaidAd ? 'CLICK2RING' : 'IN_HOUSE';
+  }
+
+  // 3. Regla confirmada de NATURALES BIONATURAL / LABORATORIOS NATURALES BIO:
+  // Gestionado por ERNESTO (salvo que el conjunto de anuncios indique IN HOUSE, ya evaluado arriba)
+  if (
+    cleanPageId === '566501466542620' ||
+    cleanPageId === '718150351371765' ||
+    cleanPageName.includes('NATURALES BIONATURAL') ||
+    cleanPageName.includes('LABORATORIOS NATURALES BIO')
+  ) {
+    return isPaidAd ? 'ERNESTO' : 'IN_HOUSE';
+  }
+
+  // 4. Default si no coincide ninguna regla previa
+  return isPaidAd ? 'CLICK2RING' : 'IN_HOUSE';
+}
+
+/**
+ * 4. Genera la Fuente Estructurada Estilo vTiger: [SEDE]-[PROVEEDOR]-[CANAL]-[TRATAMIENTO]
  */
 export function buildVtigerSource({ sedeName, provider = 'CLICK2RING', channel = 'FB-MSGR', treatment = 'General' }) {
   let cleanSede = 'PALACIOS';
@@ -273,7 +335,7 @@ export function buildVtigerSource({ sedeName, provider = 'CLICK2RING', channel =
   } else if (sUpper.includes('ROOSEVELT') || sUpper.includes('ROOSVELT') || sUpper.includes('BIO NATURALES') || sUpper.includes('BIONATURAL PLUS')) {
     cleanSede = 'ROOSEVELT';
   } else if (sUpper.includes('ULTRA')) {
-    cleanSede = 'PALACIOS_ULTRA';
+    cleanSede = 'PALACIOS';
   } else if (sUpper.includes('PALACIOS') || sUpper.includes('NATURALES BIONATURAL') || sUpper.includes('LABORATORIOS NATURALES BIO')) {
     cleanSede = 'PALACIOS';
   }
