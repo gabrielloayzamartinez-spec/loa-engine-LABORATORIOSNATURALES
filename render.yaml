@@ -14,6 +14,14 @@ services:
         sync: false
       - key: GHL_LOCATION_ID
         sync: false
+      - key: GHL_API_KEY_PALACIOS
+        sync: false
+      - key: GHL_LOCATION_ID_PALACIOS
+        sync: false
+      - key: GHL_API_KEY_BENAVIDES
+        sync: false
+      - key: GHL_LOCATION_ID_BENAVIDES
+        sync: false
       - key: VTIGER_URL
         value: https://ventascallcenter.com
       - key: VTIGER_USERNAME
@@ -28,3 +36,4 @@ services:
         sync: false
       - key: META_WEBHOOK_VERIFY_TOKEN
         value: ghl_meta_secure_token_2026
+
