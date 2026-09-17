@@ -303,15 +303,23 @@ export function resolveLeadProvider({
     return isPaidAd ? 'CLICK2RING' : 'IN_HOUSE';
   }
 
-  // 3. Regla confirmada de NATURALES BIONATURAL / LABORATORIOS NATURALES BIO:
-  // Gestionado por ERNESTO (salvo que el conjunto de anuncios indique IN HOUSE, ya evaluado arriba)
+  // 3. Regla confirmada de NATURALES BIONATURAL:
+  // Gestionado por ERNESTO (salvo que el conjunto de anuncios indique IN HOUSE, ya evaluado arriba en paso 1)
   if (
     cleanPageId === '566501466542620' ||
-    cleanPageId === '718150351371765' ||
-    cleanPageName.includes('NATURALES BIONATURAL') ||
-    cleanPageName.includes('LABORATORIOS NATURALES BIO')
+    cleanPageName.includes('NATURALES BIONATURAL')
   ) {
     return isPaidAd ? 'ERNESTO' : 'IN_HOUSE';
+  }
+
+  // 3B. Regla confirmada de LABORATORIOS NATURALES BIO:
+  // Página de proveedor anterior en proceso de reactivación como IN_HOUSE o apagado.
+  // Ingresos mayormente orgánicos o pauta in-house. Siempre se amarra su Ad ID si existe.
+  if (
+    cleanPageId === '718150351371765' ||
+    cleanPageName.includes('LABORATORIOS NATURALES BIO')
+  ) {
+    return 'IN_HOUSE';
   }
 
   // 4. Default si no coincide ninguna regla previa

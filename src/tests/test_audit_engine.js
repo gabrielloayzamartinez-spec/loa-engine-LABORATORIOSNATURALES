@@ -113,6 +113,28 @@ export function runPreFlightSanityCheck() {
       }
     },
     {
+      name: 'Regla 4D: Laboratorios Naturales BIO debe resolver IN_HOUSE (reactivacion/organico)',
+      run: () => {
+        const prov = resolveLeadProvider({
+          pageId: '718150351371765',
+          pageName: 'Laboratorios Naturales BIO',
+          isPaidAd: false
+        });
+        if (prov !== 'IN_HOUSE') {
+          throw new Error(`Proveedor esperado IN_HOUSE para Labs Bio, recibido: ${prov}`);
+        }
+        const source = buildVtigerSource({
+          sedeName: 'Laboratorios Naturales BIO',
+          provider: prov,
+          channel: 'FB-MSGR',
+          treatment: 'General'
+        });
+        if (source !== 'PALACIOS-IN_HOUSE-FB-MSGR-General') {
+          throw new Error(`Fuente incorrecta para Labs Bio: ${source}`);
+        }
+      }
+    },
+    {
       name: 'Regla 5: La fuente jamás debe truncarse a códigos de 2 letras (ej: -Ar)',
       run: () => {
         const source = buildVtigerSource({
