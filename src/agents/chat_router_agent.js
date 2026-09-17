@@ -18,6 +18,8 @@ export async function saveAdHistoryNote(contactId, {
   oldAdId,
   oldAdDate,
   previousSede,
+  previousCampaign,
+  previousTreatment,
   campaign,
   pageName,
   clickCount,
@@ -33,16 +35,19 @@ export async function saveAdHistoryNote(contactId, {
     : `[SAVE PROCESS: Ruteo y Diagnostico de Pauta]`;
 
   let interaccionText = `Clic #${clickCount || 1}`;
-  if (isDiffAd) {
+  if (isDiffAd || isDoubleAdEntry) {
     const datePart = oldAdDate ? `  ${oldAdDate}` : '';
-    const sedePart = previousSede ? `  ${previousSede}` : '';
-    const graciaPart = isGraceExpired ? ' ("tiempo de gracia expirado")' : '';
-    interaccionText = `DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: ${oldAdId}${datePart}${sedePart}${graciaPart}`;
-  } else if (isDoubleAdEntry) {
-    const datePart = oldAdDate ? `  ${oldAdDate}` : '';
-    const sedePart = previousSede ? `  ${previousSede}` : '';
-    const graciaPart = isGraceExpired ? ' ("tiempo de gracia expirado")' : '';
-    interaccionText = `DOBLE INGRESO PUBLICITARIO (Mismo Anuncio) - Anuncio: ${newAdId}${datePart}${sedePart}${graciaPart}`;
+    const cleanPrevSede = previousSede || 'PALACIOS';
+    const campSnippet = previousCampaign ? ` - ${previousCampaign.substring(0, 32)}` : '';
+    const cleanTreatment = (previousTreatment && previousTreatment !== 'General') ? ` - ${previousTreatment}` : (previousTreatment ? ` - ${previousTreatment}` : '');
+    const contextPart = `  (${cleanPrevSede}${campSnippet}${cleanTreatment})`;
+    const vigenciaPart = ` ("${isGraceExpired ? 'tiempo de gracia expirado' : 'vigencia activa'}")`;
+    
+    const adLabel = isDiffAd
+      ? `Anuncio / Campaña Previa: ${oldAdId}`
+      : `Anuncio: ${newAdId}`;
+
+    interaccionText = `DOBLE INGRESO PUBLICITARIO - ${adLabel}${datePart}${contextPart}${vigenciaPart}`;
   } else if (!oldAdId || oldAdId.includes('Orgánico')) {
     interaccionText = `1er Ingreso Publicitario tras Tráfico Orgánico`;
   }
@@ -885,28 +890,50 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
       if (adChanged || treatmentChanged) {
         let prevAdDateStr = null;
+        let prevAdTimestamp = 0;
         if (currentAdId && fbMessages.length > 0) {
           const prevAdMsg = fbMessages.find(m => m.adId === currentAdId);
           if (prevAdMsg && prevAdMsg.timestamp) {
+            prevAdTimestamp = prevAdMsg.timestamp;
             prevAdDateStr = new Date(prevAdMsg.timestamp).toLocaleDateString('es-PE', { timeZone: 'America/New_York' });
           }
         }
         if (!prevAdDateStr && contact.dateAdded) {
+          prevAdTimestamp = new Date(contact.dateAdded).getTime();
           prevAdDateStr = new Date(contact.dateAdded).toLocaleDateString('es-PE', { timeZone: 'America/New_York' });
         }
+
+        const nowMs = newestMsg?.timestamp || Date.now();
+        const diffHours = prevAdTimestamp > 0 ? (nowMs - prevAdTimestamp) / (1000 * 60 * 60) : 999;
+        const graceThreshold = isCustomerWon ? 30 * 24 : 96; // 30 días si es cliente con venta, 4 días si es prospecto
+        const isGraceExpiredCalc = Boolean(
+          expiredGraceMsg || 
+          isMudanzaDeSede || 
+          diffHours > graceThreshold
+        );
+
+        const prevCampaignVal = existingCustomFields.find(f => f.id === UTM_CAMPAIGN_FIELD && f.value)?.value ||
+                                contact.attributionSource?.utmCampaign ||
+                                previousSource ||
+                                '';
+        const prevTreatmentVal = currentTratamiento || 
+                                 (vContact?.cf_2610 ? inferTreatmentFromCampaignOrUtm(vContact.cf_2610) || vContact.cf_2610 : null) ||
+                                 'General';
 
         await saveAdHistoryNote(contactId, {
           newAdId: latestAdId,
           oldAdId: currentAdId || 'Ninguna previa (Orgánico)',
           oldAdDate: prevAdDateStr,
           previousSede: previousSede || currentSedeName || 'PALACIOS',
+          previousCampaign: prevCampaignVal,
+          previousTreatment: prevTreatmentVal,
           campaign: latestCampaign || 'Pauta Reciente',
           pageName: targetPageName,
           clickCount: duplicateCount,
           source: vtigerSource,
           treatment: targetTratamiento,
           isDoubleAdEntry,
-          isGraceExpired: Boolean(expiredGraceMsg || expiredTimeDiffHours > 0 || isMudanzaDeSede || isDoubleAdEntry)
+          isGraceExpired: isGraceExpiredCalc
         });
       }
 
