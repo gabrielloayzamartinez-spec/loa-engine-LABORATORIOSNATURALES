@@ -1,6 +1,6 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
-import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
+import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
@@ -572,10 +572,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       existingSource: contact.source
     });
 
+    const targetChannel = resolveLeadChannel({
+      campaignName: latestCampaign || targetAdName
+    });
+
     const vtigerSource = buildVtigerSource({
       sedeName: targetPageName,
+      campaignName: latestCampaign || targetAdName,
+      pageId: targetPageId,
       provider: targetProvider,
-      channel: 'FB-MSGR',
+      channel: targetChannel,
       treatment: targetTratamiento || 'General'
     });
 
@@ -604,7 +610,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // 1. Definir la ÚNICA etiqueta de producto permitida (El Tratamiento Principal)
-    const ALL_PRODUCT_TAGS = ['producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 'producto-colageno', 'producto-vision', 'producto-gastro'];
+    const ALL_PRODUCT_TAGS = ['producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 'producto-colageno', 'producto-vision', 'producto-gastro', 'producto-hongos'];
     const activeProductTag = targetTratamiento ? `producto-${targetTratamiento.toLowerCase()}` : null;
     
     // 2. Solo añadimos LA etiqueta principal, ignorando detecciones secundarias de NLP para evitar que se disparen múltiples bots
@@ -626,9 +632,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // 🏢 DETECCIÓN DE MUDANZA DE SEDE AUTORIZADA (TIEMPO DE GRACIA EXPIRADO):
-    const currentSedeName = (targetPageName?.toLowerCase().includes('bionatural') || targetPageName?.toLowerCase().includes('palacios') || targetPageName?.toLowerCase().includes('ultra'))
-      ? 'PALACIOS'
-      : (targetPageName ? targetPageName.replace(/Naturales\s*/i, '').trim().toUpperCase() : 'PALACIOS');
+    const currentSedeName = resolveLeadSede({
+      pageId: targetPageId,
+      pageName: targetPageName,
+      campaignName: latestCampaign || targetAdName
+    });
 
     const previousSource = contact.source || '';
     let previousSede = null;

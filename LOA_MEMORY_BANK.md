@@ -107,7 +107,30 @@
          ```
   - Si el contacto continúa conversando sin un nuevo clic de anuncio, mantiene su Ad ID y origen vinculado sin alteraciones espurias.
 - **Batería de Pruebas Protocolares:**
-  - Ampliada a **15/15 Reglas protocolares aprobadas (100%)** en `test_audit_engine.js`.
+  - Ampliada a **16/16 Reglas protocolares aprobadas (100%)** en `test_audit_engine.js`.
+
+### I. Matriz de Páginas y Campañas Vinculadas (Sede BENAVIDES)
+- **1. Fanpages Oficiales y Proveedores Base (Sede BENAVIDES):**
+  - `Bio Natural` (`126154270581792`) ➔ Proveedor: **`CLICK2RING`** | Sede: **`BENAVIDES`**
+  - `Naturales Bio Corp` (`510617778807469`) ➔ Proveedor: **`ERNESTO`** | Sede: **`BENAVIDES`**
+  - `BioNatural Fuerza` (`1147742788423762`) ➔ Proveedor: **`IN_HOUSE`** (`INHOUSE`) | Sede: **`BENAVIDES`**
+- **2. Jerarquía de Atribución - Prioridad Máxima al Nombre de Campaña:**
+  - Tal como definió la operación (*"ESTA CONFIG ESTA A NIVEL NOMBRE DE CAMPAÑA"*), si el nombre de campaña contiene directivas explícitas, éstas sobreescriben la fanpage de entrada:
+    - **Proveedor por Campaña:**
+      - Palabras `César`, `Cesar`, `Click2Ring` ➔ **`CLICK2RING`**
+      - Palabras `InHouse`, `InHo` ➔ **`IN_HOUSE`**
+      - Palabra `Ernesto` ➔ **`ERNESTO`**
+    - **Sede por Campaña:**
+      - Si la campaña menciona `Piura` (ej. `DIABETES - BENAVIDES (César - Piura)` o `Testosterona -Piura- InHouse -MessengerFB`) ➔ Sede: **`PIURA`**.
+      - Si menciona `Benavides` ➔ Sede: **`BENAVIDES`**.
+    - **Canal por Campaña:**
+      - Palabras `Formulario`, `Form` ➔ Canal: **`FORM`** (ej. `BENAVIDES-IN_HOUSE-FORM-Potencia`).
+      - Palabras `MessengerFB`, `FM`, `Messenger` ➔ Canal: **`FB-MSGR`**.
+    - **Padecimiento / Tratamiento Oficial:**
+      - `Hongos` mapeado canónicamente al catálogo vTiger `cf_2610` (ej. `BENAVIDES-IN_HOUSE-FB-MSGR-Hongos`).
+      - `Testosterona` ➔ `Potencia` (vTiger), `Diabetes` ➔ `Diabetes`, `Gastro` ➔ `Gastritis`, `Bio Collagen` ➔ `Colageno`.
+- **3. Pre-flight Sanity Check:**
+  - Nueva `Regla 4I` validada al 100% cubriendo las 3 fanpages y los 5 patrones de campaña de la imagen.
 
 ---
 

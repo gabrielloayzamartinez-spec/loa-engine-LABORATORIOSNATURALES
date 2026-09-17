@@ -7,7 +7,7 @@
  * 4. Inferencia geográfica desde teléfonos de USA.
  */
 
-import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, extractShippingData, isValidMetaAdId } from '../agents/nlp_symptom_engine.js';
+import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, extractShippingData, isValidMetaAdId } from '../agents/nlp_symptom_engine.js';
 import { buildAdHistoryNoteBody } from '../agents/chat_router_agent.js';
 import { learningBrain } from '../services/learning_brain.js';
 
@@ -275,6 +275,85 @@ export function runPreFlightSanityCheck() {
         }
         if (!newTagsSet.has('organico')) {
           throw new Error('newTagsSet debe contener organico');
+        }
+      }
+    },
+    {
+      name: 'Regla 4I: Matriz de Páginas y Campañas de Benavides (Click2Ring, Ernesto, InHouse)',
+      run: () => {
+        // 1. Verificación de Fanpages (Image 1)
+        // Bio Natural (126154270581792) -> CLICK2RING
+        const p1Prov = resolveLeadProvider({ pageId: '126154270581792', pageName: 'Bio Natural' });
+        const p1Sede = resolveLeadSede({ pageId: '126154270581792', pageName: 'Bio Natural' });
+        if (p1Prov !== 'CLICK2RING' || p1Sede !== 'BENAVIDES') {
+          throw new Error(`Bio Natural debe ser BENAVIDES-CLICK2RING, recibido: ${p1Sede}-${p1Prov}`);
+        }
+
+        // Naturales Bio Corp (510617778807469) -> ERNESTO
+        const p2Prov = resolveLeadProvider({ pageId: '510617778807469', pageName: 'Naturales Bio Corp' });
+        const p2Sede = resolveLeadSede({ pageId: '510617778807469', pageName: 'Naturales Bio Corp' });
+        if (p2Prov !== 'ERNESTO' || p2Sede !== 'BENAVIDES') {
+          throw new Error(`Naturales Bio Corp debe ser BENAVIDES-ERNESTO, recibido: ${p2Sede}-${p2Prov}`);
+        }
+
+        // BioNatural Fuerza (1147742788423762) -> IN_HOUSE
+        const p3Prov = resolveLeadProvider({ pageId: '1147742788423762', pageName: 'BioNatural Fuerza' });
+        const p3Sede = resolveLeadSede({ pageId: '1147742788423762', pageName: 'BioNatural Fuerza' });
+        if (p3Prov !== 'IN_HOUSE' || p3Sede !== 'BENAVIDES') {
+          throw new Error(`BioNatural Fuerza debe ser BENAVIDES-IN_HOUSE, recibido: ${p3Sede}-${p3Prov}`);
+        }
+
+        // 2. Verificación a Nivel Nombre de Campaña (Image 2)
+        // Campaña 1: Hongos - Benavides- InHouse - MessengerFB
+        const c1Camp = 'Hongos - Benavides- InHouse - MessengerFB';
+        const c1Prov = resolveLeadProvider({ campaignName: c1Camp });
+        const c1Sede = resolveLeadSede({ campaignName: c1Camp });
+        const c1Trat = inferTreatmentFromCampaignOrUtm(c1Camp);
+        const c1Chan = resolveLeadChannel({ campaignName: c1Camp });
+        const c1Source = buildVtigerSource({ sedeName: c1Sede, campaignName: c1Camp, provider: c1Prov, channel: c1Chan, treatment: c1Trat });
+        if (c1Source !== 'BENAVIDES-IN_HOUSE-FB-MSGR-Hongos') {
+          throw new Error(`Campaña Hongos InHouse esperada 'BENAVIDES-IN_HOUSE-FB-MSGR-Hongos', recibido: '${c1Source}'`);
+        }
+
+        // Campaña 2: Testosterona -Benavides -InHouse -Formulario (PREGUNTA)
+        const c2Camp = 'Testosterona -Benavides -InHouse -Formulario (PREGUNTA)';
+        const c2Prov = resolveLeadProvider({ campaignName: c2Camp });
+        const c2Sede = resolveLeadSede({ campaignName: c2Camp });
+        const c2Trat = inferTreatmentFromCampaignOrUtm(c2Camp);
+        const c2Chan = resolveLeadChannel({ campaignName: c2Camp });
+        const c2Source = buildVtigerSource({ sedeName: c2Sede, campaignName: c2Camp, provider: c2Prov, channel: c2Chan, treatment: c2Trat });
+        if (c2Source !== 'BENAVIDES-IN_HOUSE-FORM-Potencia') {
+          throw new Error(`Campaña Formulario esperada 'BENAVIDES-IN_HOUSE-FORM-Potencia', recibido: '${c2Source}'`);
+        }
+
+        // Campaña 3: DIABETES - BENAVIDES (César)
+        const c3Camp = 'DIABETES - BENAVIDES (César)';
+        const c3Prov = resolveLeadProvider({ campaignName: c3Camp });
+        const c3Sede = resolveLeadSede({ campaignName: c3Camp });
+        const c3Trat = inferTreatmentFromCampaignOrUtm(c3Camp);
+        const c3Source = buildVtigerSource({ sedeName: c3Sede, campaignName: c3Camp, provider: c3Prov, channel: 'FB-MSGR', treatment: c3Trat });
+        if (c3Source !== 'BENAVIDES-CLICK2RING-FB-MSGR-Diabetes') {
+          throw new Error(`Campaña César esperada 'BENAVIDES-CLICK2RING-FB-MSGR-Diabetes', recibido: '${c3Source}'`);
+        }
+
+        // Campaña 4: DIABETES - BENAVIDES (César - Piura)
+        const c4Camp = 'DIABETES - BENAVIDES (César - Piura)';
+        const c4Prov = resolveLeadProvider({ campaignName: c4Camp });
+        const c4Sede = resolveLeadSede({ campaignName: c4Camp });
+        const c4Trat = inferTreatmentFromCampaignOrUtm(c4Camp);
+        const c4Source = buildVtigerSource({ sedeName: c4Sede, campaignName: c4Camp, provider: c4Prov, channel: 'FB-MSGR', treatment: c4Trat });
+        if (c4Source !== 'PIURA-CLICK2RING-FB-MSGR-Diabetes') {
+          throw new Error(`Campaña Piura César esperada 'PIURA-CLICK2RING-FB-MSGR-Diabetes', recibido: '${c4Source}'`);
+        }
+
+        // Campaña 5: Testosterona -Piura- InHouse -MessengerFB
+        const c5Camp = 'Testosterona -Piura- InHouse -MessengerFB';
+        const c5Prov = resolveLeadProvider({ campaignName: c5Camp });
+        const c5Sede = resolveLeadSede({ campaignName: c5Camp });
+        const c5Trat = inferTreatmentFromCampaignOrUtm(c5Camp);
+        const c5Source = buildVtigerSource({ sedeName: c5Sede, campaignName: c5Camp, provider: c5Prov, channel: 'FB-MSGR', treatment: c5Trat });
+        if (c5Source !== 'PIURA-IN_HOUSE-FB-MSGR-Potencia') {
+          throw new Error(`Campaña Piura InHouse esperada 'PIURA-IN_HOUSE-FB-MSGR-Potencia', recibido: '${c5Source}'`);
         }
       }
     },

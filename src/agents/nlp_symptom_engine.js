@@ -40,6 +40,9 @@ const SYMPTOM_DICTIONARY = {
   'Gastro': [
     'gastritis', 'reflujo', 'acidez', 'colon', 'estomago', 'digestion', 'pesadez estomacal',
     'dolor de estomago', 'colitis', 'estreñimiento'
+  ],
+  'Hongos': [
+    'hongo', 'hongos', 'pie de atleta', 'onicomicosis', 'unas amarillas', 'comezon pies'
   ]
 };
 
@@ -131,12 +134,13 @@ export function inferTreatmentFromCampaignOrUtm(text) {
   if (!text) return null;
   const norm = normalizeText(text);
   if (/colageno|colagen|collagen|piel|arrugas/i.test(norm)) return 'Colageno';
-  if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior|testosterona|tetosterona|texto men|textomen/i.test(norm)) return 'Potencia';
+  if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior|testosterona|tetosterona|texto men|textomen|testo\b/i.test(norm)) return 'Potencia';
   if (/diabetes|glucosa|azucar|nopal/i.test(norm)) return 'Diabetes';
   if (/prostata|prostatico/i.test(norm)) return 'Prostata';
   if (/vision|vista|catarata|ojos/i.test(norm)) return 'Vision';
   if (/gastro|gastritis|colon|acidez|reflujo/i.test(norm)) return 'Gastro';
   if (/artritis|articulacion|rodilla|cartilago|hueso|artrosis/i.test(norm)) return 'Artritis';
+  if (/hongos?|onicomicosis|pie de atleta/i.test(norm)) return 'Hongos';
   return null;
 }
 
@@ -257,12 +261,98 @@ export function extractShippingData(text, existingPhone = null) {
 
 /**
  * 3. Determina el Proveedor Publicitario Oficial conforme a la matriz de sedes y pauta.
- * - Sede PALACIOS (Ultra): "todo lo que viene de pauta de ULTRA PROVIENE DE CLICK2RING".
- * - Sede PALACIOS (Naturales BioNatural / Laboratorios Naturales BIO):
- *     - Si el conjunto o campaña contiene 'IN HOUSE' -> IN_HOUSE
- *     - Si el conjunto o campaña contiene 'ERNESTO' -> ERNESTO
- *     - Por defecto para esta fanpage -> ERNESTO
- * - Tráfico Orgánico sin pauta: IN_HOUSE
+/**
+ * Resuelve la Sede Oficial según Nombre de Campaña (Prioridad 1) y Fanpage (Prioridad 2)
+ */
+export function resolveLeadSede({ pageId = '', pageName = '', campaignName = '' } = {}) {
+  const cUpper = (campaignName || '').toUpperCase();
+  const pUpper = (pageName || '').toUpperCase();
+  const pId = String(pageId || '').trim();
+
+  // 1. Prioridad Máxima: Detección a nivel Nombre de Campaña
+  if (/\bPIURA\b/i.test(cUpper) || cUpper.includes('CÉSAR - PIURA') || cUpper.includes('CESAR - PIURA') || cUpper.includes('CSAR - PIURA')) {
+    return 'PIURA';
+  }
+  if (/\bBENAVIDES\b/i.test(cUpper)) {
+    return 'BENAVIDES';
+  }
+  if (/\bROOSEVELT\b|\bROOSVELT\b/i.test(cUpper)) {
+    return 'ROOSEVELT';
+  }
+  if (/\bPALACIOS\b|\bULTRA\b/i.test(cUpper)) {
+    return 'PALACIOS';
+  }
+
+  // 2. Mapeo Oficial por Page ID de Fanpage
+  // BENAVIDES (Matriz Confirmada):
+  // - "Bio Natural" (126154270581792)
+  // - "Naturales Bio Corp" (510617778807469)
+  // - "BioNatural Fuerza" (1147742788423762)
+  if (pId === '126154270581792' || pId === '510617778807469' || pId === '1147742788423762') {
+    return 'BENAVIDES';
+  }
+
+  // PALACIOS:
+  // - "BioNatural - Ultra" (111906554968800)
+  // - "Naturales BioNatural" (566501466542620)
+  // - "Laboratorios Naturales BIO" (718150351371765)
+  if (pId === '111906554968800' || pId === '566501466542620' || pId === '718150351371765') {
+    return 'PALACIOS';
+  }
+
+  // ROOSEVELT:
+  // - "Bio Naturales" (568453466348355)
+  // - "BioNatural Plus" (1075001465705985)
+  if (pId === '568453466348355' || pId === '1075001465705985') {
+    return 'ROOSEVELT';
+  }
+
+  // PIURA:
+  // - "Natural Bio" (1147257965133802)
+  // - "BioNatural" (1057863707412893)
+  if (pId === '1147257965133802' || pId === '1057863707412893') {
+    return 'PIURA';
+  }
+
+  // 3. Fallback por Nombre de Fanpage
+  if (pUpper.includes('BENAVIDES 2') || pUpper.includes('BENAVIDES_2')) {
+    return 'BENAVIDES_2';
+  }
+  if (pUpper.includes('BENAVIDES') || pUpper.includes('CORP') || pUpper.includes('FUERZA')) {
+    return 'BENAVIDES';
+  }
+  if (pUpper.includes('ROOSEVELT') || pUpper.includes('ROOSVELT') || pUpper.includes('PLUS')) {
+    return 'ROOSEVELT';
+  }
+  if (pUpper.includes('PIURA')) {
+    return 'PIURA';
+  }
+  if (pUpper.includes('ULTRA') || pUpper.includes('PALACIOS') || pUpper.includes('NATURALES BIONATURAL') || pUpper.includes('LABORATORIOS NATURALES BIO')) {
+    return 'PALACIOS';
+  }
+  if (pUpper.includes('NATURAL BIO BENAVIDES') || pUpper === 'BIO NATURAL' || pUpper.includes('BIO NATURAL')) {
+    return 'BENAVIDES';
+  }
+
+  return 'PALACIOS';
+}
+
+/**
+ * Resuelve el Canal de Captación: FB-MSGR (Messenger), FORM (Formulario de Clientes Potenciales) o WHATSAPP
+ */
+export function resolveLeadChannel({ campaignName = '', formId = null, isForm = false } = {}) {
+  const cUpper = (campaignName || '').toUpperCase();
+  if (isForm || formId || /FORMULARIO|\bFORM\b/i.test(cUpper)) {
+    return 'FORM';
+  }
+  if (/WHATSAPP|\bWSP\b/i.test(cUpper)) {
+    return 'WHATSAPP';
+  }
+  return 'FB-MSGR';
+}
+
+/**
+ * 3. Determina el Proveedor Publicitario Oficial conforme a Campaña y Matriz de Fanpages
  */
 export function resolveLeadProvider({
   pageId = '',
@@ -273,9 +363,7 @@ export function resolveLeadProvider({
   isPaidAd = true,
   existingSource = ''
 } = {}) {
-  // 0. Regla Universal Orgánica (Aplicable a todas las páginas en general):
-  // Si NO es pauta paga (tráfico orgánico por goteo sin Meta Ad ID ni parámetros de cobro),
-  // el proveedor es estrictamente IN_HOUSE en cualquier fanpage.
+  // 0. Regla Universal Orgánica:
   if (!isPaidAd) {
     return 'IN_HOUSE';
   }
@@ -284,14 +372,14 @@ export function resolveLeadProvider({
   const cleanPageName = (pageName || '').toUpperCase();
   const cleanPageId = String(pageId || '').trim();
 
-  // 1. Detección explícita por palabra clave en campaña / conjunto de anuncios / anuncio
-  if (/IN[\s_-]*HOUSE/i.test(combinedMetaText)) {
+  // 1. Detección explícita a nivel NOMBRE DE CAMPAÑA / CONJUNTO / ANUNCIO
+  if (/IN[\s_-]*HOUSE|IN[\s_-]*HO\b/i.test(combinedMetaText)) {
     return 'IN_HOUSE';
   }
   if (/ERNESTO/i.test(combinedMetaText)) {
     return 'ERNESTO';
   }
-  if (/CLIC?K?2RING/i.test(combinedMetaText)) {
+  if (/CLIC?K?2RING|C[EÉ]SAR/i.test(combinedMetaText)) {
     return 'CLICK2RING';
   }
   if (/UP[\s_-]*IDEAS/i.test(combinedMetaText)) {
@@ -304,60 +392,54 @@ export function resolveLeadProvider({
     return 'DIURNAY';
   }
 
-  // 2. Regla confirmada de ULTRA por el usuario:
-  // "todo lo que viene de pauta de ULTRA PROVEIENE DE CLICK2RING."
-  if (cleanPageId === '111906554968800' || cleanPageName.includes('ULTRA')) {
+  // 2. Mapeo por FANPAGE (Confirmado por el usuario en Matriz Benavides / Palacios)
+  // BENAVIDES:
+  // - "Bio Natural" (126154270581792): CLICK2RING
+  // - "Naturales Bio Corp" (510617778807469): ERNESTO
+  // - "BioNatural Fuerza" (1147742788423762): INHOUSE
+  if (cleanPageId === '126154270581792') {
     return 'CLICK2RING';
   }
-
-  // 3. Regla confirmada de NATURALES BIONATURAL:
-  // Gestionado por ERNESTO (salvo que el conjunto de anuncios indique IN HOUSE, ya evaluado arriba en paso 1)
-  if (
-    cleanPageId === '566501466542620' ||
-    cleanPageName.includes('NATURALES BIONATURAL')
-  ) {
+  if (cleanPageId === '510617778807469' || cleanPageName.includes('BIO CORP')) {
     return 'ERNESTO';
   }
-
-  // 3B. Regla confirmada de LABORATORIOS NATURALES BIO:
-  // Página de proveedor anterior en proceso de reactivación como IN_HOUSE o apagado.
-  // Ingresos mayormente orgánicos o pauta in-house. Siempre se amarra su Ad ID si existe.
-  if (
-    cleanPageId === '718150351371765' ||
-    cleanPageName.includes('LABORATORIOS NATURALES BIO')
-  ) {
+  if (cleanPageId === '1147742788423762' || cleanPageName.includes('FUERZA')) {
     return 'IN_HOUSE';
   }
 
-  // 4. Default para pauta paga no clasificada
+  // PALACIOS:
+  // - "BioNatural - Ultra" (111906554968800): CLICK2RING
+  if (cleanPageId === '111906554968800' || cleanPageName.includes('ULTRA')) {
+    return 'CLICK2RING';
+  }
+  // - "Naturales BioNatural" (566501466542620): ERNESTO
+  if (cleanPageId === '566501466542620' || cleanPageName.includes('NATURALES BIONATURAL')) {
+    return 'ERNESTO';
+  }
+  // - "Laboratorios Naturales BIO" (718150351371765): IN_HOUSE
+  if (cleanPageId === '718150351371765' || cleanPageName.includes('LABORATORIOS NATURALES BIO')) {
+    return 'IN_HOUSE';
+  }
+
+  // 3. Default para pauta paga no clasificada
   return 'CLICK2RING';
 }
 
 /**
  * 4. Genera la Fuente Estructurada Estilo vTiger: [SEDE]-[PROVEEDOR]-[CANAL]-[TRATAMIENTO]
  */
-export function buildVtigerSource({ sedeName, provider = 'CLICK2RING', channel = 'FB-MSGR', treatment = 'General' }) {
-  let cleanSede = 'PALACIOS';
-  const sUpper = (sedeName || '').toUpperCase();
-
-  // Mapeo exacto por nombres de Fanpage / Sede para evitar caídas al valor por defecto
-  if (sUpper.includes('BENAVIDES 2') || sUpper.includes('BENAVIDES_2') || sUpper.includes('FUERZA')) {
-    cleanSede = 'BENAVIDES_2';
-  } else if (sUpper.includes('BENAVIDES') || sUpper.includes('CORP')) {
-    cleanSede = 'BENAVIDES';
-  } else if (sUpper.includes('ROOSEVELT') || sUpper.includes('ROOSVELT') || sUpper.includes('PLUS')) {
-    cleanSede = 'ROOSEVELT';
-  } else if (sUpper.includes('PIURA')) {
-    cleanSede = 'PIURA';
-  } else if (sUpper.includes('ULTRA') || sUpper.includes('PALACIOS') || sUpper.includes('NATURALES BIONATURAL') || sUpper.includes('LABORATORIOS NATURALES BIO')) {
-    cleanSede = 'PALACIOS';
-  } else if (sUpper.includes('NATURAL BIO') || sUpper === 'BIONATURAL' || sUpper === 'BIO NATURAL') {
-    // Fanpage histórica 'Natural Bio' asignada a Piura
-    cleanSede = 'PIURA';
-  }
+export function buildVtigerSource({
+  sedeName = '',
+  campaignName = '',
+  pageId = '',
+  provider = 'CLICK2RING',
+  channel = 'FB-MSGR',
+  treatment = 'General'
+}) {
+  let cleanSede = resolveLeadSede({ pageId, pageName: sedeName, campaignName });
 
   let cleanTreatment = treatment || 'General';
-  // Si por error viene un código de 2 letras (como un estado 'AR', 'TX') o texto menor a 3 caracteres, fallback a 'General'
+  // Si por error viene un código de 2 letras o menor a 3 caracteres, fallback a 'General'
   if (cleanTreatment.length <= 2) {
     cleanTreatment = 'General';
   } else {
