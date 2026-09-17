@@ -17,12 +17,14 @@ export async function saveAdHistoryNote(contactId, {
   newAdId,
   oldAdId,
   oldAdDate,
+  previousSede,
   campaign,
   pageName,
   clickCount,
   source,
   treatment,
-  isDoubleAdEntry = false
+  isDoubleAdEntry = false,
+  isGraceExpired = true
 }) {
   const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
   const isDiffAd = Boolean(oldAdId && oldAdId !== 'Ninguna previa' && oldAdId !== 'Ninguna previa (Orgánico)' && oldAdId !== newAdId);
@@ -32,11 +34,15 @@ export async function saveAdHistoryNote(contactId, {
 
   let interaccionText = `Clic #${clickCount || 1}`;
   if (isDiffAd) {
-    const dateSuffix = oldAdDate ? `  ${oldAdDate}` : '';
-    interaccionText = `DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: ${oldAdId}${dateSuffix}`;
+    const datePart = oldAdDate ? `  ${oldAdDate}` : '';
+    const sedePart = previousSede ? `  ${previousSede}` : '';
+    const graciaPart = isGraceExpired ? ' ("tiempo de gracia expirado")' : '';
+    interaccionText = `DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: ${oldAdId}${datePart}${sedePart}${graciaPart}`;
   } else if (isDoubleAdEntry) {
-    const dateSuffix = oldAdDate ? `  ${oldAdDate}` : '';
-    interaccionText = `DOBLE INGRESO PUBLICITARIO (Mismo Anuncio) - Anuncio: ${newAdId}${dateSuffix}`;
+    const datePart = oldAdDate ? `  ${oldAdDate}` : '';
+    const sedePart = previousSede ? `  ${previousSede}` : '';
+    const graciaPart = isGraceExpired ? ' ("tiempo de gracia expirado")' : '';
+    interaccionText = `DOBLE INGRESO PUBLICITARIO (Mismo Anuncio) - Anuncio: ${newAdId}${datePart}${sedePart}${graciaPart}`;
   } else if (!oldAdId || oldAdId.includes('Orgánico')) {
     interaccionText = `1er Ingreso Publicitario tras Tráfico Orgánico`;
   }
@@ -893,12 +899,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           newAdId: latestAdId,
           oldAdId: currentAdId || 'Ninguna previa (Orgánico)',
           oldAdDate: prevAdDateStr,
+          previousSede: previousSede || currentSedeName || 'PALACIOS',
           campaign: latestCampaign || 'Pauta Reciente',
           pageName: targetPageName,
           clickCount: duplicateCount,
           source: vtigerSource,
           treatment: targetTratamiento,
-          isDoubleAdEntry
+          isDoubleAdEntry,
+          isGraceExpired: Boolean(expiredGraceMsg || expiredTimeDiffHours > 0 || isMudanzaDeSede || isDoubleAdEntry)
         });
       }
 
