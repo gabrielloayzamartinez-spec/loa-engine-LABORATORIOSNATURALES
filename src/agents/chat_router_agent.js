@@ -13,12 +13,37 @@ const { apiKey, locationId } = GHL_CONFIG;
 /**
  * 📌 Save Process: Inyecta una Nota Histórica en el perfil de GHL ante un nuevo toque o cambio de pauta
  */
-export async function saveAdHistoryNote(contactId, { newAdId, oldAdId, campaign, pageName, clickCount, source, treatment }) {
+export async function saveAdHistoryNote(contactId, {
+  newAdId,
+  oldAdId,
+  oldAdDate,
+  campaign,
+  pageName,
+  clickCount,
+  source,
+  treatment,
+  isDoubleAdEntry = false
+}) {
   const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
   const isDiffAd = Boolean(oldAdId && oldAdId !== 'Ninguna previa' && oldAdId !== 'Ninguna previa (Orgánico)' && oldAdId !== newAdId);
   const noteTitle = isDiffAd
     ? `🚨 [SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]`
     : `[SAVE PROCESS: Ruteo y Diagnostico de Pauta]`;
+
+  let interaccionText = `Clic #${clickCount || 1}`;
+  if (isDiffAd) {
+    const dateSuffix = oldAdDate ? `  ${oldAdDate}` : '';
+    interaccionText = `DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: ${oldAdId}${dateSuffix}`;
+  } else if (isDoubleAdEntry) {
+    const dateSuffix = oldAdDate ? `  ${oldAdDate}` : '';
+    interaccionText = `DOBLE INGRESO PUBLICITARIO (Mismo Anuncio) - Anuncio: ${newAdId}${dateSuffix}`;
+  } else if (!oldAdId || oldAdId.includes('Orgánico')) {
+    interaccionText = `1er Ingreso Publicitario tras Tráfico Orgánico`;
+  }
+
+  const estadoPautaText = isDiffAd
+    ? `ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)`
+    : (newAdId ? `VINCULADO (Ad ID y Origen asignados)` : `ORGÁNICO (Sin costo publicitario)`);
 
   const noteBody = `${noteTitle}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -26,11 +51,10 @@ export async function saveAdHistoryNote(contactId, { newAdId, oldAdId, campaign,
 - Origen/Fuente Asignada: ${source || 'N/A'}
 - Tratamiento Detectado: ${treatment || 'General'}
 - Nuevo Ad ID: ${newAdId || 'Orgánico / Sin Ad'}
-- Anuncio / Campaña Previa: ${oldAdId || 'Ninguna previa (Orgánico)'}
 - Fanpage de Entrada: ${pageName || 'N/A'}
 - Campaña Detectada: ${campaign || 'N/A'}
-- Interacción: Clic #${clickCount || 1}
-- Estado de Pauta: ${isDiffAd ? 'ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)' : 'VINCULADO'}
+- Interacción: ${interaccionText}
+- Estado de Pauta: ${estadoPautaText}
 ----------------------------------------
 Powered by LOA Engine - Gabriel Loayza`;
 
@@ -854,14 +878,27 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const treatmentChanged = targetTratamiento && targetTratamiento !== currentTratamiento;
 
       if (adChanged || treatmentChanged) {
+        let prevAdDateStr = null;
+        if (currentAdId && fbMessages.length > 0) {
+          const prevAdMsg = fbMessages.find(m => m.adId === currentAdId);
+          if (prevAdMsg && prevAdMsg.timestamp) {
+            prevAdDateStr = new Date(prevAdMsg.timestamp).toLocaleDateString('es-PE', { timeZone: 'America/New_York' });
+          }
+        }
+        if (!prevAdDateStr && contact.dateAdded) {
+          prevAdDateStr = new Date(contact.dateAdded).toLocaleDateString('es-PE', { timeZone: 'America/New_York' });
+        }
+
         await saveAdHistoryNote(contactId, {
           newAdId: latestAdId,
           oldAdId: currentAdId || 'Ninguna previa (Orgánico)',
+          oldAdDate: prevAdDateStr,
           campaign: latestCampaign || 'Pauta Reciente',
           pageName: targetPageName,
           clickCount: duplicateCount,
           source: vtigerSource,
-          treatment: targetTratamiento
+          treatment: targetTratamiento,
+          isDoubleAdEntry
         });
       }
 
