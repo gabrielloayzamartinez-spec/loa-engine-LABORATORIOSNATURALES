@@ -13,7 +13,8 @@ const { apiKey, locationId } = GHL_CONFIG;
 /**
  * 📌 Save Process: Inyecta una Nota Histórica en el perfil de GHL ante un nuevo toque o cambio de pauta
  */
-export async function saveAdHistoryNote(contactId, {
+export function buildAdHistoryNoteBody({
+  dateStr,
   newAdId,
   oldAdId,
   oldAdDate,
@@ -26,9 +27,10 @@ export async function saveAdHistoryNote(contactId, {
   source,
   treatment,
   isDoubleAdEntry = false,
-  isGraceExpired = true
+  isGraceExpired = true,
+  isMudanzaDeSede = false
 }) {
-  const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
+  const formattedDate = dateStr || new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
   const isDiffAd = Boolean(oldAdId && oldAdId !== 'Ninguna previa' && oldAdId !== 'Ninguna previa (Orgánico)' && oldAdId !== newAdId);
   const noteTitle = isDiffAd
     ? `🚨 [SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]`
@@ -37,10 +39,15 @@ export async function saveAdHistoryNote(contactId, {
   let interaccionText = `Clic #${clickCount || 1}`;
   if (isDiffAd || isDoubleAdEntry) {
     const datePart = oldAdDate ? `  ${oldAdDate}` : '';
-    const cleanPrevSede = previousSede || 'PALACIOS';
-    const campSnippet = previousCampaign ? ` - ${previousCampaign.substring(0, 32)}` : '';
-    const cleanTreatment = (previousTreatment && previousTreatment !== 'General') ? ` - ${previousTreatment}` : (previousTreatment ? ` - ${previousTreatment}` : '');
-    const contextPart = `  (${cleanPrevSede}${campSnippet}${cleanTreatment})`;
+    let contextPart = '';
+    if (isMudanzaDeSede || previousSede === 'OTRA SEDE') {
+      contextPart = '  (OTRA SEDE)';
+    } else {
+      const cleanPrevSede = previousSede || 'PALACIOS';
+      const campSnippet = previousCampaign ? ` - ${previousCampaign.substring(0, 32)}` : '';
+      const cleanTreatment = (previousTreatment && previousTreatment !== 'General') ? ` - ${previousTreatment}` : (previousTreatment ? ` - ${previousTreatment}` : '');
+      contextPart = `  (${cleanPrevSede}${campSnippet}${cleanTreatment})`;
+    }
     const vigenciaPart = ` ("${isGraceExpired ? 'tiempo de gracia expirado' : 'vigencia activa'}")`;
     
     const adLabel = isDiffAd
@@ -56,9 +63,9 @@ export async function saveAdHistoryNote(contactId, {
     ? `ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)`
     : (newAdId ? `VINCULADO (Ad ID y Origen asignados)` : `ORGÁNICO (Sin costo publicitario)`);
 
-  const noteBody = `${noteTitle}
+  return `${noteTitle}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Fecha: ${dateStr} (EST)
+- Fecha: ${formattedDate} (EST)
 - Origen/Fuente Asignada: ${source || 'N/A'}
 - Tratamiento Detectado: ${treatment || 'General'}
 - Nuevo Ad ID: ${newAdId || 'Orgánico / Sin Ad'}
@@ -68,6 +75,10 @@ export async function saveAdHistoryNote(contactId, {
 - Estado de Pauta: ${estadoPautaText}
 ----------------------------------------
 Powered by LOA Engine - Gabriel Loayza`;
+}
+
+export async function saveAdHistoryNote(contactId, params) {
+  const noteBody = buildAdHistoryNoteBody(params);
 
   try {
     const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
@@ -77,8 +88,10 @@ Powered by LOA Engine - Gabriel Loayza`;
       body: JSON.stringify({ body: noteBody })
     });
     console.log(`[Agente 4 Save Process] [NOTE] Nota histórica inyectada para contacto ${contactId}`);
+    return noteBody;
   } catch (err) {
     console.error(`[Agente 4 Save Process Error]:`, err.message);
+    return null;
   }
 }
 
@@ -933,7 +946,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           source: vtigerSource,
           treatment: targetTratamiento,
           isDoubleAdEntry,
-          isGraceExpired: isGraceExpiredCalc
+          isGraceExpired: isGraceExpiredCalc,
+          isMudanzaDeSede: Boolean(isMudanzaDeSede || (previousSede && currentSedeName && previousSede !== currentSedeName))
         });
       }
 

@@ -8,6 +8,7 @@
  */
 
 import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, extractShippingData, isValidMetaAdId } from '../agents/nlp_symptom_engine.js';
+import { buildAdHistoryNoteBody } from '../agents/chat_router_agent.js';
 import { learningBrain } from '../services/learning_brain.js';
 
 export function runPreFlightSanityCheck() {
@@ -214,6 +215,32 @@ export function runPreFlightSanityCheck() {
 
         if (updatedSource !== 'PALACIOS-ERNESTO-FB-MSGR-Artritis') {
           throw new Error(`Origen no se actualizó al nuevo anuncio: ${updatedSource}`);
+        }
+      }
+    },
+    {
+      name: 'Regla 4G: Formato de Nota Histórica ante Mudanza de Sede (Confidencialidad Multisede: OTRA SEDE)',
+      run: () => {
+        const note = buildAdHistoryNoteBody({
+          dateStr: '17/9/2026, 12:10:00',
+          source: 'PALACIOS-ERNESTO-FB-MSGR-Artritis',
+          treatment: 'Artritis',
+          newAdId: '120226588408599999',
+          pageName: 'Naturales BioNatural',
+          campaign: 'ARTRITIS - ERNESTO',
+          oldAdId: '120226588408570607',
+          oldAdDate: '10/9/2026',
+          isMudanzaDeSede: true,
+          isGraceExpired: true,
+          previousSede: 'BENAVIDES' // Sede de origen previa que debe enmascararse
+        });
+
+        const expectedInteraccion = '- Interacción: DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: 120226588408570607  10/9/2026  (OTRA SEDE) ("tiempo de gracia expirado")';
+        if (!note.includes(expectedInteraccion)) {
+          throw new Error(`Interacción no coincide con la regla de confidencialidad de mudanza.\nEsperado:\n${expectedInteraccion}\nRecibido en nota:\n${note}`);
+        }
+        if (note.includes('BENAVIDES')) {
+          throw new Error('Violación de confidencialidad: la sede previa no debe detallarse en la nota de mudanza');
         }
       }
     },

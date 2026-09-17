@@ -74,23 +74,40 @@
     4. Se actualizan UTMs (`utm_campaign`, `utm_content`, `utm_medium = 'cpc'`).
     5. Se añade etiqueta `doble-ingreso-publicitario`.
     6. Se inyecta la tarjeta de nota en GHL (`saveAdHistoryNote`) con la estructura canónica oficial:
-       ```text
-       🚨 [SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]
-       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-       - Fecha: [Fecha y Hora Actual] (EST)
-       - Origen/Fuente Asignada: [SEDE]-[PROVEEDOR]-FB-MSGR-[TRATAMIENTO]
-       - Tratamiento Detectado: [Tratamiento]
-       - Nuevo Ad ID: [Nuevo Meta Ad ID]
-       - Fanpage de Entrada: [Nombre de Fanpage]
-       - Campaña Detectada: [Nombre de Campaña]
-       - Interacción: DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: [Ad ID Anterior]  [Fecha Anterior]  ([SEDE PREVIA] - [CAMPAÑA PREVIA] - [DOLENCIA]) ("tiempo de gracia expirado/ vigencia activa/")
-       - Estado de Pauta: ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)
-       ----------------------------------------
-       Powered by LOA Engine - Gabriel Loayza
-       ```
+       - **Caso Misma Sede:**
+         ```text
+         🚨 [SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]
+         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+         - Fecha: [Fecha y Hora Actual] (EST)
+         - Origen/Fuente Asignada: [SEDE]-[PROVEEDOR]-FB-MSGR-[TRATAMIENTO]
+         - Tratamiento Detectado: [Tratamiento]
+         - Nuevo Ad ID: [Nuevo Meta Ad ID]
+         - Fanpage de Entrada: [Nombre de Fanpage]
+         - Campaña Detectada: [Nombre de Campaña]
+         - Interacción: DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: [Ad ID Anterior]  [Fecha Anterior]  ([SEDE PREVIA] - [CAMPAÑA PREVIA] - [DOLENCIA]) ("tiempo de gracia expirado/ vigencia activa/")
+         - Estado de Pauta: ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)
+         ----------------------------------------
+         Powered by LOA Engine - Gabriel Loayza
+         ```
+       - **Caso Mudanza de Sede (Confidencialidad Multisede Protegida):**
+         Cuando ocurre cambio de sede legítimo, **NO se detalla la sede de origen, campaña ni dolencia previa**. Se enmascara estrictamente como `(OTRA SEDE)`:
+         ```text
+         🚨 [SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]
+         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+         - Fecha: 17/9/2026, 12:10:00 (EST)
+         - Origen/Fuente Asignada: PALACIOS-ERNESTO-FB-MSGR-Artritis
+         - Tratamiento Detectado: Artritis
+         - Nuevo Ad ID: 120226588408599999
+         - Fanpage de Entrada: Naturales BioNatural
+         - Campaña Detectada: ARTRITIS - ERNESTO
+         - Interacción: DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: 120226588408570607  10/9/2026  (OTRA SEDE) ("tiempo de gracia expirado")
+         - Estado de Pauta: ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)
+         ----------------------------------------
+         Powered by LOA Engine - Gabriel Loayza
+         ```
   - Si el contacto continúa conversando sin un nuevo clic de anuncio, mantiene su Ad ID y origen vinculado sin alteraciones espurias.
 - **Batería de Pruebas Protocolares:**
-  - Ampliada a **13/13 Reglas protocolares aprobadas (100%)** en `test_audit_engine.js`.
+  - Ampliada a **14/14 Reglas protocolares aprobadas (100%)** en `test_audit_engine.js`.
 
 ---
 
