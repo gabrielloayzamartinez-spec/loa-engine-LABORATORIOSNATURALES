@@ -73,7 +73,21 @@
     3. Se actualiza `contact.source` al nuevo origen de pauta (`[SEDE]-[PROVEEDOR]-FB-MSGR-[TRATAMIENTO]`).
     4. Se actualizan UTMs (`utm_campaign`, `utm_content`, `utm_medium = 'cpc'`).
     5. Se añade etiqueta `doble-ingreso-publicitario`.
-    6. Se inyecta la tarjeta de nota en GHL (`saveAdHistoryNote`) registrando la comparativa del Ad previo vs Ad nuevo.
+    6. Se inyecta la tarjeta de nota en GHL (`saveAdHistoryNote`) con la estructura canónica oficial:
+       ```text
+       🚨 [SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]
+       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       - Fecha: [Fecha y Hora Actual] (EST)
+       - Origen/Fuente Asignada: [SEDE]-[PROVEEDOR]-FB-MSGR-[TRATAMIENTO]
+       - Tratamiento Detectado: [Tratamiento]
+       - Nuevo Ad ID: [Nuevo Meta Ad ID]
+       - Fanpage de Entrada: [Nombre de Fanpage]
+       - Campaña Detectada: [Nombre de Campaña]
+       - Interacción: DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: [Ad ID Anterior]  [Fecha Anterior]
+       - Estado de Pauta: ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)
+       ----------------------------------------
+       Powered by LOA Engine - Gabriel Loayza
+       ```
   - Si el contacto continúa conversando sin un nuevo clic de anuncio, mantiene su Ad ID y origen vinculado sin alteraciones espurias.
 - **Batería de Pruebas Protocolares:**
   - Ampliada a **13/13 Reglas protocolares aprobadas (100%)** en `test_audit_engine.js`.
