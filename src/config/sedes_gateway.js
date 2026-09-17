@@ -25,10 +25,12 @@ export const SEDES_GATEWAY = {
       locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || 'ATPYNnsfZ1W8sd6WgWIV'
     },
     meta: {
-      appId: process.env.META_APP_ID_PALACIOS || process.env.META_APP_ID || '1056780273419484',
-      appSecret: process.env.META_APP_SECRET_PALACIOS || process.env.META_APP_SECRET || 'fe27d772c7fedee2e133ae4833503f6e',
-      accessToken: process.env.META_ACCESS_TOKEN_PALACIOS || process.env.META_ACCESS_TOKEN || 'EAAUbkNeyC9wBSsqE4YfEZCESXQ7AnmHlAG9dZCUzgla7t7Rq2mZBcu8XmSX470oZAx0nTapXW0qWe70hw3ZBWjEP1kPgU92MCFcebQVC0OZA6W9S4ZBFA7ZBdomvg0AiXX6e8kDrVKRMlQ03r5K5sYC6G6Amh6dWHR8XZBJTDOgOqwQ5x4mgZBVZCyM203UALpHc03MfPgzYeV5coN3EPz3wyOSLTQgyKJVezgLVN7JBfi3JoT6kTBNNQZC3Hq5kVZCXatQZBLdtDU4EpLnZBpIK0tO4zAKOYEZD',
-      adAccountId: process.env.META_AD_ACCOUNT_ID_PALACIOS || process.env.META_AD_ACCOUNT_ID || 'act_329247349605319'
+      appId: process.env.META_APP_ID_PALACIOS || '',
+      appSecret: process.env.META_APP_SECRET_PALACIOS || '',
+      accessToken: process.env.META_ACCESS_TOKEN_PALACIOS || '',
+      adAccountIds: (process.env.META_AD_ACCOUNT_IDS_PALACIOS || process.env.META_AD_ACCOUNT_ID_PALACIOS || '')
+        .split(',').map(s => s.trim()).filter(Boolean),
+      adAccountId: process.env.META_AD_ACCOUNT_ID_PALACIOS || (process.env.META_AD_ACCOUNT_IDS_PALACIOS || '').split(',')[0]?.trim() || ''
     },
     pageIds: [
       '566501466542620', // Naturales BioNatural
@@ -57,13 +59,15 @@ export const SEDES_GATEWAY = {
     vtigerSedeName: 'BENAVIDES',
     ghl: {
       apiKey: process.env.GHL_API_KEY_BENAVIDES || 'pit-3e6d43f5-70f6-4b8e-ba75-04a8d05a162e',
-      locationId: process.env.GHL_LOCATION_ID_BENAVIDES || ''
+      locationId: process.env.GHL_LOCATION_ID_BENAVIDES || 'QXcNBK6XCgpQaZ81Z8pv'
     },
     meta: {
       appId: process.env.META_APP_ID_BENAVIDES || '',
       appSecret: process.env.META_APP_SECRET_BENAVIDES || '',
-      accessToken: process.env.META_ACCESS_TOKEN_BENAVIDES || process.env.META_ACCESS_TOKEN || 'EAAUbkNeyC9wBSsqE4YfEZCESXQ7AnmHlAG9dZCUzgla7t7Rq2mZBcu8XmSX470oZAx0nTapXW0qWe70hw3ZBWjEP1kPgU92MCFcebQVC0OZA6W9S4ZBFA7ZBdomvg0AiXX6e8kDrVKRMlQ03r5K5sYC6G6Amh6dWHR8XZBJTDOgOqwQ5x4mgZBVZCyM203UALpHc03MfPgzYeV5coN3EPz3wyOSLTQgyKJVezgLVN7JBfi3JoT6kTBNNQZC3Hq5kVZCXatQZBLdtDU4EpLnZBpIK0tO4zAKOYEZD',
-      adAccountId: process.env.META_AD_ACCOUNT_ID_BENAVIDES || ''
+      accessToken: process.env.META_ACCESS_TOKEN_BENAVIDES || '',
+      adAccountIds: (process.env.META_AD_ACCOUNT_IDS_BENAVIDES || process.env.META_AD_ACCOUNT_ID_BENAVIDES || '')
+        .split(',').map(s => s.trim()).filter(Boolean),
+      adAccountId: process.env.META_AD_ACCOUNT_ID_BENAVIDES || (process.env.META_AD_ACCOUNT_IDS_BENAVIDES || '').split(',')[0]?.trim() || ''
     },
     pageIds: [
       '126154270581792',  // Bio Natural (Click2Ring)
@@ -97,8 +101,10 @@ export const SEDES_GATEWAY = {
     meta: {
       appId: process.env.META_APP_ID_ROOSEVELT || '',
       appSecret: process.env.META_APP_SECRET_ROOSEVELT || '',
-      accessToken: process.env.META_ACCESS_TOKEN_ROOSEVELT || process.env.META_ACCESS_TOKEN || '',
-      adAccountId: process.env.META_AD_ACCOUNT_ID_ROOSEVELT || ''
+      accessToken: process.env.META_ACCESS_TOKEN_ROOSEVELT || '',
+      adAccountIds: (process.env.META_AD_ACCOUNT_IDS_ROOSEVELT || process.env.META_AD_ACCOUNT_ID_ROOSEVELT || '')
+        .split(',').map(s => s.trim()).filter(Boolean),
+      adAccountId: process.env.META_AD_ACCOUNT_ID_ROOSEVELT || (process.env.META_AD_ACCOUNT_IDS_ROOSEVELT || '').split(',')[0]?.trim() || ''
     },
     pageIds: [
       '568453466348355',  // Bio Naturales
@@ -118,8 +124,10 @@ export const SEDES_GATEWAY = {
     meta: {
       appId: process.env.META_APP_ID_PIURA || '',
       appSecret: process.env.META_APP_SECRET_PIURA || '',
-      accessToken: process.env.META_ACCESS_TOKEN_PIURA || process.env.META_ACCESS_TOKEN || '',
-      adAccountId: process.env.META_AD_ACCOUNT_ID_PIURA || ''
+      accessToken: process.env.META_ACCESS_TOKEN_PIURA || '',
+      adAccountIds: (process.env.META_AD_ACCOUNT_IDS_PIURA || process.env.META_AD_ACCOUNT_ID_PIURA || '')
+        .split(',').map(s => s.trim()).filter(Boolean),
+      adAccountId: process.env.META_AD_ACCOUNT_ID_PIURA || (process.env.META_AD_ACCOUNT_IDS_PIURA || '').split(',')[0]?.trim() || ''
     },
     pageIds: [
       '1147257965133802', // Natural Bio

@@ -10,6 +10,12 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: PORT
+        value: 3000
+      - key: LOA_LICENSE_KEY
+        value: LOA-GHL-2026-PROD
+
+      # GHL Multi-Sede
       - key: GHL_API_KEY
         sync: false
       - key: GHL_LOCATION_ID
@@ -22,38 +28,67 @@ services:
         sync: false
       - key: GHL_LOCATION_ID_BENAVIDES
         sync: false
+      - key: GHL_API_KEY_ROOSEVELT
+        sync: false
+      - key: GHL_LOCATION_ID_ROOSEVELT
+        sync: false
+      - key: GHL_API_KEY_PIURA
+        sync: false
+      - key: GHL_LOCATION_ID_PIURA
+        sync: false
+
+      # vTiger CRM Connection
       - key: VTIGER_URL
         value: https://ventascallcenter.com
       - key: VTIGER_USERNAME
         value: GABRIEL
       - key: VTIGER_ACCESS_KEY
         sync: false
-      - key: META_ACCESS_TOKEN
+
+      # Meta Configuración General
+      - key: META_API_VERSION
+        value: v20.0
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        value: ghl_meta_secure_token_2026
+      - key: META_BACKUP_TOKENS
         sync: false
-      - key: META_ACCESS_TOKEN_PALACIOS
-        sync: false
+
+      # Meta App - Palacios
       - key: META_APP_ID_PALACIOS
         sync: false
       - key: META_APP_SECRET_PALACIOS
         sync: false
-      - key: META_AD_ACCOUNT_ID_PALACIOS
+      - key: META_ACCESS_TOKEN_PALACIOS
         sync: false
-      - key: META_ACCESS_TOKEN_BENAVIDES
+      - key: META_AD_ACCOUNT_IDS_PALACIOS
         sync: false
+
+      # Meta App - Benavides
       - key: META_APP_ID_BENAVIDES
         sync: false
       - key: META_APP_SECRET_BENAVIDES
         sync: false
-      - key: META_AD_ACCOUNT_ID_BENAVIDES
+      - key: META_ACCESS_TOKEN_BENAVIDES
+        sync: false
+      - key: META_AD_ACCOUNT_IDS_BENAVIDES
+        sync: false
+
+      # Meta App - Roosevelt
+      - key: META_APP_ID_ROOSEVELT
+        sync: false
+      - key: META_APP_SECRET_ROOSEVELT
         sync: false
       - key: META_ACCESS_TOKEN_ROOSEVELT
         sync: false
+      - key: META_AD_ACCOUNT_IDS_ROOSEVELT
+        sync: false
+
+      # Meta App - Piura
+      - key: META_APP_ID_PIURA
+        sync: false
+      - key: META_APP_SECRET_PIURA
+        sync: false
       - key: META_ACCESS_TOKEN_PIURA
         sync: false
-      - key: META_AD_ACCOUNT_ID
+      - key: META_AD_ACCOUNT_IDS_PIURA
         sync: false
-      - key: META_PIXEL_ID
-        sync: false
-      - key: META_WEBHOOK_VERIFY_TOKEN
-        value: ghl_meta_secure_token_2026
-

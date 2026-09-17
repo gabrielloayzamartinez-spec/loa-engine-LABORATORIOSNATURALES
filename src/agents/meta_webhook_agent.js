@@ -1,6 +1,6 @@
-import { META_CONFIG, GHL_CONFIG } from '../config/index.js';
+import { META_CONFIG, GHL_CONFIG, getMetaConfigBySede } from '../config/index.js';
+import { getMetaCandidateTokens } from '../services/meta_api_service.js';
 
-const { accessToken } = META_CONFIG;
 const { apiKey, locationId } = GHL_CONFIG;
 
 const HEADERS_CONTACTS = {
@@ -37,7 +37,12 @@ async function fetchWithRetry(url, options, attempt = 1) {
  */
 async function getMetaUserProfile(psid, pageId) {
   try {
-    const systemToken = META_CONFIG.accessToken;
+    const sedeMetaConf = getMetaConfigBySede({ pageId });
+    const systemToken = sedeMetaConf?.accessToken || getMetaCandidateTokens({ pageId })[0] || '';
+    if (!systemToken) {
+      console.warn(`[Meta API] No hay token configurado para PageID: ${pageId}`);
+      return null;
+    }
     console.log(`[Meta API] Intentando obtener perfil para PSID: ${psid}, PageID: ${pageId}`);
     
     // 1. Obtener el Token de Acceso de la Página

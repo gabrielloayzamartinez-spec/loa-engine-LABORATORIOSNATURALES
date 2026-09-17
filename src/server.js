@@ -71,7 +71,15 @@ async function fetchWithRetry(url, options, attempt = 1) {
 
 let isFastSyncRunning = false;
 let lastSyncTime = null;
-let metaConnectionStatus = { isConfigured: Boolean(META_CONFIG.accessToken) };
+let metaConnectionStatus = { 
+  isConfigured: Boolean(
+    process.env.META_ACCESS_TOKEN_PALACIOS || 
+    process.env.META_ACCESS_TOKEN_BENAVIDES || 
+    process.env.META_ACCESS_TOKEN_ROOSEVELT || 
+    process.env.META_ACCESS_TOKEN_PIURA || 
+    process.env.META_BACKUP_TOKENS
+  ) 
+};
 let vtigerConnectionStatus = { status: 'PENDING', message: 'Checking...' };
 
 let stats = {

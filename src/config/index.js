@@ -23,10 +23,10 @@ export const VTIGER_CONFIG = {
 // ==========================================
 export const META_CONFIG = {
   graphApiVersion: process.env.META_API_VERSION || 'v20.0',
-  appId: process.env.META_APP_ID || '1056780273419484',
-  appSecret: process.env.META_APP_SECRET || 'fe27d772c7fedee2e133ae4833503f6e',
-  accessToken: process.env.META_ACCESS_TOKEN || 'EAAUbkNeyC9wBSsqE4YfEZCESXQ7AnmHlAG9dZCUzgla7t7Rq2mZBcu8XmSX470oZAx0nTapXW0qWe70hw3ZBWjEP1kPgU92MCFcebQVC0OZA6W9S4ZBFA7ZBdomvg0AiXX6e8kDrVKRMlQ03r5K5sYC6G6Amh6dWHR8XZBJTDOgOqwQ5x4mgZBVZCyM203UALpHc03MfPgzYeV5coN3EPz3wyOSLTQgyKJVezgLVN7JBfi3JoT6kTBNNQZC3Hq5kVZCXatQZBLdtDU4EpLnZBpIK0tO4zAKOYEZD',
-  adAccountId: process.env.META_AD_ACCOUNT_ID || 'act_329247349605319',
+  appId: process.env.META_APP_ID || '',
+  appSecret: process.env.META_APP_SECRET || '',
+  accessToken: process.env.META_ACCESS_TOKEN || '',
+  adAccountId: process.env.META_AD_ACCOUNT_ID || '',
   pixelId: process.env.META_PIXEL_ID || '',
   exclusionAudienceId: process.env.META_EXCLUSION_AUDIENCE_ID || '',
   webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || 'ghl_meta_secure_token_2026'

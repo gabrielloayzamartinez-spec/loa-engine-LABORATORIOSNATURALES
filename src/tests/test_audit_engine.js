@@ -438,8 +438,8 @@ export function runPreFlightSanityCheck() {
 
         // 4. Verificar configuración de Meta independiente
         const bMeta = getMetaConfigBySede({ sede: 'BENAVIDES' });
-        if (!bMeta || !bMeta.accessToken) {
-          throw new Error('Meta config de Benavides debe incluir un accessToken');
+        if (!bMeta || typeof bMeta !== 'object' || !('accessToken' in bMeta)) {
+          throw new Error('Meta config de Benavides debe estructurarse correctamente con campo accessToken');
         }
 
         // 5. Verificar usuarios asignados en Benavides

@@ -34,23 +34,10 @@ const adCache = new Map();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hora
 
 /**
- * 1. Consultar Metadatos Reales de un Anuncio en Meta Graph API
- * Extrae: Nombre de Campaña, Conjunto de Anuncios y Título del Creativo
- * Enruta dinámicamente a la Meta App de la sede respectiva para no saturar cuotas,
- * con failover automático a tokens secundarios en caso de rate-limiting (HTTP 429).
+ * Extrae y ordena todos los tokens disponibles de Meta (primarios, por sede y contingencia)
+ * Garantiza rotación y failover automático ante vencimiento o saturación (HTTP 429).
  */
-export async function getMetaAdDetails(adId, options = {}) {
-  if (!adId || adId === 'N/A') return null;
-
-  const now = Date.now();
-  if (adCache.has(adId)) {
-    const cached = adCache.get(adId);
-    if (now - cached.timestamp < CACHE_TTL) {
-      return cached.data;
-    }
-  }
-
-  // 1. Resolver el token primario según sede / pageId / locationId
+export function getMetaCandidateTokens(options = {}) {
   let primaryToken = null;
   if (typeof options === 'string') {
     primaryToken = options;
@@ -66,8 +53,10 @@ export async function getMetaAdDetails(adId, options = {}) {
   }
   if (!primaryToken) primaryToken = accessToken;
 
-  // 2. Construir lista ordenada de tokens (Failover & Load Balancer Multi-App)
-  const candidateTokens = [primaryToken];
+  const candidateTokens = [];
+  if (primaryToken) candidateTokens.push(primaryToken);
+
+  // 1. Tokens de las sedes (SEDES_GATEWAY)
   if (SEDES_GATEWAY) {
     for (const [, sConf] of Object.entries(SEDES_GATEWAY)) {
       const t = sConf?.meta?.accessToken;
@@ -77,7 +66,42 @@ export async function getMetaAdDetails(adId, options = {}) {
     }
   }
 
-  // 3. Probar candidateTokens en orden
+  // 2. Tokens de contingencia y variables META_ACCESS_TOKEN_* en process.env
+  Object.keys(process.env).forEach(key => {
+    if (key.startsWith('META_ACCESS_TOKEN') || key === 'META_BACKUP_TOKENS') {
+      const val = process.env[key];
+      if (val) {
+        val.split(',').map(s => s.trim()).filter(Boolean).forEach(tok => {
+          if (!candidateTokens.includes(tok)) candidateTokens.push(tok);
+        });
+      }
+    }
+  });
+
+  return candidateTokens;
+}
+
+/**
+ * 1. Consultar Metadatos Reales de un Anuncio en Meta Graph API
+ * Extrae: Nombre de Campaña, Conjunto de Anuncios y Título del Creativo
+ * Enruta dinámicamente a la Meta App de la sede respectiva para no saturar cuotas,
+ * con failover automático a tokens secundarios en caso de rate-limiting (HTTP 429) o caducidad.
+ */
+export async function getMetaAdDetails(adId, options = {}) {
+  if (!adId || adId === 'N/A') return null;
+
+  const now = Date.now();
+  if (adCache.has(adId)) {
+    const cached = adCache.get(adId);
+    if (now - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+  }
+
+  // Resolver pool de tokens candidatos para balanceo y contingencia
+  const candidateTokens = getMetaCandidateTokens(options);
+
+  // Probar candidateTokens en orden
   for (const token of candidateTokens) {
     if (!token) continue;
     try {
@@ -85,7 +109,7 @@ export async function getMetaAdDetails(adId, options = {}) {
       if (global.apiCounters) global.apiCounters.meta++;
       const res = await fetch(url);
       if (!res.ok) {
-        // En caso de rate-limit (429) o error de app, reintentar con el siguiente token candidato
+        // En caso de rate-limit (429), token expirado (190) o error de app, reintentar con siguiente token
         continue;
       }
       const data = await res.json();
@@ -263,19 +287,49 @@ export async function getConnectedPages() {
 }
 
 /**
- * 5. Diagnóstico de Conexión Meta Developers
+ * 5. Diagnóstico de Conexión Meta Developers Multi-Token
  */
 export async function testMetaConnection() {
-  if (!accessToken) return { isConfigured: false };
-  try {
-    const meUrl = `${GRAPH_BASE}/me?fields=id,name&access_token=${accessToken}`;
-    const meRes = await fetch(meUrl);
-    const meData = await meRes.json();
-    if (meData.error) return { isConfigured: false, error: meData.error.message };
-    return { isConfigured: true, name: meData.name, id: meData.id };
-  } catch (err) {
-    return { isConfigured: false, error: err.message };
+  const candidateTokens = getMetaCandidateTokens();
+  if (candidateTokens.length === 0) return { isConfigured: false, message: 'No hay tokens de Meta configurados.' };
+
+  const results = [];
+  for (const tok of candidateTokens) {
+    try {
+      const meUrl = `${GRAPH_BASE}/me?fields=id,name&access_token=${tok}`;
+      const meRes = await fetch(meUrl);
+      const meData = await meRes.json();
+      if (!meData.error && meData.id) {
+        results.push({
+          tokenSnippet: tok.substring(0, 15) + '...',
+          isValid: true,
+          name: meData.name,
+          id: meData.id
+        });
+      } else {
+        results.push({
+          tokenSnippet: tok.substring(0, 15) + '...',
+          isValid: false,
+          error: meData.error?.message || 'Error de autenticación'
+        });
+      }
+    } catch (err) {
+      results.push({
+        tokenSnippet: tok.substring(0, 15) + '...',
+        isValid: false,
+        error: err.message
+      });
+    }
   }
+
+  const validCount = results.filter(r => r.isValid).length;
+  return {
+    isConfigured: true,
+    totalTokens: candidateTokens.length,
+    validTokens: validCount,
+    primaryValid: results[0]?.isValid || false,
+    details: results
+  };
 }
 
 /**
