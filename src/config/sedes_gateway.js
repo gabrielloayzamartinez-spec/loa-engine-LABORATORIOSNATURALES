@@ -21,13 +21,13 @@ export const SEDES_GATEWAY = {
     name: 'Laboratorios Naturales - Sede Palacios',
     vtigerSedeName: 'PALACIOS',
     ghl: {
-      apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY,
+      apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY || 'pit-4d48784c-23cd-466d-a6b2-4850138e35d0',
       locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || 'ATPYNnsfZ1W8sd6WgWIV'
     },
     meta: {
-      appId: process.env.META_APP_ID_PALACIOS || process.env.META_APP_ID || '',
-      appSecret: process.env.META_APP_SECRET_PALACIOS || process.env.META_APP_SECRET || '',
-      accessToken: process.env.META_ACCESS_TOKEN_PALACIOS || process.env.META_ACCESS_TOKEN || '',
+      appId: process.env.META_APP_ID_PALACIOS || process.env.META_APP_ID || '1056780273419484',
+      appSecret: process.env.META_APP_SECRET_PALACIOS || process.env.META_APP_SECRET || 'fe27d772c7fedee2e133ae4833503f6e',
+      accessToken: process.env.META_ACCESS_TOKEN_PALACIOS || process.env.META_ACCESS_TOKEN || 'EAAUbkNeyC9wBSsqE4YfEZCESXQ7AnmHlAG9dZCUzgla7t7Rq2mZBcu8XmSX470oZAx0nTapXW0qWe70hw3ZBWjEP1kPgU92MCFcebQVC0OZA6W9S4ZBFA7ZBdomvg0AiXX6e8kDrVKRMlQ03r5K5sYC6G6Amh6dWHR8XZBJTDOgOqwQ5x4mgZBVZCyM203UALpHc03MfPgzYeV5coN3EPz3wyOSLTQgyKJVezgLVN7JBfi3JoT6kTBNNQZC3Hq5kVZCXatQZBLdtDU4EpLnZBpIK0tO4zAKOYEZD',
       adAccountId: process.env.META_AD_ACCOUNT_ID_PALACIOS || process.env.META_AD_ACCOUNT_ID || 'act_329247349605319'
     },
     pageIds: [
@@ -62,7 +62,7 @@ export const SEDES_GATEWAY = {
     meta: {
       appId: process.env.META_APP_ID_BENAVIDES || '',
       appSecret: process.env.META_APP_SECRET_BENAVIDES || '',
-      accessToken: process.env.META_ACCESS_TOKEN_BENAVIDES || process.env.META_ACCESS_TOKEN || '',
+      accessToken: process.env.META_ACCESS_TOKEN_BENAVIDES || process.env.META_ACCESS_TOKEN || 'EAAUbkNeyC9wBSsqE4YfEZCESXQ7AnmHlAG9dZCUzgla7t7Rq2mZBcu8XmSX470oZAx0nTapXW0qWe70hw3ZBWjEP1kPgU92MCFcebQVC0OZA6W9S4ZBFA7ZBdomvg0AiXX6e8kDrVKRMlQ03r5K5sYC6G6Amh6dWHR8XZBJTDOgOqwQ5x4mgZBVZCyM203UALpHc03MfPgzYeV5coN3EPz3wyOSLTQgyKJVezgLVN7JBfi3JoT6kTBNNQZC3Hq5kVZCXatQZBLdtDU4EpLnZBpIK0tO4zAKOYEZD',
       adAccountId: process.env.META_AD_ACCOUNT_ID_BENAVIDES || ''
     },
     pageIds: [
