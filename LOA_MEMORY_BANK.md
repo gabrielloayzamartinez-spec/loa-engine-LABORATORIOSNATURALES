@@ -42,6 +42,22 @@
   - Si dice `ERNESTO` o por defecto en esta fanpage: Proveedor = `ERNESTO`, Origen = `PALACIOS-ERNESTO-FB-MSGR-[PADECIMIENTO]`.
 - **Captura en Vivo de `adsetName`:** Conectado directamente desde Meta Graph API (`getMetaAdDetails`) hacia `chat_router_agent.js` para detección instantánea de padecimientos y proveedores.
 
+### F. Estrategia 0: Vinculación Inmediata por Teléfono (0.2s)
+- **Implementación:** En `vtiger_api_service.js` (`findVTigerContact`), se antepuso la búsqueda por los 10 dígitos directos (`WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}'`).
+- **Respaldo para Chat en Vivo:** Conectado con `shippingData.phone` en `chat_router_agent.js`. En cuanto el cliente escribe su teléfono en el chat, el sistema vincula vTiger en el mismo segundo sin depender del nombre de Facebook.
+
+### G. Protocolo de Mudanza de Sede con Tarjeta de Notas Histórica
+- **Respeto Estricto a Tiempos de Gracia:**
+  - Prospecto sin venta <= 96h (4 días): Bloqueado por escudo de exclusividad.
+  - Cliente con venta <= 720h (30 días): Bloqueado por exclusividad de recompra.
+- **Mudanza Autorizada (Gracia Expirada):**
+  - Si el lead/cliente reingresa por otra sede tras expirar el tiempo de gracia, la mudanza procede automáticamente.
+  - **Nuevo Origen Automático:** Se genera al instante el nuevo origen (`[NUEVA_SEDE]-[PROVEEDOR]-[CANAL]-[TRATAMIENTO]`).
+  - **Tarjeta de Notas en GHL (`saveMudanzaHistoryNote`):** Inyecta en el perfil del contacto un registro forense completo (Sede anterior, nuevo origen, asesor asignado, fanpage, anuncio, justificación de tiempo de gracia transcurrido e historial de vTiger).
+  - **Historial Clínico en vTiger (`cf_noticias` / `VTIGER_NOTAS_FIELD`):** Prepend del registro de mudanza con fecha y sede previa.
+  - **Etiquetas de Telemetría:** `mudanza-gracia-expirada`, `mudanza-de-sede`, `mudanza-desde-[sede_previa]`, `sede-[nueva_sede]`.
+  - **Rotulado en Pipeline:** `[PRODUCTO] Nombre Cliente | SEDE | Anuncio`.
+
 ---
 
 ## 2. ARQUITECTURA OPERATIVA DEL PROYECTO

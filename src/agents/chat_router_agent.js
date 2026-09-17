@@ -43,6 +43,53 @@ Marketing GHL Solutions`;
   }
 }
 
+/**
+ * 📌 Save Process: Inyecta una Nota Histórica de MUDANZA DE SEDE AUTORIZADA en GHL
+ */
+export async function saveMudanzaHistoryNote(contactId, {
+  previousSede,
+  previousSource,
+  currentSede,
+  newSource,
+  advisorName,
+  pageName,
+  campaign,
+  motivo,
+  timeDiffStr,
+  isCustomerWon,
+  vContact
+}) {
+  const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
+  const noteBody = `🚨 [MUDANZA DE SEDE AUTORIZADA - TIEMPO DE GRACIA EXPIRADO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Fecha y Hora: ${dateStr} (EST)
+• Procedencia / Sede Anterior: ${previousSede || 'Sede Externa'}
+• Origen Anterior: ${previousSource || 'N/A'}
+• Nueva Sede Receptora: ${currentSede}
+• Nuevo Origen Asignado: ${newSource}
+• Asesor Comercial Asignado: ${advisorName || 'N/A'}
+• Fanpage de Reingreso: ${pageName || 'N/A'}
+• Campaña / Pauta: ${campaign || 'Directa / Orgánica'}
+• Justificación de Traspaso: ${motivo} (${timeDiffStr})
+• Condición del Contacto: ${isCustomerWon ? 'CLIENTE VENDIDO (+30d sin recompra)' : 'PROSPECTO SIN VENTA (+4d / 96h)'}
+${vContact ? `• Historial vTiger: ID ${vContact.id} | Compras: ${vContact.spl_num_compras || '0'} | Total: $${vContact.cf_3392 || '0'}` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Protocolo de Exclusividad y Tiempos de Gracia
+LOA Engine - Laboratorios Naturales`;
+
+  try {
+    const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
+    await fetchWithRetry(noteUrl, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ body: noteBody })
+    });
+    console.log(`[Agente 3] [MUDANZA-NOTE] Tarjeta de nota histórica de mudanza inyectada para contacto ${contactId}`);
+  } catch (err) {
+    console.error(`[Agente 3 Mudanza Note Error]:`, err.message);
+  }
+}
+
 const HEADERS = GHL_HEADERS;
 
 async function sleep(ms) {
@@ -225,6 +272,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const GRACE_PERIOD_HOURS_LEAD = 96; // 4 días para prospectos sin venta
     const GRACE_PERIOD_HOURS_WON = 30 * 24; // 30 días (1 mes) para clientes convertidos
     let blockingMsg = null;
+    let expiredGraceMsg = null;
+    let expiredTimeDiffHours = 0;
 
     if (newestMsg && fbMessages.length > 1) {
       for (const msg of fbMessages) {
@@ -235,11 +284,17 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             if (timeDiffHours >= 0 && timeDiffHours <= GRACE_PERIOD_HOURS_WON) {
               blockingMsg = msg;
               break;
+            } else if (timeDiffHours > GRACE_PERIOD_HOURS_WON) {
+              expiredGraceMsg = msg;
+              expiredTimeDiffHours = timeDiffHours;
             }
           } else if (timeDiffHours >= 0 && timeDiffHours <= GRACE_PERIOD_HOURS_LEAD) {
             // PROSPECTO SIN VENTA: Bloqueado dentro de sus 4 días de gracia
             blockingMsg = msg;
             break;
+          } else if (timeDiffHours > GRACE_PERIOD_HOURS_LEAD) {
+            expiredGraceMsg = msg;
+            expiredTimeDiffHours = timeDiffHours;
           }
         }
       }
@@ -505,6 +560,49 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
+    // 🏢 DETECCIÓN DE MUDANZA DE SEDE AUTORIZADA (TIEMPO DE GRACIA EXPIRADO):
+    const currentSedeName = (targetPageName?.toLowerCase().includes('bionatural') || targetPageName?.toLowerCase().includes('palacios') || targetPageName?.toLowerCase().includes('ultra'))
+      ? 'PALACIOS'
+      : (targetPageName ? targetPageName.replace(/Naturales\s*/i, '').trim().toUpperCase() : 'PALACIOS');
+
+    const previousSource = contact.source || '';
+    let previousSede = null;
+    if (previousSource) {
+      if (previousSource.includes('BENAVIDES_2') || previousSource.includes('FUERZA')) previousSede = 'BENAVIDES_2';
+      else if (previousSource.includes('BENAVIDES') || previousSource.includes('CORP')) previousSede = 'BENAVIDES';
+      else if (previousSource.includes('ROOSEVELT') || previousSource.includes('ROOSVELT')) previousSede = 'ROOSEVELT';
+      else if (previousSource.includes('PIURA')) previousSede = 'PIURA';
+      else if (previousSource.includes('PALACIOS') || previousSource.includes('ULTRA')) previousSede = 'PALACIOS';
+    }
+    if (!previousSede && vContact?.cf_3451) {
+      previousSede = String(vContact.cf_3451).trim().toUpperCase();
+    }
+    if (!previousSede && expiredGraceMsg) {
+      const pName = FB_PAGE_ID_MAP[expiredGraceMsg.pageId] || '';
+      if (pName.includes('Benavides') || pName.includes('Corp') || pName.includes('Fuerza')) previousSede = 'BENAVIDES';
+      else if (pName.includes('Roosevelt') || pName.includes('Plus')) previousSede = 'ROOSEVELT';
+      else if (pName.includes('Piura')) previousSede = 'PIURA';
+      else if (pName.includes('Palacios') || pName.includes('Ultra')) previousSede = 'PALACIOS';
+    }
+
+    const isMudanzaDeSede = Boolean(
+      (previousSede && previousSede !== currentSedeName) ||
+      (expiredGraceMsg && FB_PAGE_ID_MAP[expiredGraceMsg.pageId] && !FB_PAGE_ID_MAP[expiredGraceMsg.pageId].toLowerCase().includes('palacios') && currentSedeName === 'PALACIOS')
+    );
+
+    if (isMudanzaDeSede) {
+      newTagsSet.add('mudanza-gracia-expirada');
+      newTagsSet.add('mudanza-de-sede');
+      if (previousSede) newTagsSet.add(`mudanza-desde-${previousSede.toLowerCase()}`);
+      newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
+
+      const mudanzaDate = new Date().toLocaleDateString('es-PE');
+      const mudanzaHeader = `[MUDANZA AUTORIZADA ${mudanzaDate}: De ${previousSede || 'Sede Previa'} a ${currentSedeName} (Gracia Expirada)]`;
+      if (!targetVtigerNota || !targetVtigerNota.includes(mudanzaHeader)) {
+        targetVtigerNota = `${mudanzaHeader}\n${targetVtigerNota || ''}`.trim();
+      }
+    }
+
     // Alerta de Lead Caliente (Teléfono o Dirección)
     if (shippingData.isHotLead) {
       newTagsSet.add('🔥-lead-caliente');
@@ -583,7 +681,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         ? 'PALACIOS' 
         : (targetPageName ? targetPageName.replace(/Naturales\s*/i, '').trim().toUpperCase() : 'SEDE');
       const campaignSnippet = (latestCampaign || targetAdName || 'Directa').substring(0, 32);
-      const cardTitle = `${fullName} | ${cleanSede} | ${campaignSnippet}`;
+      const prodPrefix = targetTratamiento && targetTratamiento !== 'General' ? `[${targetTratamiento.toUpperCase()}] ` : '';
+      const cardTitle = `${prodPrefix}${fullName} | ${cleanSede} | ${campaignSnippet}`;
       await syncUnifiedPipelineOpportunity(contactId, cardTitle, finalCustomerWon, true, finalMonetaryValue, targetAdvisorId);
     } catch (oppErr) {
       console.error(`[Agente 3] Error sincronizando pipeline para ${contactId}:`, oppErr.message);
@@ -736,6 +835,26 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           clickCount: duplicateCount,
           source: vtigerSource,
           treatment: targetTratamiento
+        });
+      }
+
+      // 📌 I. REGISTRO HISTÓRICO DE PROCEDENCIA DE MUDANZA EN TARJETA DE NOTAS
+      if (isMudanzaDeSede) {
+        const daysPassed = expiredTimeDiffHours > 0 ? Math.round(expiredTimeDiffHours / 24) : 5;
+        const timeStr = expiredTimeDiffHours > 0 ? `${daysPassed} días (${Math.round(expiredTimeDiffHours)}h)` : '+4 días (Tiempo de Gracia Expirado)';
+        const motivoStr = isCustomerWon ? 'Gracia de recompra expirada (+30 días)' : 'Gracia de prospecto expirada (+4 días / 96h)';
+        await saveMudanzaHistoryNote(contactId, {
+          previousSede: previousSede || 'Sede Externa',
+          previousSource: previousSource || 'Sin fuente previa',
+          currentSede: currentSedeName,
+          newSource: vtigerSource,
+          advisorName: targetAdvisorName,
+          pageName: targetPageName,
+          campaign: latestCampaign || targetAdName,
+          motivo: motivoStr,
+          timeDiffStr: timeStr,
+          isCustomerWon,
+          vContact
         });
       }
     } else {
