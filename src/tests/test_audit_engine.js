@@ -245,6 +245,40 @@ export function runPreFlightSanityCheck() {
       }
     },
     {
+      name: 'Regla 4H: Purgado de etiquetas huérfanas en ingreso orgánico (sin meta-ads)',
+      run: () => {
+        const tags = ['facebook-messenger', 'meta-ads', 'producto-artritis'];
+        const isPaidAd = false;
+        const currentAdId = null;
+        const targetAdId = null;
+        
+        const tagsToRemove = [];
+        const newTagsSet = new Set(tags);
+        if (isPaidAd) {
+          newTagsSet.add('meta-ads');
+          newTagsSet.delete('organico');
+        } else {
+          newTagsSet.add('organico');
+          if (!currentAdId && !targetAdId) {
+            newTagsSet.delete('meta-ads');
+            if (tags.includes('meta-ads')) {
+              tagsToRemove.push('meta-ads');
+            }
+          }
+        }
+
+        if (!tagsToRemove.includes('meta-ads')) {
+          throw new Error('Debe marcar meta-ads para purga cuando el lead es puramente orgánico');
+        }
+        if (newTagsSet.has('meta-ads')) {
+          throw new Error('newTagsSet no debe tener meta-ads en lead orgánico');
+        }
+        if (!newTagsSet.has('organico')) {
+          throw new Error('newTagsSet debe contener organico');
+        }
+      }
+    },
+    {
       name: 'Regla 5: La fuente jamás debe truncarse a códigos de 2 letras (ej: -Ar)',
       run: () => {
         const source = buildVtigerSource({

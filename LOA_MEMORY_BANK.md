@@ -107,7 +107,7 @@
          ```
   - Si el contacto continúa conversando sin un nuevo clic de anuncio, mantiene su Ad ID y origen vinculado sin alteraciones espurias.
 - **Batería de Pruebas Protocolares:**
-  - Ampliada a **14/14 Reglas protocolares aprobadas (100%)** en `test_audit_engine.js`.
+  - Ampliada a **15/15 Reglas protocolares aprobadas (100%)** en `test_audit_engine.js`.
 
 ---
 

@@ -580,6 +580,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     });
 
     // 🏷️ E. ETIQUETADO INTELIGENTE Y MULTI-CONDICIÓN
+    const tagsToRemove = [];
     const newTagsSet = new Set((contact.tags || []).map(t => String(t).trim()));
     newTagsSet.add('facebook-messenger');
 
@@ -612,7 +613,6 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // 3. 🧹 Limpieza Quirúrgica ESTRICTA de etiquetas huérfanas
-    const tagsToRemove = [];
     if (activeProductTag) {
       for (const pTag of ALL_PRODUCT_TAGS) {
         if (pTag !== activeProductTag) {
