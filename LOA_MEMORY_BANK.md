@@ -132,6 +132,19 @@
 - **3. Pre-flight Sanity Check:**
   - Nueva `Regla 4I` validada al 100% cubriendo las 3 fanpages y los 5 patrones de campaña de la imagen.
 
+### J. Arquitectura Multi-Tenant 100% Desacoplada (Palacios y Benavides)
+- **1. Orquestador Central (`src/config/sedes_gateway.js`):**
+  - Cada sede opera con su propia **Meta Developer App** (App ID, Secret, Token Permanente, Ad Account) para garantizar cuotas de Graph API completamente independientes.
+  - Cada sede opera con su propia **Subcuenta de GoHighLevel** (API Key, Location ID) con sus chatters/asesores y WhatsApp/SMS dedicados.
+  - Credenciales Benavides registradas: API GHL `pit-3e6d43f5-70f6-4b8e-ba75-04a8d05a162e`, usuarios `REDES 1 BENAVIDES` (`GLC6pCjW4oP76hcT8QuC`) y `REDES 2 BENAVIDES` (`qicGSpBcrbYnPHpXceV2`).
+  - Meta API Token Permanente unificado/multicuenta: `EAAUbkNeyC9wBSsq...` (acceso validado a 14 fanpages y 8 ad accounts).
+- **2. Omisión de la Regla de Tiempo de Gracia:**
+  - Al contar con subcuentas separadas, se eliminó el bloqueo artificial de 4 días / 30 días. Los leads que ingresan a una sede son procesados de inmediato por el equipo y origen de esa sede sin rechazo ni congelamiento.
+- **3. Sistema Consultivo Aislado en vTiger CRM:**
+  - `findVTigerContact(ghlContact, targetSede)`: Filtra en la consulta directa telefónica con `AND cf_3451 = '${targetSede}'`.
+  - Probado y verificado en vivo con el caso Adolfo (`2094148820`): para Benavides resuelve su registro exclusivo `12x2816276`, y para Palacios resuelve su registro exclusivo `12x2817133`, impidiendo sobreescrituras cruzadas.
+- **4. Suite Protocolar:** Ampliada a **17/17 Reglas validadas al 100%**.
+
 ---
 
 ## 2. ARQUITECTURA OPERATIVA DEL PROYECTO

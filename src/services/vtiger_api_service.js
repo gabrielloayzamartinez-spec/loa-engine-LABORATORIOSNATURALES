@@ -111,10 +111,11 @@ function phonesMatch(phone1, phone2, digits = 10) {
   return p1.slice(-digits) === p2.slice(-digits);
 }
 
-export async function findVTigerContact(ghlContact) {
+export async function findVTigerContact(ghlContact, targetSede = null) {
   const cleanPhone = ghlContact.phone ? ghlContact.phone.replace(/\D/g, '') : '';
   const firstName = sanitizeForVtigerQuery(ghlContact.firstName);
   const lastName = sanitizeForVtigerQuery(ghlContact.lastName);
+  const targetSedeUpper = (targetSede || ghlContact?.targetSede || ghlContact?.sede || '').toUpperCase().trim();
   
   // ────────────────────────────────────────────
   // ESTRATEGIA 0: Búsqueda Directa por Teléfono (10 dígitos exactos)
@@ -127,9 +128,16 @@ export async function findVTigerContact(ghlContact) {
       const qPhone = `SELECT * FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}' LIMIT 5;`;
       const phoneMatches = await queryVTiger(qPhone);
       if (phoneMatches && phoneMatches.length > 0) {
+        // Prioridad 0 (Aislamiento de Sede): Match exacto en la sede objetivo actual
+        if (targetSedeUpper) {
+          const sedeMatch = phoneMatches.find(v => (v.cf_3451 || '').toUpperCase().trim() === targetSedeUpper);
+          if (sedeMatch) return sedeMatch;
+        }
+
         // Prioridad A: Match con compras registradas
         const withSales = phoneMatches.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
         if (withSales) return withSales;
+
         // Prioridad B: Primer match disponible
         return phoneMatches[0];
       }
@@ -156,6 +164,12 @@ export async function findVTigerContact(ghlContact) {
     }
     
     if (potentialContacts && potentialContacts.length > 0) {
+      // Prioridad 0 (Aislamiento de Sede): Match exacto en la sede objetivo actual
+      if (targetSedeUpper) {
+        const sedeMatch = potentialContacts.find(v => (v.cf_3451 || '').toUpperCase().trim() === targetSedeUpper);
+        if (sedeMatch) return sedeMatch;
+      }
+
       // Prioridad 1: Match exacto por teléfono
       if (cleanPhone) {
         for (const v of potentialContacts) {

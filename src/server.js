@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS } from './config/index.js';
+import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, getGhlHeaders } from './config/index.js';
 import { ghlFetch, GHL_HEADERS, getRateLimiterStatus } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
@@ -757,8 +757,9 @@ app.post('/webhook/ghl-contact', async (req, res) => {
          safeEmail = `${cleanName}-${Date.now()}@vtigermigrated.com`;
       }
 
+      const effectiveLocId = contactData.locationId || req.body?.locationId || locationId;
       const upsertBody = {
-        locationId: locationId,
+        locationId: effectiveLocId,
         firstName: contactData.firstName,
         lastName: contactData.lastName,
         name: contactData.name,
@@ -772,9 +773,10 @@ app.post('/webhook/ghl-contact', async (req, res) => {
         tags: contactData.tags
       };
       
+      const upsertHeaders = getGhlHeaders({ locationId: effectiveLocId });
       const upsertRes = await fetchWithRetry('https://services.leadconnectorhq.com/contacts/upsert', {
         method: 'POST',
-        headers: HEADERS_CONTACTS,
+        headers: upsertHeaders,
         body: JSON.stringify(upsertBody)
       });
       

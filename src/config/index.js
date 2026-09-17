@@ -182,3 +182,9 @@ export const PALACIOS_USERS = {
     fbPageIds: ["1147257965133802", "1057863707412893"]
   }
 };
+
+// ==========================================
+// 6. GATEWAY MULTI-SEDE ORCHESTRATOR
+// ==========================================
+export { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede } from './sedes_gateway.js';
+

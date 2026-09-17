@@ -1,4 +1,4 @@
-import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS } from '../config/index.js';
+import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
@@ -299,16 +299,47 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       return;
     }
 
-    // Determinar a qué asesor le corresponde esta página (por Page ID o por Nombre de Fanpage)
+    // 🏢 Resolver Sede Actual de la Fanpage / Mensaje
+    let currentSedeName = resolveLeadSede({
+      pageId: targetPageId,
+      pageName: targetPageName
+    });
+
+    // Determinar a qué asesor le corresponde esta página (por Sede, Page ID o por Nombre de Fanpage)
     let targetAdvisorId = null;
     let targetAdvisorName = null;
-    for (const [, advisor] of Object.entries(PALACIOS_USERS)) {
-      const matchById = targetPageId && advisor.fbPageIds && advisor.fbPageIds.includes(targetPageId);
-      const matchByName = targetPageName && advisor.pages && advisor.pages.includes(targetPageName);
-      if (matchById || matchByName) {
-        targetAdvisorId = advisor.id;
-        targetAdvisorName = advisor.name;
-        break;
+
+    const resolvedSede = resolveSedeContext({ pageId: targetPageId, sede: currentSedeName, locationId });
+    if (resolvedSede && resolvedSede.users) {
+      if (resolvedSede.sedeId === 'BENAVIDES') {
+        if (targetPageId === '510617778807469' || targetPageName?.toLowerCase().includes('corp')) {
+          targetAdvisorId = resolvedSede.users.redes1.id;
+          targetAdvisorName = resolvedSede.users.redes1.name;
+        } else {
+          targetAdvisorId = resolvedSede.users.redes2.id;
+          targetAdvisorName = resolvedSede.users.redes2.name;
+        }
+      } else if (resolvedSede.sedeId === 'PALACIOS') {
+        if (targetPageId === '111906554968800' || targetPageName?.toLowerCase().includes('ultra')) {
+          targetAdvisorId = resolvedSede.users.ultra.id;
+          targetAdvisorName = resolvedSede.users.ultra.name;
+        } else {
+          targetAdvisorId = resolvedSede.users.ernesto.id;
+          targetAdvisorName = resolvedSede.users.ernesto.name;
+        }
+      }
+    }
+
+    // Fallback general por PALACIOS_USERS
+    if (!targetAdvisorId) {
+      for (const [, advisor] of Object.entries(PALACIOS_USERS)) {
+        const matchById = targetPageId && advisor.fbPageIds && advisor.fbPageIds.includes(targetPageId);
+        const matchByName = targetPageName && advisor.pages && advisor.pages.includes(targetPageName);
+        if (matchById || matchByName) {
+          targetAdvisorId = advisor.id;
+          targetAdvisorName = advisor.name;
+          break;
+        }
       }
     }
 
@@ -322,10 +353,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const existingTags = (contact.tags || []).map(t => String(t).toLowerCase());
     const isCustomerWon = existingTags.includes('cliente-comprador') || existingTags.includes('venta-cerrada');
 
-    // 4. REGLA DE TIEMPO DE GRACIA (4 DÍAS SIN VENTA / 30 DÍAS CON VENTA)
-    const GRACE_PERIOD_HOURS_LEAD = 96; // 4 días para prospectos sin venta
-    const GRACE_PERIOD_HOURS_WON = 30 * 24; // 30 días (1 mes) para clientes convertidos
-    let blockingMsg = null;
+    // 4. MULTI-SEDE INDEPENDIENTE: OMISIÓN DE TIEMPO DE GRACIA ARTIFICIAL
+    // Cada sede opera como entidad independiente en su propia subcuenta.
+    // Se detecta si existió toque en otra fanpage previa con fines de auditoría forense,
+    // pero sin abortar el procesamiento ni bloquear la asignación legítima.
     let expiredGraceMsg = null;
     let expiredTimeDiffHours = 0;
 
@@ -333,33 +364,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       for (const msg of fbMessages) {
         if (msg.pageId !== targetPageId) {
           const timeDiffHours = (newestMsg.timestamp - msg.timestamp) / (1000 * 60 * 60);
-          if (isCustomerWon) {
-            // CLIENTE CON VENTA: Bloqueado dentro de sus 30 días (1 mes) de gracia de recompra
-            if (timeDiffHours >= 0 && timeDiffHours <= GRACE_PERIOD_HOURS_WON) {
-              blockingMsg = msg;
-              break;
-            } else if (timeDiffHours > GRACE_PERIOD_HOURS_WON) {
-              expiredGraceMsg = msg;
-              expiredTimeDiffHours = timeDiffHours;
-            }
-          } else if (timeDiffHours >= 0 && timeDiffHours <= GRACE_PERIOD_HOURS_LEAD) {
-            // PROSPECTO SIN VENTA: Bloqueado dentro de sus 4 días de gracia
-            blockingMsg = msg;
-            break;
-          } else if (timeDiffHours > GRACE_PERIOD_HOURS_LEAD) {
-            expiredGraceMsg = msg;
-            expiredTimeDiffHours = timeDiffHours;
-          }
+          expiredGraceMsg = msg;
+          expiredTimeDiffHours = timeDiffHours;
+          break;
         }
       }
-    }
-
-    if (blockingMsg) {
-      const blockingPageName = FB_PAGE_ID_MAP[blockingMsg.pageId] || blockingMsg.pageId;
-      console.log(`[Agente 3] [GUARD] Blindaje de sede activo para ${contactId}.`);
-      console.log(`El contacto acaba de escribir a [${targetPageName}], pero está protegido por [${blockingPageName}] (${isCustomerWon ? 'GRACIA 1 MES DE RECOMPRA ACTIVA' : 'GRACIA 4 DÍAS ACTIVA'}).`);
-      console.log(`-> Se aborta la reasignación para mantener la exclusividad de la sede.`);
-      return;
     }
 
     // 🛡️ ESCUDO TOTAL DE INTERACCIÓN ACTIVA (UX GUARD):
@@ -451,7 +460,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let vtigerTreatment = null;
     let vContact = null;
     try {
-      vContact = await findVTigerContact({ ...contact, phone: effectivePhone });
+      vContact = await findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName);
       if (vContact) {
         const vCond = vContact.cf_2610 || '';
         vtigerTreatment = inferTreatmentFromCampaignOrUtm(vCond) || (vCond.length > 2 ? vCond : null);
@@ -631,12 +640,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    // 🏢 DETECCIÓN DE MUDANZA DE SEDE AUTORIZADA (TIEMPO DE GRACIA EXPIRADO):
-    const currentSedeName = resolveLeadSede({
-      pageId: targetPageId,
-      pageName: targetPageName,
-      campaignName: latestCampaign || targetAdName
-    });
+    // 🏢 RE-EVALUAR SEDE SI EL NOMBRE DE CAMPAÑA TRAE DIRECTIVA EXPLÍCITA (MÁXIMA PRIORIDAD):
+    if (latestCampaign || targetAdName) {
+      const campSede = resolveLeadSede({
+        pageId: targetPageId,
+        pageName: targetPageName,
+        campaignName: latestCampaign || targetAdName
+      });
+      if (campSede) currentSedeName = campSede;
+    }
 
     const previousSource = contact.source || '';
     let previousSede = null;

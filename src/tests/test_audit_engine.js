@@ -10,6 +10,7 @@
 import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, extractShippingData, isValidMetaAdId } from '../agents/nlp_symptom_engine.js';
 import { buildAdHistoryNoteBody } from '../agents/chat_router_agent.js';
 import { learningBrain } from '../services/learning_brain.js';
+import { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede } from '../config/index.js';
 
 export function runPreFlightSanityCheck() {
   const tests = [
@@ -411,6 +412,39 @@ export function runPreFlightSanityCheck() {
         const m = learningBrain.getMetrics();
         if (m.stats.falsePositivesPenalized < 1) {
           throw new Error('No se registró la penalización de falso positivo');
+        }
+      }
+    },
+    {
+      name: 'Regla 17: Gateway Multi-Sede Decoupled (Palacios y Benavides con Meta y GHL independientes)',
+      run: () => {
+        // 1. Verificar resolución por Page ID de Benavides
+        const benavidesSede = resolveSedeContext({ pageId: '126154270581792' });
+        if (benavidesSede.sedeId !== 'BENAVIDES') {
+          throw new Error(`Esperado BENAVIDES para pageId 126154270581792, recibido: ${benavidesSede.sedeId}`);
+        }
+
+        // 2. Verificar resolución por Page ID de Palacios
+        const palaciosSede = resolveSedeContext({ pageId: '111906554968800' });
+        if (palaciosSede.sedeId !== 'PALACIOS') {
+          throw new Error(`Esperado PALACIOS para pageId 111906554968800, recibido: ${palaciosSede.sedeId}`);
+        }
+
+        // 3. Verificar headers GHL desacoplados
+        const bHeaders = getGhlHeaders({ sede: 'BENAVIDES' });
+        if (!bHeaders.Authorization.includes('pit-3e6d43f5-70f6-4b8e-ba75-04a8d05a162e')) {
+          throw new Error(`Header GHL Benavides no contiene la API Key esperada: ${bHeaders.Authorization}`);
+        }
+
+        // 4. Verificar configuración de Meta independiente
+        const bMeta = getMetaConfigBySede({ sede: 'BENAVIDES' });
+        if (!bMeta || !bMeta.accessToken) {
+          throw new Error('Meta config de Benavides debe incluir un accessToken');
+        }
+
+        // 5. Verificar usuarios asignados en Benavides
+        if (!benavidesSede.users?.redes1?.id || !benavidesSede.users?.redes2?.id) {
+          throw new Error('Benavides debe poseer los usuarios redes1 y redes2 configurados');
         }
       }
     }

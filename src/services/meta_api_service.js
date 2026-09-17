@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { META_CONFIG, PAGE_TAG_MAP } from '../config/index.js';
+import { META_CONFIG, PAGE_TAG_MAP, getMetaConfigBySede } from '../config/index.js';
 
 const { graphApiVersion, accessToken, adAccountId, pixelId, exclusionAudienceId } = META_CONFIG;
 const GRAPH_BASE = `https://graph.facebook.com/${graphApiVersion}`;
@@ -36,9 +36,24 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hora
 /**
  * 1. Consultar Metadatos Reales de un Anuncio en Meta Graph API
  * Extrae: Nombre de Campaña, Conjunto de Anuncios y Título del Creativo
+ * Admite token específico por sede para no saturar una sola Meta App
  */
-export async function getMetaAdDetails(adId) {
-  if (!adId || adId === 'N/A' || !accessToken) return null;
+export async function getMetaAdDetails(adId, options = {}) {
+  let effectiveToken = accessToken;
+  if (typeof options === 'string') {
+    effectiveToken = options;
+  } else if (options && typeof options === 'object') {
+    if (options.token) {
+      effectiveToken = options.token;
+    } else if (options.sede || options.pageId || options.locationId) {
+      const metaConf = getMetaConfigBySede(options);
+      if (metaConf?.accessToken) {
+        effectiveToken = metaConf.accessToken;
+      }
+    }
+  }
+
+  if (!adId || adId === 'N/A' || !effectiveToken) return null;
 
   const now = Date.now();
   if (adCache.has(adId)) {
@@ -49,7 +64,7 @@ export async function getMetaAdDetails(adId) {
   }
 
   try {
-    const url = `${GRAPH_BASE}/${adId}?fields=id,name,campaign{id,name},adset{id,name},creative{id,title,body}&access_token=${accessToken}`;
+    const url = `${GRAPH_BASE}/${adId}?fields=id,name,campaign{id,name},adset{id,name},creative{id,title,body}&access_token=${effectiveToken}`;
     if (global.apiCounters) global.apiCounters.meta++;
     const res = await fetch(url);
     if (!res.ok) {
