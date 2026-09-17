@@ -83,7 +83,7 @@
        - Nuevo Ad ID: [Nuevo Meta Ad ID]
        - Fanpage de Entrada: [Nombre de Fanpage]
        - Campaña Detectada: [Nombre de Campaña]
-       - Interacción: DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: [Ad ID Anterior]  [Fecha Anterior]  [SEDE PREVIA] ("tiempo de gracia expirado")
+       - Interacción: DOBLE INGRESO PUBLICITARIO - Anuncio / Campaña Previa: [Ad ID Anterior]  [Fecha Anterior]  ([SEDE PREVIA] - [CAMPAÑA PREVIA] - [DOLENCIA]) ("tiempo de gracia expirado/ vigencia activa/")
        - Estado de Pauta: ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)
        ----------------------------------------
        Powered by LOA Engine - Gabriel Loayza
