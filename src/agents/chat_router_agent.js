@@ -335,12 +335,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // 🧠 B. ANÁLISIS INTELIGENTE DE SÍNTOMAS (NLP + LEARNING BRAIN) Y DATOS DE ENVÍO
     const combinedText = allMessages.map(m => m.body || '').join(' \n ');
     const shippingData = extractShippingData(combinedText, contact.phone);
+    const effectivePhone = contact.phone || (shippingData?.hasPhone ? shippingData.phone : null);
 
     // 🏢 C. GROUND TRUTH DE VTIGER CRM: Verdad Clínica y Comercial Confirmada
     let vtigerTreatment = null;
     let vContact = null;
     try {
-      vContact = await findVTigerContact(contact);
+      vContact = await findVTigerContact({ ...contact, phone: effectivePhone });
       if (vContact) {
         const vCond = vContact.cf_2610 || '';
         vtigerTreatment = inferTreatmentFromCampaignOrUtm(vCond) || (vCond.length > 2 ? vCond : null);

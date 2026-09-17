@@ -117,6 +117,28 @@ export async function findVTigerContact(ghlContact) {
   const lastName = sanitizeForVtigerQuery(ghlContact.lastName);
   
   // ────────────────────────────────────────────
+  // ESTRATEGIA 0: Búsqueda Directa por Teléfono (10 dígitos exactos)
+  // Máxima prioridad para el chatter: si se extrae el número, la vinculación es inmediata (0.2s)
+  // e inmune a diferencias de nombres o apodos en perfiles de redes sociales.
+  // ────────────────────────────────────────────
+  if (cleanPhone && cleanPhone.length >= 10) {
+    const last10 = cleanPhone.slice(-10);
+    try {
+      const qPhone = `SELECT * FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}' LIMIT 5;`;
+      const phoneMatches = await queryVTiger(qPhone);
+      if (phoneMatches && phoneMatches.length > 0) {
+        // Prioridad A: Match con compras registradas
+        const withSales = phoneMatches.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
+        if (withSales) return withSales;
+        // Prioridad B: Primer match disponible
+        return phoneMatches[0];
+      }
+    } catch (pErr) {
+      console.warn(`[VTiger API] [WARN] Error en búsqueda directa por teléfono (${last10}):`, pErr.message);
+    }
+  }
+  
+  // ────────────────────────────────────────────
   // ESTRATEGIA 1: Búsqueda por Nombre + Apellido (LIKE para tolerancia a tildes/variaciones)
   // ────────────────────────────────────────────
   if (firstName.length >= 2 && lastName.length >= 2) {
