@@ -99,11 +99,11 @@
     "stageX4Id": "da815bf3-2c20-4bf6-9f1f-c2e0adb4a908"
   },
   "unified": {
-    "pipelineId": "TetMBFc4R1p4cpNhRr2L",
-    "pipelineName": "🚀 Embudo Comercial (Redes)",
+    "pipelineId": "YCZePq7oBz7XREDAPtsj",
+    "pipelineName": "🚀 Embudo Comercial (Redes - Palacios)",
     "stages": [
       {
-        "id": "6c38e349-79d6-4ee4-be81-e16112f3c279",
+        "id": "46b85935-c0cc-454c-9c09-9740d8c8f30a",
         "name": "💬 Prospecto Inicial (Sin Teléfono)",
         "showInFunnel": false,
         "showInPieChart": false,
@@ -111,7 +111,7 @@
         "stageWinProbability": 16.67
       },
       {
-        "id": "0da5ba47-8747-4edd-a271-2f927ccc3937",
+        "id": "43b410a2-cb31-492c-bbe7-9e40c9251884",
         "name": "📞 Contacto Capturado",
         "showInFunnel": false,
         "showInPieChart": false,
@@ -119,7 +119,7 @@
         "stageWinProbability": 33.33
       },
       {
-        "id": "5ce95579-c5b3-4b36-a963-9936ee5ae996",
+        "id": "e574b419-25cb-40fc-9a93-75b3f4502d52",
         "name": "⏳ Seguimiento / Negociación",
         "showInFunnel": false,
         "showInPieChart": false,
@@ -127,7 +127,7 @@
         "stageWinProbability": 50
       },
       {
-        "id": "3174c6f7-397e-42de-9ee7-780053c3920a",
+        "id": "5b0ca386-1c01-45ec-a531-6e235c0d8305",
         "name": "🎉 Ganado (Compró)",
         "showInFunnel": false,
         "showInPieChart": false,
@@ -135,7 +135,7 @@
         "stageWinProbability": 66.67
       },
       {
-        "id": "c35c57b1-a17c-432d-aa17-e1da89beb012",
+        "id": "c19ea2ef-2c74-4779-941b-6405ba21ff48",
         "name": "❌ Perdido / Sin Respuesta",
         "showInFunnel": false,
         "showInPieChart": false,
@@ -143,11 +143,11 @@
         "stageWinProbability": 83.33
       }
     ],
-    "stageProspectoInicialId": "6c38e349-79d6-4ee4-be81-e16112f3c279",
-    "stageContactoCapturadoId": "0da5ba47-8747-4edd-a271-2f927ccc3937",
-    "stageSeguimientoId": "5ce95579-c5b3-4b36-a963-9936ee5ae996",
-    "stageGanadoId": "3174c6f7-397e-42de-9ee7-780053c3920a",
-    "stagePerdidoId": "c35c57b1-a17c-432d-aa17-e1da89beb012"
+    "stageProspectoInicialId": "46b85935-c0cc-454c-9c09-9740d8c8f30a",
+    "stageContactoCapturadoId": "43b410a2-cb31-492c-bbe7-9e40c9251884",
+    "stageSeguimientoId": "e574b419-25cb-40fc-9a93-75b3f4502d52",
+    "stageGanadoId": "5b0ca386-1c01-45ec-a531-6e235c0d8305",
+    "stagePerdidoId": "c19ea2ef-2c74-4779-941b-6405ba21ff48"
   },
   "benavides": {
     "pipelineId": "Dv8kOeJvsMs9WMyTJAfD",

@@ -1,4 +1,4 @@
-import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders } from '../config/index.js';
+import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
@@ -158,6 +158,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     let activeLocationId = options.locationId || locationId;
     let activeHeaders = options.headers || getGhlHeaders({ locationId: activeLocationId, sede: options.sede });
+
+    // 🛡️ CENTRAL GUARD: La cuenta Central Universal se mantiene conectada para referencia/bóveda pero SIN ruteos activos
+    const activeContext = resolveSedeContext({ locationId: activeLocationId });
+    if (activeContext && activeContext.allowActiveRouting === false) {
+      console.log(`[Agente 3] [CENTRAL GUARD] Ubicación ${activeLocationId} (${activeContext.name}) es Central Universal pasiva. Omitiendo ruteos activos.`);
+      return 'UNCHANGED';
+    }
 
     // 1. Cargar contacto de GHL UNA SOLA VEZ con detección y fallback de subcuenta (Palacios <-> Benavides)
     let contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: activeHeaders }, 1, isLive);
@@ -382,20 +389,20 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // Custom Field IDs Oficiales Dinámicos por Subcuenta
     const isBenavidesLoc = activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId;
-    const ID_ANUNCIO_FIELD = isBenavidesLoc ? 'bjIdaPk0dzyuNw0RCMwn' : '6w3yMjLgIw6npUKWIosr';
-    const AD_ID_ALT_FIELD = isBenavidesLoc ? 'xYgC0RFCZZ1GagK2aaXu' : 'ujLG5Ogp94WfynVubapT';
-    const TRATAMIENTO_FIELD = isBenavidesLoc ? 'xqDD056VzkFTOxHniDkw' : 'WcrrCIL4A2203kIbeFsJ';
-    const VTIGER_NOTAS_FIELD = isBenavidesLoc ? 'cZZF2iWCedZpfD8kqR16' : 'cZu95uKBqVydDEh24enl';
-    const UTM_SOURCE_FIELD = isBenavidesLoc ? 'yAi98DhTmnBuHppg9Taj' : 'L3eEulpe8II7q0UAJnKZ';
-    const UTM_MEDIUM_FIELD = isBenavidesLoc ? 'XwjFGpmds9nvS3e45P5c' : 'HVjiEMKYR2feXviAZ2Jd';
-    const UTM_CAMPAIGN_FIELD = isBenavidesLoc ? 'o5AQRN1o7qkhSomgYiaG' : 'KS3iYmIjVcmFJV7MIDnT';
-    const UTM_CONTENT_FIELD = isBenavidesLoc ? 'a8zymCz1usSfr8kxiNYq' : 'Vmzz5BxbMcrlInmuiblM';
-    const UTM_TERM_FIELD = isBenavidesLoc ? 'tWGsiDXWU8EXNHGNT1po' : 'Wh4IIv4TEbxJaZBi95cp';
-    const ADSET_ID_FIELD = isBenavidesLoc ? 'PS7wvoCZg8bslRRjoZCr' : 'XTGicfQtDwBrlr2qPKxF';
-    const SEDE_ASIGNADA_FIELD = isBenavidesLoc ? 'HJLN7LVvZHVX2Rr7eJma' : '7SgOMq4Aeti7gN1SqVN6';
-    const ORIGEN_LEAD_FIELD = isBenavidesLoc ? 'Vw6usJnpwuBScBm4yiSY' : 'cN6NrhXqMlEhyp35g7bs';
-    const TIENE_TELEFONO_FIELD = isBenavidesLoc ? '0PvAaqJs7aERycth9mKW' : 'Wh9u9B4mhivQNn0MWuHi';
-    const ULTIMA_INTERACCION_FIELD = isBenavidesLoc ? 'V9bkHHckMsmeC698i1kr' : 'Yd0Ix40PYOcZQn6TokaX';
+    const ID_ANUNCIO_FIELD = isBenavidesLoc ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
+    const AD_ID_ALT_FIELD = isBenavidesLoc ? 'xYgC0RFCZZ1GagK2aaXu' : 'PUUykPTCijq7rZoLYwAD';
+    const TRATAMIENTO_FIELD = isBenavidesLoc ? 'xqDD056VzkFTOxHniDkw' : '5Sci2WhOpJq9kZWsLTrp';
+    const VTIGER_NOTAS_FIELD = isBenavidesLoc ? 'cZZF2iWCedZpfD8kqR16' : 'T3jzpe1j65tDGXLfQNrM';
+    const UTM_SOURCE_FIELD = isBenavidesLoc ? 'yAi98DhTmnBuHppg9Taj' : '7BnlWDntf3bYBBRJNszD';
+    const UTM_MEDIUM_FIELD = isBenavidesLoc ? 'XwjFGpmds9nvS3e45P5c' : 'G7Mxwp38qS1pKcE80iOY';
+    const UTM_CAMPAIGN_FIELD = isBenavidesLoc ? 'o5AQRN1o7qkhSomgYiaG' : '0VEvRUhcoN8o5YiaLAkG';
+    const UTM_CONTENT_FIELD = isBenavidesLoc ? 'a8zymCz1usSfr8kxiNYq' : 'RV3opVc8o1I7rCnQZnhS';
+    const UTM_TERM_FIELD = isBenavidesLoc ? 'tWGsiDXWU8EXNHGNT1po' : 'Mwi6muWBiOMnM6m9FMdZ';
+    const ADSET_ID_FIELD = isBenavidesLoc ? 'PS7wvoCZg8bslRRjoZCr' : 'jmH0CYynvNBMOxKfBbsN';
+    const SEDE_ASIGNADA_FIELD = isBenavidesLoc ? 'HJLN7LVvZHVX2Rr7eJma' : 'AXACVLFNsTOEzanAHCdf';
+    const ORIGEN_LEAD_FIELD = isBenavidesLoc ? 'Vw6usJnpwuBScBm4yiSY' : '4mOsSGfHcGMJkoWUWlyX';
+    const TIENE_TELEFONO_FIELD = isBenavidesLoc ? '0PvAaqJs7aERycth9mKW' : 'SMAiwKnSvPHWguEbOQxX';
+    const ULTIMA_INTERACCION_FIELD = isBenavidesLoc ? 'V9bkHHckMsmeC698i1kr' : 'qX4hJ8L9ul3tXFsBdp6m';
 
     const existingCustomFields = contact.customFields || [];
     const rawCurrentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
@@ -908,7 +915,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       UTM_SOURCE_FIELD, UTM_MEDIUM_FIELD, UTM_CAMPAIGN_FIELD, UTM_CONTENT_FIELD,
       SEDE_ASIGNADA_FIELD, ORIGEN_LEAD_FIELD, TIENE_TELEFONO_FIELD, ULTIMA_INTERACCION_FIELD,
       UTM_TERM_FIELD, ADSET_ID_FIELD,
-      // Palacios
+      // Palacios (Nueva Subcuenta)
+      'NQGDs2mWeIjH3iGhSK9u', 'G0E9a8RExcUgFbqJO2gF', '0FZcDJLkOPhcpqHAsEdF',
+      'sil3rY9lmRVfCHdQ3tGP', 'FJvzBM7KriNIBgA8zvqS', 'mX7qu8FLS7Qv1BuLKlhb',
+      'AXACVLFNsTOEzanAHCdf', '4mOsSGfHcGMJkoWUWlyX', 'Mwi6muWBiOMnM6m9FMdZ',
+      'jmH0CYynvNBMOxKfBbsN', 'qX4hJ8L9ul3tXFsBdp6m',
+      // Palacios (Legacy Fallback)
       '8EQtKkiW7Z022bcN0vhS', '5TY5AIOpu1c8f6WosyF2', 'RLxFOTXkICXLWShjaLaB',
       'GZKRu2z1Z156lRUfyrpo', '5js0Lfbh5XDLq87SDgdT', 'jfaxRCXTLZQCuzsTl49v',
       '7SgOMq4Aeti7gN1SqVN6', 'cN6NrhXqMlEhyp35g7bs', 'Wh4IIv4TEbxJaZBi95cp',
@@ -1027,7 +1039,23 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     } else {
       const errText = await updateRes.text();
       const isDuplicateConflict = updateRes.status === 400 && errText.includes('duplicated contacts') && errText.includes('matchingField');
-      
+      const isUserNotExist = updateRes.status === 400 && errText.includes('does not exist in this location');
+
+      // 🛡️ AUTO-HEALING: Asesor no existe en esta ubicación (Reintentar sin assignedTo)
+      if (isUserNotExist && updatePayload.assignedTo) {
+        console.warn(`[Agente 3] [AUTO-HEAL] Asesor no existe en esta ubicación. Reintentando actualización sin assignedTo para ${contactId}...`);
+        delete updatePayload.assignedTo;
+        const retryUserRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+          method: 'PUT',
+          headers: activeHeaders,
+          body: JSON.stringify(updatePayload)
+        }, 1, isLive);
+        if (retryUserRes.status === 200) {
+          console.log(`[Agente 3] [SUCCESS] Contacto ${contactId} actualizado exitosamente sin assignedTo.`);
+          return 'SUCCESS';
+        }
+      }
+
       // 🛡️ AUTO-HEALING: Conflicto de Contacto Duplicado (Phone/Email)
       if (isDuplicateConflict) {
         try {

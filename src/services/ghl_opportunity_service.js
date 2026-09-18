@@ -208,11 +208,23 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       };
       if (assignedTo) createPayload.assignedTo = assignedTo;
 
-      await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/`, {
+      let oppRes = await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/`, {
         method: 'POST',
         headers: targetHeaders,
         body: JSON.stringify(createPayload)
       });
+      if (oppRes.status === 400 && createPayload.assignedTo) {
+        const errText = await oppRes.text();
+        if (errText.includes('does not exist in this location') || errText.includes('assignedTo')) {
+          console.warn(`[Pipeline] [OPPORTUNITY] Asesor no existe en ubicación (${targetLocId}). Creando oportunidad sin assignedTo...`);
+          delete createPayload.assignedTo;
+          await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/`, {
+            method: 'POST',
+            headers: targetHeaders,
+            body: JSON.stringify(createPayload)
+          });
+        }
+      }
     }
   }, 'HIGH');
 }

@@ -21,8 +21,8 @@ export const SEDES_GATEWAY = {
     name: 'Laboratorios Naturales - Sede Palacios',
     vtigerSedeName: 'PALACIOS',
     ghl: {
-      apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY || '',
-      locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || 'ATPYNnsfZ1W8sd6WgWIV'
+      apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY || 'pit-8148816f-fe78-4db8-9b5c-7c6713284b0e',
+      locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || '5NqOaPYqWyIw2FPBfoRg'
     },
     meta: {
       appId: process.env.META_APP_ID_PALACIOS || '',
@@ -133,6 +133,27 @@ export const SEDES_GATEWAY = {
       '1147257965133802', // Natural Bio
       '1057863707412893'  // BioNatural
     ],
+    users: {}
+  },
+
+  CENTRAL: {
+    sedeId: 'CENTRAL',
+    name: 'Laboratorios Naturales - Cuenta Central Universal (Bóveda)',
+    vtigerSedeName: 'CENTRAL',
+    isUniversalCentral: true,
+    allowActiveRouting: false,
+    ghl: {
+      apiKey: process.env.GHL_API_KEY_CENTRAL || 'pit-4d48784c-23cd-466d-a6b2-4850138e35d0',
+      locationId: process.env.GHL_LOCATION_ID_CENTRAL || 'ATPYNnsfZ1W8sd6WgWIV'
+    },
+    meta: {
+      appId: process.env.META_APP_ID_PALACIOS || '',
+      appSecret: process.env.META_APP_SECRET_PALACIOS || '',
+      accessToken: process.env.META_ACCESS_TOKEN_PALACIOS || '',
+      adAccountIds: [],
+      adAccountId: ''
+    },
+    pageIds: [],
     users: {}
   }
 };

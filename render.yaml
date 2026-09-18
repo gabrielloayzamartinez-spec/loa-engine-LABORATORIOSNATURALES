@@ -24,6 +24,10 @@ services:
         sync: false
       - key: GHL_LOCATION_ID_PALACIOS
         sync: false
+      - key: GHL_API_KEY_CENTRAL
+        sync: false
+      - key: GHL_LOCATION_ID_CENTRAL
+        sync: false
       - key: GHL_API_KEY_BENAVIDES
         sync: false
       - key: GHL_LOCATION_ID_BENAVIDES

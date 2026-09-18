@@ -7,28 +7,28 @@
  */
 
 export const COMMERCIAL_FIELD_IDS = {
-  ESTADO_COMERCIAL: '8EQtKkiW7Z022bcN0vhS', // contact.vtiger_estado_comercial
-  STATUS_CONTACTO: '5TY5AIOpu1c8f6WosyF2',  // contact.vtiger_status_del_contacto
-  FECHA_ASIGNACION: 'RLxFOTXkICXLWShjaLaB', // contact.fecha_ultima_asignacion
-  FECHA_COMPRA: 'GZKRu2z1Z156lRUfyrpo',     // contact.fecha_compra
-  FECHA_PRIMERA_COMPRA: 'OJYOXVqKp33A6T5HZK5I', // contact.vtiger_fecha_primera_compra
-  FECHA_ULTIMA_COMPRA: 'cyn0Ar7GMvmzYBKw0SJu',  // contact.vtiger_fecha_ultima_compra
-  FECHA_ULTIMA_FACTURA: '1U0XzfuI9HUQDqQVMeSV', // contact.vtiger_fecha_ultima_factura
-  PRECIO_VENTA: '5js0Lfbh5XDLq87SDgdT',     // contact.precio_venta
-  NUM_COMPRAS: '3L8KHJEp8fw8ELr081Kl',      // contact.spl_num_compras
-  ESTADO_COMPRA_LISTA: 'jfaxRCXTLZQCuzsTl49v', // contact.estado_de_compra (Smart List Filter)
+  ESTADO_COMERCIAL: 'NQGDs2mWeIjH3iGhSK9u', // contact.vtiger_estado_comercial
+  STATUS_CONTACTO: 'G0E9a8RExcUgFbqJO2gF',  // contact.vtiger_status_del_contacto
+  FECHA_ASIGNACION: '0FZcDJLkOPhcpqHAsEdF', // contact.fecha_ultima_asignacion
+  FECHA_COMPRA: 'sil3rY9lmRVfCHdQ3tGP',     // contact.fecha_compra
+  FECHA_PRIMERA_COMPRA: 'RqSVtgzyVBZPUB2cXrJk', // contact.vtiger_fecha_primera_compra
+  FECHA_ULTIMA_COMPRA: 'zfamE9R79cBBBN1G5Skq',  // contact.vtiger_fecha_ultima_compra
+  FECHA_ULTIMA_FACTURA: 'heHOec7RMVJ9MRFJ1Z9H', // contact.vtiger_fecha_ultima_factura
+  PRECIO_VENTA: 'FJvzBM7KriNIBgA8zvqS',     // contact.precio_venta
+  NUM_COMPRAS: 'fy6i5hdHG21jYFlUVWtL',      // contact.vtiger_total_compras
+  ESTADO_COMPRA_LISTA: 'mX7qu8FLS7Qv1BuLKlhb', // contact.estado_de_compra
   
   // Nuevos Campos Extendidos
-  SEDE_TIENDA_COMPRA: '50pTZdtYYYcF1Wtz4j4s',  // vTiger Sede / Tienda Compra (cf_3451)
-  ANOTACIONES_REDES: 'lvPAFxRot6hrsBztMkLn',   // vTiger Anotaciones Redes (cf_2471)
-  CANAL_CAPTACION: 'PzuJCcBcrnu4oUq1zLnN',     // vTiger Canal Captacion (cf_3507)
-  CONTACT_NO: 'eBE29SIhviHr2yDJT1Y6',          // vTiger Contact No (contact_no)
-  FECHA_CREACION_VT: 'EulM7Gjuxt63t9i7qr1y',   // vTiger Fecha Creacion (createdtime)
-  ID_CLIENTE_VT: 'PNr3LsTpXAwmyvPnvI11',       // vTiger ID Cliente (id)
-  TIENE_TELEFONO: 'Wh9u9B4mhivQNn0MWuHi',      // contact.tiene_telfono
-  SEDE_ASIGNADA: '7SgOMq4Aeti7gN1SqVN6',       // contact.sede_asignada
-  ORIGEN_LEAD: 'cN6NrhXqMlEhyp35g7bs',         // contact.origen_lead
-  HISTORIAL_COMPLETO: 'cZu95uKBqVydDEh24enl'   // contact.vtiger_historial_completo
+  SEDE_TIENDA_COMPRA: 'aE5sCUO8LH7TZD961J17',  // vTiger Sede / Tienda Compra (cf_3451)
+  ANOTACIONES_REDES: 'rmr5DruA5Jxh7ENERilB',   // vTiger Anotaciones Redes (cf_2471)
+  CANAL_CAPTACION: 'vl6ca0ODB0VILwMnfPqn',     // vTiger Canal Captacion (cf_3507)
+  CONTACT_NO: 'FjldqW9y3ZVbZU02D6Yb',          // vTiger Contact No (contact_no)
+  FECHA_CREACION_VT: '0FZcDJLkOPhcpqHAsEdF',   // vTiger Fecha Creacion
+  ID_CLIENTE_VT: 'M734HXzYwihdi01GhBwO',       // vTiger ID Cliente (id)
+  TIENE_TELEFONO: 'SMAiwKnSvPHWguEbOQxX',      // contact.tiene_telfono
+  SEDE_ASIGNADA: 'AXACVLFNsTOEzanAHCdf',       // contact.sede_asignada
+  ORIGEN_LEAD: '4mOsSGfHcGMJkoWUWlyX',         // contact.origen_lead
+  HISTORIAL_COMPLETO: 'T3jzpe1j65tDGXLfQNrM'   // contact.vtiger_historial_completo
 };
 
 /**
