@@ -165,7 +165,6 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       }
 
       // 5. Inyectar a GHL (Custom Fields y Tags sanados) con headers específicos de subcuenta
-      const targetLocId = ghlContact.locationId || locationId;
       const targetHeaders = getGhlHeaders({ locationId: targetLocId });
 
       await acquireContactLock(ghlContact.id);
