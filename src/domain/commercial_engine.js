@@ -24,7 +24,11 @@ export const COMMERCIAL_FIELD_IDS = {
   CANAL_CAPTACION: 'PzuJCcBcrnu4oUq1zLnN',     // vTiger Canal Captacion (cf_3507)
   CONTACT_NO: 'eBE29SIhviHr2yDJT1Y6',          // vTiger Contact No (contact_no)
   FECHA_CREACION_VT: 'EulM7Gjuxt63t9i7qr1y',   // vTiger Fecha Creacion (createdtime)
-  ID_CLIENTE_VT: 'PNr3LsTpXAwmyvPnvI11'        // vTiger ID Cliente (id)
+  ID_CLIENTE_VT: 'PNr3LsTpXAwmyvPnvI11',       // vTiger ID Cliente (id)
+  TIENE_TELEFONO: 'Wh9u9B4mhivQNn0MWuHi',      // contact.tiene_telfono
+  SEDE_ASIGNADA: '7SgOMq4Aeti7gN1SqVN6',       // contact.sede_asignada
+  ORIGEN_LEAD: 'cN6NrhXqMlEhyp35g7bs',         // contact.origen_lead
+  HISTORIAL_COMPLETO: 'cZu95uKBqVydDEh24enl'   // contact.vtiger_historial_completo
 };
 
 /**

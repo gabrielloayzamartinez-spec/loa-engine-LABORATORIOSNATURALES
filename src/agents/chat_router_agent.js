@@ -462,7 +462,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const ADSET_ID_FIELD = isBenavidesLoc ? 'PS7wvoCZg8bslRRjoZCr' : 'XTGicfQtDwBrlr2qPKxF';
     const SEDE_ASIGNADA_FIELD = isBenavidesLoc ? 'HJLN7LVvZHVX2Rr7eJma' : '7SgOMq4Aeti7gN1SqVN6';
     const ORIGEN_LEAD_FIELD = isBenavidesLoc ? 'Vw6usJnpwuBScBm4yiSY' : 'cN6NrhXqMlEhyp35g7bs';
-    const TIENE_TELEFONO_FIELD = isBenavidesLoc ? '0PvAaqJs7aERycth9mKW' : null;
+    const TIENE_TELEFONO_FIELD = isBenavidesLoc ? '0PvAaqJs7aERycth9mKW' : 'Wh9u9B4mhivQNn0MWuHi';
     const ULTIMA_INTERACCION_FIELD = isBenavidesLoc ? 'V9bkHHckMsmeC698i1kr' : 'Yd0Ix40PYOcZQn6TokaX';
 
     const existingCustomFields = contact.customFields || [];
