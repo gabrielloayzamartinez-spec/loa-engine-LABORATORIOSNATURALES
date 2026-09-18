@@ -17,6 +17,7 @@ import { processVtigerRetryQueue, getVtigerQueueCount } from './services/vtiger_
 import { tokenBucketQueue } from './services/token_bucket_queue.js';
 import { runBackgroundCuratorCycle, getCuratorMetrics } from './services/background_curator.js';
 import { runForwardCure, runBackwardCure, getBiCuratorMetrics } from './services/curador_bidireccional_service.js';
+import { getActiveSedeAgents, getSedeAgent } from './agents/sede_agent.js';
 const app = express();
 app.use(express.json());
 
@@ -1115,24 +1116,26 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   //   runBackgroundCuratorCycle(20).catch(err => console.error('[Background Curator Error]:', err.message));
   // }, 5 * 60 * 1000);
 
-  // 🩺 CURADOR BI-DIRECCIONAL MULTI-SEDE:
-  // 1. MODO 1: "Del Ahora en Adelante" (Forward / En Vivo) - Cada 25s cura leads y chats frescos
+  // 🩺 CURADOR BI-DIRECCIONAL MULTI-SEDE (ORQUESTADO POR SEDE-AGENTS):
+  // 1. MODO 1: "Del Ahora en Adelante" (Forward / En Vivo) - Cada 25s cura leads y chats frescos por sede activa
   setInterval(async () => {
-    try {
-      await runForwardCure('BENAVIDES', { limit: 15 });
-    } catch (e) {}
-    try {
-      await runForwardCure('PALACIOS', { limit: 15 });
-    } catch (e) {}
+    const agents = getActiveSedeAgents();
+    for (const agent of agents) {
+      try {
+        await agent.runForward({ limit: 15 });
+      } catch (e) {}
+    }
   }, 25 * 1000);
 
-  // 2. MODO 2: "Del Ahora para Atrás" (Backward / Histórico Profundo) - Cada 60s procesa 20 contactos
+  // 2. MODO 2: "Del Ahora para Atrás" (Backward / Histórico Profundo) - Turnos equitativos entre sedes activas
   let backwardTurn = 0;
   setInterval(async () => {
+    const agents = getActiveSedeAgents();
+    if (agents.length === 0) return;
+    const targetAgent = agents[backwardTurn % agents.length];
     backwardTurn++;
-    const targetSede = (backwardTurn % 2 === 1) ? 'BENAVIDES' : 'PALACIOS';
     try {
-      await runBackwardCure(targetSede, { limit: 20 });
+      await targetAgent.runBackward({ limit: 20 });
     } catch (e) {}
   }, 60 * 1000);
 

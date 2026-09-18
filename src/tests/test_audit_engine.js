@@ -11,6 +11,7 @@ import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, re
 import { buildAdHistoryNoteBody } from '../agents/chat_router_agent.js';
 import { learningBrain } from '../services/learning_brain.js';
 import { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede, getActiveSedes, resolveSedeCustomFields, resolveSedePipeline } from '../config/index.js';
+import { SedeAgent, getSedeAgent, getActiveSedeAgents } from '../agents/sede_agent.js';
 
 export function runPreFlightSanityCheck() {
   const tests = [
@@ -686,6 +687,49 @@ export function runPreFlightSanityCheck() {
         if (benFields.tratamientoComprado !== 'xqDD056VzkFTOxHniDkw') throw new Error('Benavides tratamientoComprado mismatch');
         if (palFields.historialCompleto !== 'T3jzpe1j65tDGXLfQNrM') throw new Error('Palacios historialCompleto mismatch');
         if (benFields.historialCompleto !== 'cZZF2iWCedZpfD8kqR16') throw new Error('Benavides historialCompleto mismatch');
+      }
+    },
+    {
+      name: 'Regla 24: SedeAgent Factory y Hermetismo de Tentáculos',
+      run: () => {
+        // 1. Agentes Activos
+        const activeAgents = getActiveSedeAgents();
+        if (activeAgents.length !== 2) {
+          throw new Error(`Se esperaban 2 agentes activos, recibido: ${activeAgents.length}`);
+        }
+        const activeIds = activeAgents.map(a => a.sedeId);
+        if (!activeIds.includes('PALACIOS') || !activeIds.includes('BENAVIDES')) {
+          throw new Error(`Agentes activos incorrectos: ${activeIds.join(', ')}`);
+        }
+
+        // 2. Instancia Palacios
+        const palAgent = getSedeAgent('PALACIOS');
+        if (!(palAgent instanceof SedeAgent)) throw new Error('palAgent debe ser instancia de SedeAgent');
+        if (palAgent.ghl.locationId !== '5NqOaPYqWyIw2FPBfoRg') throw new Error('Location ID Palacios incorrecto');
+        if (palAgent.pipeline?.id !== 'YCZePq7oBz7XREDAPtsj') throw new Error('Pipeline ID Palacios incorrecto');
+        if (!palAgent.customFields?.idAnuncio) throw new Error('Custom fields de Palacios ausentes');
+        if (palAgent.allowActiveRouting !== true) throw new Error('Palacios debe permitir ruteo activo');
+
+        // 3. Instancia Benavides
+        const benAgent = getSedeAgent('QXcNBK6XCgpQaZ81Z8pv');
+        if (benAgent.sedeId !== 'BENAVIDES') throw new Error('Resolución por locationId de Benavides falló');
+        if (benAgent.pipeline?.id !== 'Dv8kOeJvsMs9WMyTJAfD') throw new Error('Pipeline ID Benavides incorrecto');
+
+        // 4. Central Guard en SedeAgent
+        const centralAgent = getSedeAgent('ATPYNnsfZ1W8sd6WgWIV');
+        if (centralAgent.sedeId !== 'CENTRAL') throw new Error('Resolución de Central falló');
+        if (centralAgent.allowActiveRouting !== false) throw new Error('CentralAgent debe tener allowActiveRouting === false');
+
+        // 5. Verificación de bloqueo de mutación en Central
+        const p = centralAgent.routeContact('dummy-contact-id');
+        if (!(p instanceof Promise)) {
+          throw new Error('CentralAgent.routeContact debe retornar una Promesa');
+        }
+        p.then(res => {
+          if (res !== 'UNCHANGED') {
+            throw new Error(`CentralAgent.routeContact debió retornar 'UNCHANGED', recibido: ${res}`);
+          }
+        });
       }
     }
   ];
