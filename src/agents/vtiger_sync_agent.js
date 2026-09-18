@@ -158,7 +158,9 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       customFieldsToUpdate.push({ id: utmSourceField, key: 'contact.utm_source', field_value: 'facebook' });
       customFieldsToUpdate.push({ id: utmMediumField, key: 'contact.utm_medium', field_value: 'cpc' });
       customFieldsToUpdate.push({ id: sedeAsignadaField, key: 'contact.sede_asignada', field_value: isBenavides ? 'BENAVIDES' : 'PALACIOS' });
-      if (vContact.cf_3507) {
+      const existingOrigenLead = (ghlContact.customFields || []).find(f => f.id === origenLeadField)?.value || ghlContact.source || '';
+      const hasStructuredOrigen = /^[A-Z0-9_]+-[A-Z0-9_]+-[A-Z0-9_]+-[A-Za-z0-9_]+$/.test(String(existingOrigenLead).trim());
+      if (vContact.cf_3507 && !hasStructuredOrigen) {
         customFieldsToUpdate.push({ id: origenLeadField, key: 'contact.origen_lead', field_value: String(vContact.cf_3507).trim() });
       }
 
@@ -203,13 +205,18 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
         if (vCanalClean) newTagsSet.add(`canal-${vCanalClean}`);
       }
 
-      // 4.2 Refuerzo de Etiquetas de Producto (vTiger manda sobre GHL)
-      if (treatment) {
-        const ALL_PRODUCT_TAGS = [
-          'producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 
-          'producto-tetosterona', 'producto-colageno', 'producto-vision', 'producto-gastro', 
-          'producto-hongos', 'producto-gummies'
-        ];
+      // 4.2 Refuerzo de Etiquetas de Producto:
+      // Si el contacto ya tiene una etiqueta activa de pauta Meta Ads ('meta-ads' o producto detectado recientemente),
+      // no sobreescribir con una dolencia antigua de vTiger.
+      const ALL_PRODUCT_TAGS = [
+        'producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 
+        'producto-tetosterona', 'producto-colageno', 'producto-vision', 'producto-gastro', 
+        'producto-hongos', 'producto-gummies'
+      ];
+      const hasActiveMetaAds = (ghlContact.tags || []).includes('meta-ads');
+      const hasExistingProductTag = (ghlContact.tags || []).some(t => ALL_PRODUCT_TAGS.includes(t));
+
+      if (treatment && (!hasActiveMetaAds || !hasExistingProductTag)) {
         const activeProductTag = `producto-${treatment.toLowerCase()}`;
         newTagsSet.add(activeProductTag);
         

@@ -1,6 +1,6 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
-import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
+import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
@@ -410,12 +410,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const currentTratamiento = existingCustomFields.find(f => f.id === TRATAMIENTO_FIELD && f.value)?.value;
     const currentVtigerNota = existingCustomFields.find(f => f.id === VTIGER_NOTAS_FIELD && f.value)?.value;
 
-    // 🎯 A. FRESHNESS FIRST: DETECCIÓN DEL AD ID Y CAMPAÑA / UTM
+    // 🎯 A. FRESHNESS FIRST: DETECCIÓN DEL AD ID, ADSET (CONJUNTO DE ANUNCIOS), CAMPAÑA Y UTMS
     let latestAdId = null;
     let latestCampaign = null;
     let latestMedium = null;
+    let latestAdSetName = null;
 
-    // 1. Mensajes de Facebook más recientes (prioridad máxima)
+    // 1. Mensajes de Facebook más recientes (prioridad máxima para Ad ID)
     for (const m of allMessages) {
       const fbMeta = m.meta?.fb || {};
       const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
@@ -425,30 +426,52 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    // 2. attributionSource nativo de GHL
-    if (contact.attributionSource) {
-      if (!latestAdId && isValidMetaAdId(contact.attributionSource.adId)) latestAdId = String(contact.attributionSource.adId).trim();
-      if (!latestCampaign) latestCampaign = contact.attributionSource.utmCampaign || contact.attributionSource.campaign;
-      if (!latestMedium) latestMedium = contact.attributionSource.utmMedium;
+    // 2. Recopilar todas las fuentes de atribución disponibles en GHL ordenadas por recencia
+    const attributionSources = [];
+    if (contact.attributionSource) attributionSources.push(contact.attributionSource);
+    if (contact.attributions && Array.isArray(contact.attributions)) {
+      attributionSources.push(...[...contact.attributions].reverse());
     }
+    if (contact.lastAttributionSource) attributionSources.push(contact.lastAttributionSource);
 
-    // 3. Última Atribución registrada en GHL con datos de pauta
-    if (contact.attributions && contact.attributions.length > 0) {
-      const attrWithData = [...contact.attributions].reverse().find(a => a.utmAdId || a.adId || a.utmCampaign || a.utmMedium);
-      const lastAttr = attrWithData || contact.attributions.find(a => a.isLast) || contact.attributions[contact.attributions.length - 1];
-      if (lastAttr) {
-        const rawAttrId = lastAttr.utmAdId || lastAttr.adId;
-        if (!latestAdId && isValidMetaAdId(rawAttrId)) latestAdId = String(rawAttrId).trim();
-        if (!latestCampaign && lastAttr.utmCampaign) latestCampaign = lastAttr.utmCampaign;
-        if (!latestMedium && lastAttr.utmMedium) latestMedium = lastAttr.utmMedium;
+    for (const attr of attributionSources) {
+      if (!attr) continue;
+
+      // Ad ID
+      const rawAttrId = attr.utmAdId || attr.adId;
+      if (!latestAdId && isValidMetaAdId(rawAttrId)) latestAdId = String(rawAttrId).trim();
+
+      // Campaña
+      if (!latestCampaign && (attr.utmCampaign || attr.campaign)) {
+        latestCampaign = attr.utmCampaign || attr.campaign;
+      }
+
+      // Medium
+      if (!latestMedium && attr.utmMedium) {
+        latestMedium = attr.utmMedium;
+      }
+
+      // 🎯 Detección de Nombre de Conjunto de Anuncios (AdSet Name)
+      // Meta Ads / GHL puede almacenar el AdSet en utmMedium, utmTerm, utmContent o adsetName
+      if (!latestAdSetName) {
+        if (isAdsetCandidate(attr.utmMedium)) {
+          latestAdSetName = String(attr.utmMedium).trim();
+        } else if (isAdsetCandidate(attr.utmTerm)) {
+          latestAdSetName = String(attr.utmTerm).trim();
+        } else if (isAdsetCandidate(attr.utmContent)) {
+          latestAdSetName = String(attr.utmContent).trim();
+        } else if (isAdsetCandidate(attr.adsetName || attr.adSetName)) {
+          latestAdSetName = String(attr.adsetName || attr.adSetName).trim();
+        }
       }
     }
 
-    // 4. Fallback a lastAttributionSource nativo
-    if (contact.lastAttributionSource) {
-      if (!latestAdId && isValidMetaAdId(contact.lastAttributionSource.adId)) latestAdId = String(contact.lastAttributionSource.adId).trim();
-      if (!latestCampaign && contact.lastAttributionSource.utmCampaign) latestCampaign = contact.lastAttributionSource.utmCampaign;
-      if (!latestMedium && contact.lastAttributionSource.utmMedium) latestMedium = contact.lastAttributionSource.utmMedium;
+    // Fallback de AdSet desde campos personalizados existentes si ya se guardó previamente
+    if (!latestAdSetName) {
+      const existingAdset = existingCustomFields.find(f => (f.id === ADSET_ID_FIELD || f.id === UTM_TERM_FIELD) && f.value)?.value;
+      if (isAdsetCandidate(existingAdset)) {
+        latestAdSetName = String(existingAdset).trim();
+      }
     }
 
     // 🧠 B. ANÁLISIS INTELIGENTE DE SÍNTOMAS (NLP + LEARNING BRAIN) Y DATOS DE ENVÍO
@@ -495,7 +518,6 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     let targetAdId = latestAdId || currentAdId || null;
     let targetAdName = null;
-    let latestAdSetName = null;
 
     if (targetAdId && isValidMetaAdId(targetAdId)) {
       const metaDetails = await getMetaAdDetails(targetAdId, {
@@ -506,7 +528,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       if (metaDetails) {
         latestCampaign = metaDetails.campaignName || latestCampaign;
         targetAdName = metaDetails.adName || metaDetails.creativeTitle;
-        latestAdSetName = metaDetails.adsetName || null;
+        if (metaDetails.adsetName) {
+          latestAdSetName = metaDetails.adsetName;
+        }
         console.log(`[Agente 3] [META] UTMs Actualizados en vivo desde Meta: Campaña [${latestCampaign}], AdSet [${latestAdSetName}], Ad [${targetAdName}]`);
       }
     }
@@ -514,9 +538,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const nlpAnalysis = analyzeSymptoms(combinedText, latestCampaign, latestMedium);
 
     // 🔬 D. Inferencia Clínica y de Pauta Ponderada:
-    // Prioridad 1: Síntomas clínicos y Cerebro de Aprendizaje (NLP) - (La intención ACTUAL del cliente)
-    // Prioridad 2: Conjunto de Anuncios / Campaña / Anuncio / UTM Medium (ej: "TETOSTERONA - IN HOUSE - ...", "ARTRITIS - ERNESTO - ...")
-    // Prioridad 3: Ground Truth de Ventas vTiger CRM (Útil si el cliente solo dice "Hola" pero sabemos que es paciente crónico de algo)
+    // Prioridad 1: Síntomas clínicos y Cerebro de Aprendizaje (NLP) - (La intención ACTUAL del cliente en chat)
+    // Prioridad 2: Conjunto de Anuncios / Campaña / Anuncio / UTM Medium (ej: "TESTOSTERONA - ERNESTO - ...", "ARTRITIS - ERNESTO - ...")
+    // Prioridad 3: Ground Truth de Ventas vTiger CRM (Útil si el cliente solo dice "Hola" y NO hay pauta activa o AdSet)
     // Prioridad 4: Tratamiento previo registrado en GHL
     const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(latestAdSetName) ||
                                   inferTreatmentFromCampaignOrUtm(targetAdName) ||
@@ -525,7 +549,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
                                   inferTreatmentFromCampaignOrUtm(contact.attributionSource?.campaign) ||
                                   inferTreatmentFromCampaignOrUtm(contact.attributionSource?.utmContent);
 
-    let targetTratamiento = nlpAnalysis.primaryTreatment || utmInferredTreatment || vtigerTreatment || currentTratamiento || 'General';
+    // 🛡️ REGLA DE ORO DE PAUTA ACTIVA:
+    // Si el lead viene por Pauta Publicitaria (Meta Ads / Paid Social / Ad ID / AdSet) y el AdSet o Campaña
+    // define explícitamente la DOLENCIA (ej: TESTOSTERONA -> Potencia), dicha dolencia es la verdad clínica de la consulta actual.
+    // Un tratamiento histórico de vTiger (ej: Artritis en 2019) NUNCA debe anular la dolencia de la pauta que el usuario acaba de cliquear.
+    let targetTratamiento = nlpAnalysis.primaryTreatment || utmInferredTreatment;
+    if (!targetTratamiento) {
+      targetTratamiento = vtigerTreatment || currentTratamiento || 'General';
+    }
     let targetVtigerNota = currentVtigerNota || null;
     let duplicateCount = 1;
 
@@ -575,6 +606,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Un lead es pauta pagada si tiene un Meta Ad ID numérico válido O parámetros explícitos de cobro (Paid Social / cpc)
     const isPaidAd = Boolean(
       (targetAdId && isValidMetaAdId(targetAdId)) ||
+      latestAdSetName ||
       contact.attributionSource?.sessionSource === 'Paid Social' ||
       contact.attributionSource?.utmMedium === 'cpc' ||
       contact.attributionSource?.utmMedium === 'paid' ||
@@ -591,6 +623,27 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       isPaidAd,
       existingSource: contact.source
     });
+
+    // 🏢 AFINAMIENTO DE ASESOR SEGÚN PROVEEDOR DETECTADO EN ADSET / CAMPAÑA:
+    if (resolvedSede && resolvedSede.users) {
+      if (resolvedSede.sedeId === 'PALACIOS') {
+        if (targetProvider === 'CLICK2RING') {
+          targetAdvisorId = resolvedSede.users.ultra.id;
+          targetAdvisorName = resolvedSede.users.ultra.name;
+        } else if (targetProvider === 'ERNESTO' || targetProvider === 'IN_HOUSE') {
+          targetAdvisorId = resolvedSede.users.ernesto.id;
+          targetAdvisorName = resolvedSede.users.ernesto.name;
+        }
+      } else if (resolvedSede.sedeId === 'BENAVIDES') {
+        if (targetProvider === 'CLICK2RING') {
+          targetAdvisorId = resolvedSede.users.redes2.id;
+          targetAdvisorName = resolvedSede.users.redes2.name;
+        } else if (targetProvider === 'ERNESTO' || targetProvider === 'IN_HOUSE') {
+          targetAdvisorId = resolvedSede.users.redes1.id;
+          targetAdvisorName = resolvedSede.users.redes1.name;
+        }
+      }
+    }
 
     const targetChannel = resolveLeadChannel({
       campaignName: latestCampaign || targetAdName

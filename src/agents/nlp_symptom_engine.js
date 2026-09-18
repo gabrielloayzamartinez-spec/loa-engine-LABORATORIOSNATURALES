@@ -150,6 +150,39 @@ export function inferTreatmentFromCampaignOrUtm(text) {
   return null;
 }
 
+/**
+ * Determina si una cadena de texto califica como nombre de conjunto de anuncios (AdSet)
+ * y no como un medio/parámetro genérico (cpc, paid social, messenger, etc.).
+ * Debe contener palabras clave de Dolencia, Proveedor, o tener estructura de pauta ("DOLENCIA - PROVEEDOR - ...").
+ */
+export function isAdsetCandidate(str) {
+  if (!str || typeof str !== 'string') return false;
+  const s = str.trim();
+  if (s.length < 3) return false;
+
+  // Descartar palabras genéricas o vacías
+  if (/^(cpc|cpm|paid|paid\s*social|social|messenger|facebook|fb|organic|organico|referral|direct|none|\(not set\)|n\/a|--)$/i.test(s)) {
+    return false;
+  }
+
+  // 1. Si contiene una dolencia/tratamiento identificable
+  if (inferTreatmentFromCampaignOrUtm(s)) {
+    return true;
+  }
+
+  // 2. Si contiene un proveedor publicitario identificable
+  if (/ERNESTO|CLIC?K?2RING|IN[\s_-]*HOUSE|UP[\s_-]*IDEAS|ENZO|DIURNAY|C[EÉ]SAR/i.test(s)) {
+    return true;
+  }
+
+  // 3. Estructura con guiones o separadores de pauta (longitud representativa >= 8)
+  if (/[-_]/.test(s) && s.length >= 8) {
+    return true;
+  }
+
+  return false;
+}
+
 import { getGeoFromPhone, parseFullUsAddress } from '../utils/us_geo_data.js';
 
 /**

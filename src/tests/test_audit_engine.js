@@ -7,7 +7,7 @@
  * 4. Inferencia geográfica desde teléfonos de USA.
  */
 
-import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, extractShippingData, isValidMetaAdId } from '../agents/nlp_symptom_engine.js';
+import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, extractShippingData, isValidMetaAdId, isAdsetCandidate } from '../agents/nlp_symptom_engine.js';
 import { buildAdHistoryNoteBody } from '../agents/chat_router_agent.js';
 import { learningBrain } from '../services/learning_brain.js';
 import { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede, getActiveSedes, resolveSedeCustomFields, resolveSedePipeline } from '../config/index.js';
@@ -730,6 +730,53 @@ export function runPreFlightSanityCheck() {
             throw new Error(`CentralAgent.routeContact debió retornar 'UNCHANGED', recibido: ${res}`);
           }
         });
+      }
+    },
+    {
+      name: 'Regla 25: Extracción de DOLENCIA y PROVEEDOR desde Nombre de Conjunto de Anuncios (AdSet)',
+      run: () => {
+        const adsetCarmen = 'TESTOSTERONA - ERNESTO - 7am a 2pm - 1175';
+        const adsetErnesto = 'ARTRITIS - ERNESTO - 2pm a 9pm - 300';
+        const adsetInHouse = 'TETOSTERONA - IN HOUSE - NO MGRATIS- CBO V1 - 100diario';
+        const adsetClick = 'POTENCIA - CLICK2RING - 8am a 4pm';
+
+        // 1. isAdsetCandidate
+        if (!isAdsetCandidate(adsetCarmen)) throw new Error('adsetCarmen debió ser reconocido como AdSet');
+        if (!isAdsetCandidate(adsetErnesto)) throw new Error('adsetErnesto debió ser reconocido como AdSet');
+        if (!isAdsetCandidate(adsetInHouse)) throw new Error('adsetInHouse debió ser reconocido como AdSet');
+        if (!isAdsetCandidate(adsetClick)) throw new Error('adsetClick debió ser reconocido como AdSet');
+        if (isAdsetCandidate('cpc')) throw new Error('cpc no debe ser reconocido como AdSet');
+        if (isAdsetCandidate('Paid Social')) throw new Error('Paid Social no debe ser reconocido como AdSet');
+        if (isAdsetCandidate('messenger')) throw new Error('messenger no debe ser reconocido como AdSet');
+        if (isAdsetCandidate('facebook')) throw new Error('facebook no debe ser reconocido como AdSet');
+
+        // 2. Extracción de Dolencia
+        const dolenciaCarmen = inferTreatmentFromCampaignOrUtm(adsetCarmen);
+        if (dolenciaCarmen !== 'Potencia') throw new Error(`Esperado Potencia para adsetCarmen, recibido: ${dolenciaCarmen}`);
+
+        const dolenciaErnesto = inferTreatmentFromCampaignOrUtm(adsetErnesto);
+        if (dolenciaErnesto !== 'Artritis') throw new Error(`Esperado Artritis para adsetErnesto, recibido: ${dolenciaErnesto}`);
+
+        // 3. Extracción de Proveedor
+        const provCarmen = resolveLeadProvider({ adsetName: adsetCarmen });
+        if (provCarmen !== 'ERNESTO') throw new Error(`Esperado ERNESTO para adsetCarmen, recibido: ${provCarmen}`);
+
+        const provClick = resolveLeadProvider({ adsetName: adsetClick });
+        if (provClick !== 'CLICK2RING') throw new Error(`Esperado CLICK2RING para adsetClick, recibido: ${provClick}`);
+
+        const provInHouse = resolveLeadProvider({ adsetName: adsetInHouse });
+        if (provInHouse !== 'IN_HOUSE') throw new Error(`Esperado IN_HOUSE para adsetInHouse, recibido: ${provInHouse}`);
+
+        // 4. Origen Estructurado Completo
+        const sourceCarmen = buildVtigerSource({
+          sedeName: 'Naturales BioNatural',
+          provider: provCarmen,
+          channel: 'FB-MSGR',
+          treatment: dolenciaCarmen
+        });
+        if (sourceCarmen !== 'PALACIOS-ERNESTO-FB-MSGR-Potencia') {
+          throw new Error(`Fuente esperada PALACIOS-ERNESTO-FB-MSGR-Potencia, recibido: ${sourceCarmen}`);
+        }
       }
     }
   ];
