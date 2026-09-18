@@ -121,7 +121,8 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
   let targetSedeUpper = (targetSede || ghlContact?.targetSede || ghlContact?.sede || '').toUpperCase().trim();
   if (!targetSedeUpper && ghlContact?.locationId) {
     if (ghlContact.locationId.includes('QXcNBK6XCgpQaZ81Z8pv')) targetSedeUpper = 'BENAVIDES';
-    else if (ghlContact.locationId.includes('k7A6VqEevA3Ec2nhyL3d') || ghlContact.locationId.includes('ATPYNnsfZ1W8sd6WgWIV')) targetSedeUpper = 'PALACIOS';
+    else if (ghlContact.locationId.includes('5NqOaPYqWyIw2FPBfoRg')) targetSedeUpper = 'PALACIOS';
+    else if (ghlContact.locationId.includes('ATPYNnsfZ1W8sd6WgWIV')) targetSedeUpper = 'CENTRAL';
     else if (ghlContact.locationId.includes('ROOSEVELT')) targetSedeUpper = 'ROOSEVELT';
     else if (ghlContact.locationId.includes('PIURA')) targetSedeUpper = 'PIURA';
   }

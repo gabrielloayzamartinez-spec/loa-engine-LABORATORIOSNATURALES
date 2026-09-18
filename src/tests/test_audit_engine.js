@@ -495,6 +495,78 @@ export function runPreFlightSanityCheck() {
           throw new Error('tagsToRemove debe purgar sin-telefono y compro');
         }
       }
+    },
+    {
+      name: 'Regla 19: Central Guard - Bóveda Universal bloquea ruteos activos',
+      run: () => {
+        // 1. Verificar que CENTRAL existe con allowActiveRouting = false
+        const centralSede = SEDES_GATEWAY.CENTRAL;
+        if (!centralSede) {
+          throw new Error('SEDES_GATEWAY.CENTRAL no existe');
+        }
+        if (centralSede.allowActiveRouting !== false) {
+          throw new Error(`CENTRAL debe tener allowActiveRouting === false, recibido: ${centralSede.allowActiveRouting}`);
+        }
+        if (centralSede.isUniversalCentral !== true) {
+          throw new Error(`CENTRAL debe tener isUniversalCentral === true, recibido: ${centralSede.isUniversalCentral}`);
+        }
+
+        // 2. Verificar que resolveSedeContext con locationId de Central retorna CENTRAL
+        const resolved = resolveSedeContext({ locationId: centralSede.ghl.locationId });
+        if (resolved.sedeId !== 'CENTRAL') {
+          throw new Error(`resolveSedeContext con locationId Central debe retornar CENTRAL, recibido: ${resolved.sedeId}`);
+        }
+        if (resolved.allowActiveRouting !== false) {
+          throw new Error('Central resuelta debe tener allowActiveRouting === false');
+        }
+
+        // 3. Verificar que Palacios NO es Central
+        const palaciosResolved = resolveSedeContext({ locationId: SEDES_GATEWAY.PALACIOS.ghl.locationId });
+        if (palaciosResolved.sedeId !== 'PALACIOS') {
+          throw new Error(`Palacios locationId debe resolver a PALACIOS, no a ${palaciosResolved.sedeId}`);
+        }
+        if (palaciosResolved.allowActiveRouting === false) {
+          throw new Error('Palacios NO debe tener allowActiveRouting === false');
+        }
+      }
+    },
+    {
+      name: 'Regla 20: VTiger Sede Resolver reconoce nueva subcuenta Palacios (5NqOaPYqWyIw2FPBfoRg)',
+      run: () => {
+        // 1. Verificar resolución por locationId de la nueva subcuenta de Palacios
+        const palacios = resolveSedeContext({ locationId: '5NqOaPYqWyIw2FPBfoRg' });
+        if (palacios.sedeId !== 'PALACIOS') {
+          throw new Error(`5NqOaPYqWyIw2FPBfoRg debe resolver a PALACIOS, recibido: ${palacios.sedeId}`);
+        }
+
+        // 2. Verificar que el legacy 400k resuelve a CENTRAL
+        const central = resolveSedeContext({ locationId: 'ATPYNnsfZ1W8sd6WgWIV' });
+        if (central.sedeId !== 'CENTRAL') {
+          throw new Error(`ATPYNnsfZ1W8sd6WgWIV debe resolver a CENTRAL, recibido: ${central.sedeId}`);
+        }
+
+        // 3. Verificar que Benavides sigue resolviendo correctamente
+        const benavides = resolveSedeContext({ locationId: 'QXcNBK6XCgpQaZ81Z8pv' });
+        if (benavides.sedeId !== 'BENAVIDES') {
+          throw new Error(`QXcNBK6XCgpQaZ81Z8pv debe resolver a BENAVIDES, recibido: ${benavides.sedeId}`);
+        }
+
+        // 4. Verificar que los usuarios de Palacios están en la nueva subcuenta
+        if (palacios.users?.ernesto?.id !== '8LuTk9jzt5BeaKLxdVru') {
+          throw new Error(`Ernesto en Palacios debe tener id 8LuTk9jzt5BeaKLxdVru, recibido: ${palacios.users?.ernesto?.id}`);
+        }
+        if (palacios.users?.ultra?.id !== 'RrzgEyi2VOKIJ7Tf54SR') {
+          throw new Error(`Ultra/Click2Ring en Palacios debe tener id RrzgEyi2VOKIJ7Tf54SR, recibido: ${palacios.users?.ultra?.id}`);
+        }
+
+        // 5. Verificar que los usuarios de Benavides tienen IDs correctos y sincronizados
+        if (benavides.users?.redes1?.id !== 'GLC6pCjW4oP76hcT9QuC') {
+          throw new Error(`REDES 1 Benavides debe tener id GLC6pCjW4oP76hcT9QuC, recibido: ${benavides.users?.redes1?.id}`);
+        }
+        if (benavides.users?.redes2?.id !== 'qicGSpBerbYnPHpXdeV2') {
+          throw new Error(`REDES 2 Benavides debe tener id qicGSpBerbYnPHpXdeV2, recibido: ${benavides.users?.redes2?.id}`);
+        }
+      }
     }
   ];
 

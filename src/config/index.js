@@ -154,15 +154,15 @@ export const PALACIOS_USERS = {
     fbPageIds: ["111906554968800"]
   },
   "redes benavides 1": {
-    id: "ihjnwtDWkH7mrJhSlYOa",
-    name: "REDES BENAVIDES BIONATURAL",
+    id: "GLC6pCjW4oP76hcT9QuC",
+    name: "REDES 1 BENAVIDES",
     email: "bionatural.benavides@gmail.com",
     pages: ["Naturales Bio Corp"],
     fbPageIds: ["510617778807469"]
   },
   "redes benavides 2": {
-    id: "7eU3NJ61WwG8Z1LFlJwZ",
-    name: "REDES BENAVIDES 2 BIONATURAL",
+    id: "qicGSpBerbYnPHpXdeV2",
+    name: "REDES 2 BENAVIDES",
     email: "bionatural.benavides.two@gmail.com",
     pages: ["Bio Natural", "BioNatural Fuerza"],
     fbPageIds: ["126154270581792", "1147742788423762"]
