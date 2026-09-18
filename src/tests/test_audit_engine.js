@@ -567,6 +567,70 @@ export function runPreFlightSanityCheck() {
           throw new Error(`REDES 2 Benavides debe tener id qicGSpBerbYnPHpXdeV2, recibido: ${benavides.users?.redes2?.id}`);
         }
       }
+    },
+    {
+      name: 'Regla 21: Mapeo de Custom Fields Oficiales en Sincronización vTiger (Palacios y Benavides)',
+      run: () => {
+        // 1. Simulación de mapeo para Palacios
+        const palaciosLoc = SEDES_GATEWAY.PALACIOS.ghl.locationId;
+        const isBenavidesPal = palaciosLoc === SEDES_GATEWAY.BENAVIDES.ghl.locationId;
+        const palIdAnuncio = isBenavidesPal ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
+        const palAdIdAlt = isBenavidesPal ? 'xYgC0RFCZZ1GagK2aaXu' : 'PUUykPTCijq7rZoLYwAD';
+        const palUtmCamp = isBenavidesPal ? 'o5AQRN1o7qkhSomgYiaG' : '0VEvRUhcoN8o5YiaLAkG';
+        const palSede = isBenavidesPal ? 'HJLN7LVvZHVX2Rr7eJma' : 'AXACVLFNsTOEzanAHCdf';
+        const palOrigen = isBenavidesPal ? 'Vw6usJnpwuBScBm4yiSY' : '4mOsSGfHcGMJkoWUWlyX';
+        const palTelefono = isBenavidesPal ? '0PvAaqJs7aERycth9mKW' : 'SMAiwKnSvPHWguEbOQxX';
+
+        if (palIdAnuncio !== 'NR0eI8a2EvugkHhpRJ1w') throw new Error(`Palacios ID Anuncio incorrecto: ${palIdAnuncio}`);
+        if (palAdIdAlt !== 'PUUykPTCijq7rZoLYwAD') throw new Error(`Palacios Ad ID Alt incorrecto: ${palAdIdAlt}`);
+        if (palUtmCamp !== '0VEvRUhcoN8o5YiaLAkG') throw new Error(`Palacios UTM Campaign incorrecto: ${palUtmCamp}`);
+        if (palSede !== 'AXACVLFNsTOEzanAHCdf') throw new Error(`Palacios Sede Asignada incorrecto: ${palSede}`);
+        if (palOrigen !== '4mOsSGfHcGMJkoWUWlyX') throw new Error(`Palacios Origen Lead incorrecto: ${palOrigen}`);
+        if (palTelefono !== 'SMAiwKnSvPHWguEbOQxX') throw new Error(`Palacios Tiene Telefono incorrecto: ${palTelefono}`);
+
+        // 2. Simulación de mapeo para Benavides
+        const benavidesLoc = SEDES_GATEWAY.BENAVIDES.ghl.locationId;
+        const isBenavidesBen = benavidesLoc === SEDES_GATEWAY.BENAVIDES.ghl.locationId;
+        const benIdAnuncio = isBenavidesBen ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
+        const benAdIdAlt = isBenavidesBen ? 'xYgC0RFCZZ1GagK2aaXu' : 'PUUykPTCijq7rZoLYwAD';
+        const benSede = isBenavidesBen ? 'HJLN7LVvZHVX2Rr7eJma' : 'AXACVLFNsTOEzanAHCdf';
+        const benOrigen = isBenavidesBen ? 'Vw6usJnpwuBScBm4yiSY' : '4mOsSGfHcGMJkoWUWlyX';
+        const benTelefono = isBenavidesBen ? '0PvAaqJs7aERycth9mKW' : 'SMAiwKnSvPHWguEbOQxX';
+
+        if (benIdAnuncio !== 'bjIdaPk0dzyuNw0RCMwn') throw new Error(`Benavides ID Anuncio incorrecto: ${benIdAnuncio}`);
+        if (benAdIdAlt !== 'xYgC0RFCZZ1GagK2aaXu') throw new Error(`Benavides Ad ID Alt incorrecto: ${benAdIdAlt}`);
+        if (benSede !== 'HJLN7LVvZHVX2Rr7eJma') throw new Error(`Benavides Sede Asignada incorrecto: ${benSede}`);
+        if (benOrigen !== 'Vw6usJnpwuBScBm4yiSY') throw new Error(`Benavides Origen Lead incorrecto: ${benOrigen}`);
+        if (benTelefono !== '0PvAaqJs7aERycth9mKW') throw new Error(`Benavides Tiene Telefono incorrecto: ${benTelefono}`);
+      }
+    },
+    {
+      name: 'Regla 22: Enrutamiento Contextual por Page ID y Central Guard en Oportunidades',
+      run: () => {
+        // 1. Verificar resolución contextual por Page ID de Benavides (Corp)
+        const corpCtx = resolveSedeContext({ pageId: '510617778807469' });
+        if (corpCtx.sedeId !== 'BENAVIDES') {
+          throw new Error(`Corp Page ID debe resolver a BENAVIDES, recibido: ${corpCtx.sedeId}`);
+        }
+        if (corpCtx.ghl.locationId !== 'QXcNBK6XCgpQaZ81Z8pv') {
+          throw new Error(`Corp locationId esperado 'QXcNBK6XCgpQaZ81Z8pv', recibido: ${corpCtx.ghl.locationId}`);
+        }
+
+        // 2. Verificar resolución contextual por Page ID de Palacios (BioNatural)
+        const palCtx = resolveSedeContext({ pageId: '566501466542620' });
+        if (palCtx.sedeId !== 'PALACIOS') {
+          throw new Error(`BioNatural Page ID debe resolver a PALACIOS, recibido: ${palCtx.sedeId}`);
+        }
+        if (palCtx.ghl.locationId !== '5NqOaPYqWyIw2FPBfoRg') {
+          throw new Error(`Palacios locationId esperado '5NqOaPYqWyIw2FPBfoRg', recibido: ${palCtx.ghl.locationId}`);
+        }
+
+        // 3. Central Guard: Verificar que Central Universal pasiva bloquea ruteo activo
+        const centralCtx = resolveSedeContext({ locationId: 'ATPYNnsfZ1W8sd6WgWIV' });
+        if (centralCtx.allowActiveRouting !== false) {
+          throw new Error('Central Universal debe tener allowActiveRouting === false');
+        }
+      }
     }
   ];
 

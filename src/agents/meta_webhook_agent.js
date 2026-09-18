@@ -95,7 +95,7 @@ export async function processMetaWebhook(payload) {
 
         // 2. Disparar el Agente 4 (Analista/Corrector) de forma asíncrona para que analice si hay un referral (Ad ID)
         // Esto libera al Agente 1 instantáneamente
-        processAdIdCorrection(event).catch(err => {
+        processAdIdCorrection(event, pageId).catch(err => {
            console.error("[Agente 4 Disparo Error]:", err);
         });
       }

@@ -1,13 +1,6 @@
-import { GHL_CONFIG } from '../config/index.js';
+import { GHL_CONFIG, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders } from '../config/index.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
-
-const HEADERS_CONTACTS = {
-  'Authorization': `Bearer ${apiKey}`,
-  'Version': '2021-07-28',
-  'Content-Type': 'application/json',
-  'Accept': 'application/json'
-};
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -34,10 +27,12 @@ async function fetchWithRetry(url, options, attempt = 1) {
 /**
  * Buscar al contacto en GHL por coincidencia de conversación reciente (Bypass de FB API)
  */
-async function findGhlContactByConversation(messageText) {
+async function findGhlContactByConversation(messageText, targetLocId, targetHeaders) {
   try {
-    const url = `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=10`;
-    const res = await fetchWithRetry(url, { headers: HEADERS_CONTACTS });
+    const locId = targetLocId || locationId;
+    const headers = targetHeaders || getGhlHeaders({ locationId: locId });
+    const url = `https://services.leadconnectorhq.com/conversations/search?locationId=${locId}&limit=10`;
+    const res = await fetchWithRetry(url, { headers });
     if (res.status !== 200) return null;
     
     const data = await res.json();
@@ -76,7 +71,7 @@ async function findGhlContactByConversation(messageText) {
  * Agente 4: Corrector de Etiquetas e IDs (Analista de Sanidad de Datos)
  * Escanea el payload en busca del referral (Ad ID) y corrige el contacto en GHL.
  */
-export async function processAdIdCorrection(event) {
+export async function processAdIdCorrection(event, pageId = '') {
   try {
     let referral = event.referral;
     if (!referral && event.message?.referral) referral = event.message.referral;
@@ -87,7 +82,17 @@ export async function processAdIdCorrection(event) {
     const adId = referral.ad_id;
     const refParam = referral.ref;
 
-    if (global.pushLiveLog) global.pushLiveLog(`🕵️ Agente 4: Escaneando origen publicitario (Ad: ${adId || 'N/A'})`);
+    // 🛡️ RESOLUCIÓN MULTI-SEDE Y CENTRAL GUARD
+    const sedeConf = resolveSedeContext({ pageId });
+    if (sedeConf && sedeConf.allowActiveRouting === false) {
+      console.log(`[Agente 4] [CENTRAL GUARD] Sede ${sedeConf.sedeId} es pasiva. Omitiendo corrección.`);
+      return;
+    }
+
+    const targetLocId = sedeConf?.ghl?.locationId || locationId;
+    const targetHeaders = getGhlHeaders({ locationId: targetLocId });
+
+    if (global.pushLiveLog) global.pushLiveLog(`🕵️ Agente 4 (${sedeConf?.sedeId || 'PALACIOS'}): Escaneando origen publicitario (Ad: ${adId || 'N/A'})`);
 
     let messageText = "";
     if (event.message && event.message.text) {
@@ -99,19 +104,22 @@ export async function processAdIdCorrection(event) {
     // Esperamos 2.5 segundos para darle ventaja a GHL de procesar el chat
     await sleep(2500);
 
-    const ghlContact = await findGhlContactByConversation(messageText);
+    const ghlContact = await findGhlContactByConversation(messageText, targetLocId, targetHeaders);
     
     if (!ghlContact) {
-      console.error(`[Agente 4] No se encontró el contacto GHL para corregir Ad ID`);
+      console.error(`[Agente 4] No se encontró el contacto GHL para corregir Ad ID en ${sedeConf?.sedeId || 'PALACIOS'}`);
       return;
     }
       
     const customFieldsToUpdate = [];
-    const ID_ANUNCIO_FIELD = '6w3yMjLgIw6npUKWIosr';
-    const TRATAMIENTO_FIELD = 'WcrrCIL4A2203kIbeFsJ';
+    const isBenavidesLoc = targetLocId === SEDES_GATEWAY.BENAVIDES.ghl.locationId;
+    const ID_ANUNCIO_FIELD = isBenavidesLoc ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
+    const AD_ID_ALT_FIELD = isBenavidesLoc ? 'xYgC0RFCZZ1GagK2aaXu' : 'PUUykPTCijq7rZoLYwAD';
+    const TRATAMIENTO_FIELD = isBenavidesLoc ? 'xqDD056VzkFTOxHniDkw' : '5Sci2WhOpJq9kZWsLTrp';
     
     if (adId) {
       customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, field_value: String(adId) });
+      customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, field_value: String(adId) });
     }
     
     if (refParam) {
@@ -132,12 +140,12 @@ export async function processAdIdCorrection(event) {
     if (customFieldsToUpdate.length > 0) {
       const updateRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${ghlContact.id}`, {
         method: 'PUT',
-        headers: HEADERS_CONTACTS,
+        headers: targetHeaders,
         body: JSON.stringify({ customFields: customFieldsToUpdate })
       });
       
       if (updateRes.status === 200) {
-        if (global.pushLiveLog) global.pushLiveLog(`✅ Agente 4: Corrección de AdID y Etiquetas aplicada para ${ghlContact.name}`);
+        if (global.pushLiveLog) global.pushLiveLog(`✅ Agente 4: Corrección de AdID y Etiquetas aplicada para ${ghlContact.name} (${sedeConf?.sedeId || 'PALACIOS'})`);
       } else {
         console.error(`[Agente 4] Error corrigiendo GHL (${updateRes.status})`);
       }

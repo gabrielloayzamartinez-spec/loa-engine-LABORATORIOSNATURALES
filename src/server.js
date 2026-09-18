@@ -1110,10 +1110,10 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     }).catch(e => console.log(`[Startup vTiger Sync]: ${e.message}`));
   }, 3000);
 
-  // Demonio de Curación Asíncrona de Fondo (Cada 5 min, en lotes seguros de 20 contactos)
-  setInterval(() => {
-    runBackgroundCuratorCycle(20).catch(err => console.error('[Background Curator Error]:', err.message));
-  }, 5 * 60 * 1000);
+  // 🛡️ REEMPLAZADO: El viejo background curator de base única ha sido reemplazado por el Curador Bi-Direccional Multi-Sede
+  // setInterval(() => {
+  //   runBackgroundCuratorCycle(20).catch(err => console.error('[Background Curator Error]:', err.message));
+  // }, 5 * 60 * 1000);
 
   // 🩺 CURADOR BI-DIRECCIONAL MULTI-SEDE:
   // 1. MODO 1: "Del Ahora en Adelante" (Forward / En Vivo) - Cada 25s cura leads y chats frescos

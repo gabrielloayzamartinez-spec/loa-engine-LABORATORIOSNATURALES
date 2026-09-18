@@ -1,5 +1,5 @@
 import { queryVTiger } from '../services/vtiger_api_service.js';
-import { GHL_CONFIG, SEDES_GATEWAY, getGhlHeaders } from '../config/index.js';
+import { GHL_CONFIG, SEDES_GATEWAY, getGhlHeaders, resolveSedeContext } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { acquireContactLock, releaseContactLock } from './chat_router_agent.js';
 import { buildSanitizedCommercialFields, evaluateCommercialTruth } from '../domain/commercial_engine.js';
@@ -44,6 +44,12 @@ async function findGhlContact(vContact) {
 
   // Si el registro no tiene sede válida reconocida, NO sincronizar para evitar filtraciones entre sedes
   if (!targetLocId) {
+    return null;
+  }
+
+  // 🛡️ CENTRAL GUARD: Nunca sincronizar hacia la bóveda Central Universal pasiva
+  const sedeContext = resolveSedeContext({ locationId: targetLocId, sede: vSede });
+  if (sedeContext && sedeContext.allowActiveRouting === false) {
     return null;
   }
 
@@ -133,14 +139,14 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
         (ghlContact?.locationId && ghlContact.locationId.includes('QXcNBK6XCgpQaZ81Z8pv'))
       );
 
-      const idAnuncioField = isBenavides ? 'bjIdaPk0dzyuNw0RCMwn' : '6w3yMjLgIw6npUKWIosr';
-      const adIdAltField = isBenavides ? 'xYgC0RFCZZ1GagK2aaXu' : 'ujLG5Ogp94WfynVubapT';
-      const utmCampaignField = isBenavides ? 'o5AQRN1o7qkhSomgYiaG' : 'KS3iYmIjVcmFJV7MIDnT';
-      const utmSourceField = isBenavides ? 'yAi98DhTmnBuHppg9Taj' : 'L3eEulpe8II7q0UAJnKZ';
-      const utmMediumField = isBenavides ? 'XwjFGpmds9nvS3e45P5c' : 'HVjiEMKYR2feXviAZ2Jd';
-      const sedeAsignadaField = isBenavides ? 'HJLN7LVvZHVX2Rr7eJma' : '7SgOMq4Aeti7gN1SqVN6';
-      const origenLeadField = isBenavides ? 'Vw6usJnpwuBScBm4yiSY' : 'cN6NrhXqMlEhyp35g7bs';
-      const tieneTelefonoField = isBenavides ? '0PvAaqJs7aERycth9mKW' : null;
+      const idAnuncioField = isBenavides ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
+      const adIdAltField = isBenavides ? 'xYgC0RFCZZ1GagK2aaXu' : 'PUUykPTCijq7rZoLYwAD';
+      const utmCampaignField = isBenavides ? 'o5AQRN1o7qkhSomgYiaG' : '0VEvRUhcoN8o5YiaLAkG';
+      const utmSourceField = isBenavides ? 'yAi98DhTmnBuHppg9Taj' : '7BnlWDntf3bYBBRJNszD';
+      const utmMediumField = isBenavides ? 'XwjFGpmds9nvS3e45P5c' : 'G7Mxwp38qS1pKcE80iOY';
+      const sedeAsignadaField = isBenavides ? 'HJLN7LVvZHVX2Rr7eJma' : 'AXACVLFNsTOEzanAHCdf';
+      const origenLeadField = isBenavides ? 'Vw6usJnpwuBScBm4yiSY' : '4mOsSGfHcGMJkoWUWlyX';
+      const tieneTelefonoField = isBenavides ? '0PvAaqJs7aERycth9mKW' : 'SMAiwKnSvPHWguEbOQxX';
 
       if (vContact.cf_2850) {
         customFieldsToUpdate.push({ id: idAnuncioField, key: 'contact.id_de_anuncio', field_value: String(vContact.cf_2850).trim() });

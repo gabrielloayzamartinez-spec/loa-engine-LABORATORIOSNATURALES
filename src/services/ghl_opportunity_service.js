@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { GHL_CONFIG, getGhlHeaders } from '../config/index.js';
+import { GHL_CONFIG, getGhlHeaders, resolveSedeContext } from '../config/index.js';
 import { tokenBucketQueue } from './token_bucket_queue.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
@@ -80,6 +80,14 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
   }
 
   const targetLocId = options.locationId || locationId;
+
+  // 🛡️ CENTRAL GUARD: La Bóveda Central Universal no admite creación ni alteración de oportunidades
+  const sedeContext = resolveSedeContext({ locationId: targetLocId, sede: options.sede });
+  if (sedeContext && sedeContext.allowActiveRouting === false) {
+    console.log(`[Pipeline] [CENTRAL GUARD] Ubicación ${targetLocId} (${sedeContext.name}) es Central Universal pasiva. Omitiendo oportunidad.`);
+    return;
+  }
+
   const targetHeaders = options.headers || getGhlHeaders({ locationId: targetLocId, sede: options.sede });
 
   const isBenavides = targetLocId === 'QXcNBK6XCgpQaZ81Z8pv' || options.sede?.toUpperCase() === 'BENAVIDES';
