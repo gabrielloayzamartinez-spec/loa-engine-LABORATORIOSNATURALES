@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { GHL_CONFIG, getGhlHeaders, resolveSedeContext } from '../config/index.js';
+import { GHL_CONFIG, getGhlHeaders, resolveSedeContext, resolveSedePipeline } from '../config/index.js';
 import { tokenBucketQueue } from './token_bucket_queue.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
@@ -73,12 +73,6 @@ export async function findContactOpportunities(contactId, options = {}) {
  * Si isWon = false y es nuevo, lo mete a Prospecto Inicial.
  */
 export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0, assignedTo = null, options = {}) {
-  const cache = loadPipelineCache();
-  if (!cache || !cache.unified) {
-    console.error("[WARN] Pipeline unificado no encontrado en caché. Ejecuta pipeline_manager.js primero.");
-    return;
-  }
-
   const targetLocId = options.locationId || locationId;
 
   // 🛡️ CENTRAL GUARD: La Bóveda Central Universal no admite creación ni alteración de oportunidades
@@ -89,17 +83,24 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
   }
 
   const targetHeaders = options.headers || getGhlHeaders({ locationId: targetLocId, sede: options.sede });
+  const sedePipeline = resolveSedePipeline({ locationId: targetLocId, sede: options.sede });
 
+  const cache = loadPipelineCache();
   const isBenavides = targetLocId === 'QXcNBK6XCgpQaZ81Z8pv' || options.sede?.toUpperCase() === 'BENAVIDES';
-  const pipeConf = (isBenavides && cache.benavides) ? cache.benavides : cache.unified;
+  const pipeConf = (isBenavides && cache?.benavides) ? cache.benavides : (cache?.unified || {});
 
-  const unifiedPipelineId = pipeConf.pipelineId || 'TetMBFc4R1p4cpNhRr2L';
+  const unifiedPipelineId = sedePipeline?.id || pipeConf.pipelineId;
+  if (!unifiedPipelineId) {
+    console.error("[WARN] Pipeline unificado no encontrado para la ubicación:", targetLocId);
+    return;
+  }
+
   const stages = pipeConf.stages || [];
-  const stageProspectoId = stages[0]?.id || pipeConf.stageProspectoInicialId || '6c38e349-79d6-4ee4-be81-e16112f3c279';
-  const stageCapturadoId = stages[1]?.id || pipeConf.stageContactoCapturadoId || '0da5ba47-8747-4edd-a271-2f927ccc3937';
-  const stageSeguimientoId = stages[2]?.id || pipeConf.stageSeguimientoId || '5ce95579-c5b3-4b36-a963-9936ee5ae996';
-  const stageGanadoId = stages[3]?.id || pipeConf.stageGanadoId || '3174c6f7-397e-42de-9ee7-780053c3920a';
-  const stagePerdidoId = stages[4]?.id || pipeConf.stagePerdidoId || 'c35c57b1-a17c-432d-aa17-e1da89beb012';
+  const stageProspectoId = sedePipeline?.stages?.prospectoInicial || stages[0]?.id || pipeConf.stageProspectoInicialId;
+  const stageCapturadoId = sedePipeline?.stages?.contactoCapturado || stages[1]?.id || pipeConf.stageContactoCapturadoId;
+  const stageSeguimientoId = sedePipeline?.stages?.seguimiento || stages[2]?.id || pipeConf.stageSeguimientoId;
+  const stageGanadoId = sedePipeline?.stages?.ganado || stages[3]?.id || pipeConf.stageGanadoId;
+  const stagePerdidoId = sedePipeline?.stages?.perdido || stages[4]?.id || pipeConf.stagePerdidoId;
 
   // Orden jerárquico de etapas (de menor a mayor avance)
   // Solo se puede AVANZAR, nunca retroceder.

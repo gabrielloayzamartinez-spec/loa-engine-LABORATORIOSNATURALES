@@ -1,35 +1,33 @@
-/**
- * LOA ENGINE - DOMAIN SERVICE: COMMERCIAL STATUS ENGINE
- * 
- * Centraliza la única fuente de la verdad para el estado comercial de contactos.
- * Garantiza que prospectos sin compras en vTiger nunca tengan fechas de compra falsas,
- * y que clientes reales convertidos mantengan su historial de facturación íntegro.
- */
+import { resolveSedeCustomFields, resolveSedeContext } from '../config/index.js';
 
-export const COMMERCIAL_FIELD_IDS = {
-  ESTADO_COMERCIAL: 'NQGDs2mWeIjH3iGhSK9u', // contact.vtiger_estado_comercial
-  STATUS_CONTACTO: 'G0E9a8RExcUgFbqJO2gF',  // contact.vtiger_status_del_contacto
-  FECHA_ASIGNACION: '0FZcDJLkOPhcpqHAsEdF', // contact.fecha_ultima_asignacion
-  FECHA_COMPRA: 'sil3rY9lmRVfCHdQ3tGP',     // contact.fecha_compra
-  FECHA_PRIMERA_COMPRA: 'RqSVtgzyVBZPUB2cXrJk', // contact.vtiger_fecha_primera_compra
-  FECHA_ULTIMA_COMPRA: 'zfamE9R79cBBBN1G5Skq',  // contact.vtiger_fecha_ultima_compra
-  FECHA_ULTIMA_FACTURA: 'heHOec7RMVJ9MRFJ1Z9H', // contact.vtiger_fecha_ultima_factura
-  PRECIO_VENTA: 'FJvzBM7KriNIBgA8zvqS',     // contact.precio_venta
-  NUM_COMPRAS: 'fy6i5hdHG21jYFlUVWtL',      // contact.vtiger_total_compras
-  ESTADO_COMPRA_LISTA: 'mX7qu8FLS7Qv1BuLKlhb', // contact.estado_de_compra
-  
-  // Nuevos Campos Extendidos
-  SEDE_TIENDA_COMPRA: 'aE5sCUO8LH7TZD961J17',  // vTiger Sede / Tienda Compra (cf_3451)
-  ANOTACIONES_REDES: 'rmr5DruA5Jxh7ENERilB',   // vTiger Anotaciones Redes (cf_2471)
-  CANAL_CAPTACION: 'vl6ca0ODB0VILwMnfPqn',     // vTiger Canal Captacion (cf_3507)
-  CONTACT_NO: 'FjldqW9y3ZVbZU02D6Yb',          // vTiger Contact No (contact_no)
-  FECHA_CREACION_VT: '0FZcDJLkOPhcpqHAsEdF',   // vTiger Fecha Creacion
-  ID_CLIENTE_VT: 'M734HXzYwihdi01GhBwO',       // vTiger ID Cliente (id)
-  TIENE_TELEFONO: 'SMAiwKnSvPHWguEbOQxX',      // contact.tiene_telfono
-  SEDE_ASIGNADA: 'AXACVLFNsTOEzanAHCdf',       // contact.sede_asignada
-  ORIGEN_LEAD: '4mOsSGfHcGMJkoWUWlyX',         // contact.origen_lead
-  HISTORIAL_COMPLETO: 'T3jzpe1j65tDGXLfQNrM'   // contact.vtiger_historial_completo
-};
+export function getCommercialFieldIdsForSede({ locationId = '', sede = '' } = {}) {
+  const cf = resolveSedeCustomFields({ locationId, sede });
+  return {
+    ESTADO_COMERCIAL: cf.estadoComercial,
+    STATUS_CONTACTO: cf.statusContacto,
+    FECHA_ASIGNACION: cf.fechaAsignacion,
+    FECHA_COMPRA: cf.fechaCompra,
+    FECHA_PRIMERA_COMPRA: cf.fechaPrimeraCompra,
+    FECHA_ULTIMA_COMPRA: cf.fechaUltimaCompra,
+    FECHA_ULTIMA_FACTURA: cf.fechaUltimaFactura,
+    PRECIO_VENTA: cf.precioVenta,
+    NUM_COMPRAS: cf.numCompras,
+    ESTADO_COMPRA_LISTA: cf.estadoCompraLista,
+    SEDE_TIENDA_COMPRA: cf.sedeTiendaCompra,
+    ANOTACIONES_REDES: cf.anotacionesRedes,
+    CANAL_CAPTACION: cf.canalCaptacion,
+    CONTACT_NO: cf.contactNo,
+    FECHA_CREACION_VT: (sede === 'BENAVIDES' || (locationId && locationId.includes('QXcNBK6XCgpQaZ81Z8pv'))) ? cf.ultimaInteraccion : cf.fechaAsignacion,
+    ID_CLIENTE_VT: cf.idCliente,
+    TIENE_TELEFONO: cf.tieneTelefono,
+    SEDE_ASIGNADA: cf.sedeAsignada,
+    ORIGEN_LEAD: cf.origenLead,
+    HISTORIAL_COMPLETO: cf.historialCompleto
+  };
+}
+
+export const COMMERCIAL_FIELD_IDS = getCommercialFieldIdsForSede({ sede: 'PALACIOS' });
+export const COMMERCIAL_FIELD_IDS_BENAVIDES = getCommercialFieldIdsForSede({ sede: 'BENAVIDES' });
 
 /**
  * Evalúa la verdad comercial de un contacto contrastando vTiger CRM y GoHighLevel.
@@ -81,32 +79,10 @@ export function evaluateCommercialTruth(ghlContact = {}, vContact = null) {
  * @param {Object|null} vContact 
  * @returns {Array<Object>} Lista de campos con { id, key, field_value }
  */
-export const COMMERCIAL_FIELD_IDS_BENAVIDES = {
-  ESTADO_COMERCIAL: 'FZTDnqeUyPaRHORQtpEc', // contact.vtiger_estado_comercial
-  STATUS_CONTACTO: 'BcIQ4ABU1Z98P4QNqWuA',  // contact.vtiger_status_del_contacto
-  FECHA_ASIGNACION: 'tODtNHiDxM2bhGHMUfwI', // contact.fecha_ultima_asignacion
-  FECHA_COMPRA: 'DBu8OOmAavc1LXWtyAx2',     // contact.fecha_compra
-  FECHA_PRIMERA_COMPRA: 'bZIdwWfU8WKD7Hz3pnqn', // contact.vtiger_fecha_primera_compra
-  FECHA_ULTIMA_COMPRA: 'gTpgIitRchybSigsJtwv',  // contact.vtiger_fecha_ltima_compra
-  FECHA_ULTIMA_FACTURA: 'YjxZgQh97PoX8vrud6l3', // contact.vtiger_fecha_ultima_factura
-  PRECIO_VENTA: 'rfxEsUUqXIbq3i0vki3q',     // contact.precio_venta
-  NUM_COMPRAS: '43IIRmrsIAyvrXOCvJwe',      // contact.vtiger_total_compras
-  ESTADO_COMPRA_LISTA: 'aG6nDjQKvXob6apsWaB2', // contact.estado_de_compra
-  SEDE_TIENDA_COMPRA: 'W12pi3cD5ZbY8R2NqlwL',  // contact.vtiger_sede__tienda_compra
-  ANOTACIONES_REDES: 'Jun1LzYK7Y11yhCD6Ift',   // contact.vtiger_anotaciones_redes
-  CANAL_CAPTACION: 'vsq2yFqYfKgcqaHu5bwi',     // contact.vtiger_canal_captacion
-  CONTACT_NO: 'qwtO252zF8ZPnsfuyrE9',          // contact.vtiger_contact_no
-  FECHA_CREACION_VT: 'V9bkHHckMsmeC698i1kr',   // contact.ultima_interaccion
-  ID_CLIENTE_VT: 'wbI32mOZbUg2Mmd9RihL',        // contact.vtiger_id_cliente
-  TIENE_TELEFONO: '0PvAaqJs7aERycth9mKW',      // contact.tiene_telfono
-  SEDE_ASIGNADA: 'HJLN7LVvZHVX2Rr7eJma',       // contact.sede_asignada
-  ORIGEN_LEAD: 'Vw6usJnpwuBScBm4yiSY',         // contact.origen_lead
-  HISTORIAL_COMPLETO: 'cZZF2iWCedZpfD8kqR16'   // contact.vtiger_historial_completo
-};
-
 export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null, locationId = null) {
+  const targetLoc = locationId || ghlContact?.locationId || '';
   const isBenavides = Boolean(
-    (locationId && locationId.includes('QXcNBK6XCgpQaZ81Z8pv')) ||
+    (targetLoc && targetLoc.includes('QXcNBK6XCgpQaZ81Z8pv')) ||
     (ghlContact?.locationId && ghlContact.locationId.includes('QXcNBK6XCgpQaZ81Z8pv'))
   );
   const expectedSede = isBenavides ? 'BENAVIDES' : 'PALACIOS';
@@ -123,7 +99,7 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
 
   const truth = evaluateCommercialTruth(ghlContact, validVContact);
   const fields = [];
-  const fieldIds = isBenavides ? COMMERCIAL_FIELD_IDS_BENAVIDES : COMMERCIAL_FIELD_IDS;
+  const fieldIds = getCommercialFieldIdsForSede({ locationId: targetLoc, sede: expectedSede });
 
   // Estado comercial y estatus del contacto
   if (fieldIds.ESTADO_COMERCIAL) {

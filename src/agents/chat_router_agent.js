@@ -1,4 +1,4 @@
-import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders } from '../config/index.js';
+import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
@@ -156,7 +156,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
   try {
     console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive}, DryRun: ${isDryRun})`);
 
-    let activeLocationId = options.locationId || locationId;
+    let activeLocationId = options.locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId;
     let activeHeaders = options.headers || getGhlHeaders({ locationId: activeLocationId, sede: options.sede });
 
     // 🛡️ CENTRAL GUARD: La cuenta Central Universal se mantiene conectada para referencia/bóveda pero SIN ruteos activos
@@ -170,7 +170,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: activeHeaders }, 1, isLive);
 
     if (contactRes.status === 403 || contactRes.status === 404) {
-      const altLocId = activeLocationId === locationId ? SEDES_GATEWAY.BENAVIDES.ghl.locationId : locationId;
+      const altLocId = activeLocationId === SEDES_GATEWAY.PALACIOS.ghl.locationId ? SEDES_GATEWAY.BENAVIDES.ghl.locationId : SEDES_GATEWAY.PALACIOS.ghl.locationId;
       const altHeaders = getGhlHeaders({ locationId: altLocId });
       const altRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: altHeaders }, 1, isLive);
       if (altRes.status === 200) {
@@ -388,21 +388,21 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // Custom Field IDs Oficiales Dinámicos por Subcuenta
-    const isBenavidesLoc = activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId;
-    const ID_ANUNCIO_FIELD = isBenavidesLoc ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
-    const AD_ID_ALT_FIELD = isBenavidesLoc ? 'xYgC0RFCZZ1GagK2aaXu' : 'PUUykPTCijq7rZoLYwAD';
-    const TRATAMIENTO_FIELD = isBenavidesLoc ? 'xqDD056VzkFTOxHniDkw' : '5Sci2WhOpJq9kZWsLTrp';
-    const VTIGER_NOTAS_FIELD = isBenavidesLoc ? 'cZZF2iWCedZpfD8kqR16' : 'T3jzpe1j65tDGXLfQNrM';
-    const UTM_SOURCE_FIELD = isBenavidesLoc ? 'yAi98DhTmnBuHppg9Taj' : '7BnlWDntf3bYBBRJNszD';
-    const UTM_MEDIUM_FIELD = isBenavidesLoc ? 'XwjFGpmds9nvS3e45P5c' : 'G7Mxwp38qS1pKcE80iOY';
-    const UTM_CAMPAIGN_FIELD = isBenavidesLoc ? 'o5AQRN1o7qkhSomgYiaG' : '0VEvRUhcoN8o5YiaLAkG';
-    const UTM_CONTENT_FIELD = isBenavidesLoc ? 'a8zymCz1usSfr8kxiNYq' : 'RV3opVc8o1I7rCnQZnhS';
-    const UTM_TERM_FIELD = isBenavidesLoc ? 'tWGsiDXWU8EXNHGNT1po' : 'Mwi6muWBiOMnM6m9FMdZ';
-    const ADSET_ID_FIELD = isBenavidesLoc ? 'PS7wvoCZg8bslRRjoZCr' : 'jmH0CYynvNBMOxKfBbsN';
-    const SEDE_ASIGNADA_FIELD = isBenavidesLoc ? 'HJLN7LVvZHVX2Rr7eJma' : 'AXACVLFNsTOEzanAHCdf';
-    const ORIGEN_LEAD_FIELD = isBenavidesLoc ? 'Vw6usJnpwuBScBm4yiSY' : '4mOsSGfHcGMJkoWUWlyX';
-    const TIENE_TELEFONO_FIELD = isBenavidesLoc ? '0PvAaqJs7aERycth9mKW' : 'SMAiwKnSvPHWguEbOQxX';
-    const ULTIMA_INTERACCION_FIELD = isBenavidesLoc ? 'V9bkHHckMsmeC698i1kr' : 'qX4hJ8L9ul3tXFsBdp6m';
+    const sedeFields = resolveSedeCustomFields({ locationId: activeLocationId });
+    const ID_ANUNCIO_FIELD = sedeFields.idAnuncio;
+    const AD_ID_ALT_FIELD = sedeFields.adIdAlt;
+    const TRATAMIENTO_FIELD = sedeFields.tratamientoComprado;
+    const VTIGER_NOTAS_FIELD = sedeFields.historialCompleto;
+    const UTM_SOURCE_FIELD = sedeFields.utmSource;
+    const UTM_MEDIUM_FIELD = sedeFields.utmMedium;
+    const UTM_CAMPAIGN_FIELD = sedeFields.utmCampaign;
+    const UTM_CONTENT_FIELD = sedeFields.utmContent;
+    const UTM_TERM_FIELD = sedeFields.utmTerm;
+    const ADSET_ID_FIELD = sedeFields.adsetId;
+    const SEDE_ASIGNADA_FIELD = sedeFields.sedeAsignada;
+    const ORIGEN_LEAD_FIELD = sedeFields.origenLead;
+    const TIENE_TELEFONO_FIELD = sedeFields.tieneTelefono;
+    const ULTIMA_INTERACCION_FIELD = sedeFields.ultimaInteraccion;
 
     const existingCustomFields = contact.customFields || [];
     const rawCurrentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
@@ -911,25 +911,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     const CRITICAL_CF_IDS = [
-      ID_ANUNCIO_FIELD, AD_ID_ALT_FIELD, TRATAMIENTO_FIELD, VTIGER_NOTAS_FIELD,
-      UTM_SOURCE_FIELD, UTM_MEDIUM_FIELD, UTM_CAMPAIGN_FIELD, UTM_CONTENT_FIELD,
-      SEDE_ASIGNADA_FIELD, ORIGEN_LEAD_FIELD, TIENE_TELEFONO_FIELD, ULTIMA_INTERACCION_FIELD,
-      UTM_TERM_FIELD, ADSET_ID_FIELD,
-      // Palacios (Nueva Subcuenta)
-      'NQGDs2mWeIjH3iGhSK9u', 'G0E9a8RExcUgFbqJO2gF', '0FZcDJLkOPhcpqHAsEdF',
-      'sil3rY9lmRVfCHdQ3tGP', 'FJvzBM7KriNIBgA8zvqS', 'mX7qu8FLS7Qv1BuLKlhb',
-      'AXACVLFNsTOEzanAHCdf', '4mOsSGfHcGMJkoWUWlyX', 'Mwi6muWBiOMnM6m9FMdZ',
-      'jmH0CYynvNBMOxKfBbsN', 'qX4hJ8L9ul3tXFsBdp6m',
+      ...Object.values(sedeFields),
       // Palacios (Legacy Fallback)
       '8EQtKkiW7Z022bcN0vhS', '5TY5AIOpu1c8f6WosyF2', 'RLxFOTXkICXLWShjaLaB',
       'GZKRu2z1Z156lRUfyrpo', '5js0Lfbh5XDLq87SDgdT', 'jfaxRCXTLZQCuzsTl49v',
       '7SgOMq4Aeti7gN1SqVN6', 'cN6NrhXqMlEhyp35g7bs', 'Wh4IIv4TEbxJaZBi95cp',
-      'XTGicfQtDwBrlr2qPKxF', 'Yd0Ix40PYOcZQn6TokaX',
-      // Benavides
-      'FZTDnqeUyPaRHORQtpEc', 'aG6nDjQKvXob6apsWaB2', 'rfxEsUUqXIbq3i0vki3q',
-      '43IIRmrsIAyvrXOCvJwe', 'HJLN7LVvZHVX2Rr7eJma', 'gTpgIitRchybSigsJtwv',
-      'Vw6usJnpwuBScBm4yiSY', 'eBE29SIhviHr2yDJT1Y6', 'V9bkHHckMsmeC698i1kr',
-      '0PvAaqJs7aERycth9mKW'
+      'XTGicfQtDwBrlr2qPKxF', 'Yd0Ix40PYOcZQn6TokaX'
     ].filter(Boolean);
     const hasCFChanges = customFieldsToUpdate.some(cf => {
       if (!CRITICAL_CF_IDS.includes(cf.id)) return false;

@@ -10,7 +10,7 @@
 import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, extractShippingData, isValidMetaAdId } from '../agents/nlp_symptom_engine.js';
 import { buildAdHistoryNoteBody } from '../agents/chat_router_agent.js';
 import { learningBrain } from '../services/learning_brain.js';
-import { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede } from '../config/index.js';
+import { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede, getActiveSedes, resolveSedeCustomFields, resolveSedePipeline } from '../config/index.js';
 
 export function runPreFlightSanityCheck() {
   const tests = [
@@ -630,6 +630,62 @@ export function runPreFlightSanityCheck() {
         if (centralCtx.allowActiveRouting !== false) {
           throw new Error('Central Universal debe tener allowActiveRouting === false');
         }
+      }
+    },
+    {
+      name: 'Regla 23: Arquitectura Pulpo - Descriptores de Sede, Pipelines y Custom Fields 1:1',
+      run: () => {
+        // 1. Sedes Activas
+        const activeSedes = getActiveSedes();
+        const activeIds = activeSedes.map(s => s.sedeId);
+        if (!activeIds.includes('PALACIOS') || !activeIds.includes('BENAVIDES')) {
+          throw new Error(`getActiveSedes debe incluir PALACIOS y BENAVIDES, recibido: ${activeIds.join(', ')}`);
+        }
+        if (activeIds.includes('ROOSEVELT') || activeIds.includes('PIURA') || activeIds.includes('CENTRAL')) {
+          throw new Error(`Sedes en standby o Central no deben estar activas, recibido: ${activeIds.join(', ')}`);
+        }
+
+        // 2. Pipelines y Stages Oficiales
+        const palPipeline = resolveSedePipeline({ sede: 'PALACIOS' });
+        if (palPipeline.id !== 'YCZePq7oBz7XREDAPtsj') {
+          throw new Error(`Pipeline Palacios incorrecto: ${palPipeline.id}`);
+        }
+        if (!palPipeline.stages?.prospectoInicial || !palPipeline.stages?.ganado) {
+          throw new Error('Stages de Palacios incompletos');
+        }
+
+        const benPipeline = resolveSedePipeline({ locationId: 'QXcNBK6XCgpQaZ81Z8pv' });
+        if (benPipeline.id !== 'Dv8kOeJvsMs9WMyTJAfD') {
+          throw new Error(`Pipeline Benavides incorrecto: ${benPipeline.id}`);
+        }
+        if (!benPipeline.stages?.prospectoInicial || !benPipeline.stages?.ganado) {
+          throw new Error('Stages de Benavides incompletos');
+        }
+
+        // 3. Simetría 1:1 de 29 Custom Fields
+        const palFields = resolveSedeCustomFields({ sede: 'PALACIOS' });
+        const benFields = resolveSedeCustomFields({ locationId: 'QXcNBK6XCgpQaZ81Z8pv' });
+
+        const palKeys = Object.keys(palFields).sort();
+        const benKeys = Object.keys(benFields).sort();
+
+        if (palKeys.length !== 29) {
+          throw new Error(`Palacios debe tener exactamente 29 custom fields, tiene: ${palKeys.length}`);
+        }
+        if (benKeys.length !== 29) {
+          throw new Error(`Benavides debe tener exactamente 29 custom fields, tiene: ${benKeys.length}`);
+        }
+        if (palKeys.join(',') !== benKeys.join(',')) {
+          throw new Error('Asimetría detectada en las llaves de custom fields entre Palacios y Benavides');
+        }
+
+        // 4. Verificación de IDs oficiales clave
+        if (palFields.idAnuncio !== 'NR0eI8a2EvugkHhpRJ1w') throw new Error('Palacios idAnuncio mismatch');
+        if (benFields.idAnuncio !== 'bjIdaPk0dzyuNw0RCMwn') throw new Error('Benavides idAnuncio mismatch');
+        if (palFields.tratamientoComprado !== '5Sci2WhOpJq9kZWsLTrp') throw new Error('Palacios tratamientoComprado mismatch');
+        if (benFields.tratamientoComprado !== 'xqDD056VzkFTOxHniDkw') throw new Error('Benavides tratamientoComprado mismatch');
+        if (palFields.historialCompleto !== 'T3jzpe1j65tDGXLfQNrM') throw new Error('Palacios historialCompleto mismatch');
+        if (benFields.historialCompleto !== 'cZZF2iWCedZpfD8kqR16') throw new Error('Benavides historialCompleto mismatch');
       }
     }
   ];

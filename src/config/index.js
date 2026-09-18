@@ -196,5 +196,5 @@ Object.defineProperty(PALACIOS_USERS, 'ultra', {
 // ==========================================
 // 6. GATEWAY MULTI-SEDE ORCHESTRATOR
 // ==========================================
-export { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede } from './sedes_gateway.js';
+export { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede, getActiveSedes, resolveSedeCustomFields, resolveSedePipeline } from './sedes_gateway.js';
 

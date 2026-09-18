@@ -20,6 +20,7 @@ export const SEDES_GATEWAY = {
     sedeId: 'PALACIOS',
     name: 'Laboratorios Naturales - Sede Palacios',
     vtigerSedeName: 'PALACIOS',
+    isActive: true,
     ghl: {
       apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY || 'pit-8148816f-fe78-4db8-9b5c-7c6713284b0e',
       locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || '5NqOaPYqWyIw2FPBfoRg'
@@ -37,6 +38,47 @@ export const SEDES_GATEWAY = {
       '718150351371765', // Laboratorios Naturales BIO
       '111906554968800'  // BioNatural - Ultra
     ],
+    pipeline: {
+      id: 'YCZePq7oBz7XREDAPtsj', // 🚀 Embudo Comercial (Redes - Palacios)
+      stages: {
+        prospectoInicial: '46b85935-c0cc-454c-9c09-9740d8c8f30a',
+        contactoCapturado: '43b410a2-cb31-492c-bbe7-9e40c9251884',
+        seguimiento: 'e574b419-25cb-40fc-9a93-75b3f4502d52',
+        ganado: '5b0ca386-1c01-45ec-a531-6e235c0d8305',
+        perdido: 'c19ea2ef-2c74-4779-941b-6405ba21ff48'
+      }
+    },
+    customFields: {
+      idAnuncio: 'NR0eI8a2EvugkHhpRJ1w',
+      adIdAlt: 'PUUykPTCijq7rZoLYwAD',
+      tratamientoComprado: '5Sci2WhOpJq9kZWsLTrp',
+      utmCampaign: '0VEvRUhcoN8o5YiaLAkG',
+      utmSource: '7BnlWDntf3bYBBRJNszD',
+      utmMedium: 'G7Mxwp38qS1pKcE80iOY',
+      utmContent: 'RV3opVc8o1I7rCnQZnhS',
+      utmTerm: 'Mwi6muWBiOMnM6m9FMdZ',
+      adsetId: 'jmH0CYynvNBMOxKfBbsN',
+      sedeAsignada: 'AXACVLFNsTOEzanAHCdf',
+      origenLead: '4mOsSGfHcGMJkoWUWlyX',
+      tieneTelefono: 'SMAiwKnSvPHWguEbOQxX',
+      ultimaInteraccion: 'qX4hJ8L9ul3tXFsBdp6m',
+      estadoComercial: 'NQGDs2mWeIjH3iGhSK9u',
+      statusContacto: 'G0E9a8RExcUgFbqJO2gF',
+      fechaAsignacion: '0FZcDJLkOPhcpqHAsEdF',
+      fechaCompra: 'sil3rY9lmRVfCHdQ3tGP',
+      fechaPrimeraCompra: 'RqSVtgzyVBZPUB2cXrJk',
+      fechaUltimaCompra: 'zfamE9R79cBBBN1G5Skq',
+      fechaUltimaFactura: 'heHOec7RMVJ9MRFJ1Z9H',
+      precioVenta: 'FJvzBM7KriNIBgA8zvqS',
+      numCompras: 'fy6i5hdHG21jYFlUVWtL',
+      estadoCompraLista: 'mX7qu8FLS7Qv1BuLKlhb',
+      sedeTiendaCompra: 'aE5sCUO8LH7TZD961J17',
+      anotacionesRedes: 'rmr5DruA5Jxh7ENERilB',
+      canalCaptacion: 'vl6ca0ODB0VILwMnfPqn',
+      contactNo: 'FjldqW9y3ZVbZU02D6Yb',
+      idCliente: 'M734HXzYwihdi01GhBwO',
+      historialCompleto: 'T3jzpe1j65tDGXLfQNrM'
+    },
     users: {
       ernesto: {
         id: '8LuTk9jzt5BeaKLxdVru',
@@ -63,6 +105,7 @@ export const SEDES_GATEWAY = {
     sedeId: 'BENAVIDES',
     name: 'Laboratorios Naturales - Sede Benavides',
     vtigerSedeName: 'BENAVIDES',
+    isActive: true,
     ghl: {
       apiKey: process.env.GHL_API_KEY_BENAVIDES || '',
       locationId: process.env.GHL_LOCATION_ID_BENAVIDES || 'QXcNBK6XCgpQaZ81Z8pv'
@@ -80,6 +123,47 @@ export const SEDES_GATEWAY = {
       '510617778807469',  // Naturales Bio Corp (Ernesto)
       '1147742788423762'  // BioNatural Fuerza (InHouse)
     ],
+    pipeline: {
+      id: 'Dv8kOeJvsMs9WMyTJAfD', // 🚀 Embudo Comercial (Redes - Benavides)
+      stages: {
+        prospectoInicial: 'e93516ad-bbac-48cf-9f31-6d4aa0715e1e',
+        contactoCapturado: 'c5dfcdf8-3ab3-43d2-8c33-6f5396bbd223',
+        seguimiento: '0fc0152e-3a68-4fb4-9434-eb2d279c709e',
+        ganado: 'baf424a2-0a06-4b6f-affb-216ee1d27786',
+        perdido: '686c258d-4b5d-4b5d-ba11-e4456c995c7a'
+      }
+    },
+    customFields: {
+      idAnuncio: 'bjIdaPk0dzyuNw0RCMwn',
+      adIdAlt: 'xYgC0RFCZZ1GagK2aaXu',
+      tratamientoComprado: 'xqDD056VzkFTOxHniDkw',
+      utmCampaign: 'o5AQRN1o7qkhSomgYiaG',
+      utmSource: 'yAi98DhTmnBuHppg9Taj',
+      utmMedium: 'XwjFGpmds9nvS3e45P5c',
+      utmContent: 'a8zymCz1usSfr8kxiNYq',
+      utmTerm: 'tWGsiDXWU8EXNHGNT1po',
+      adsetId: 'PS7wvoCZg8bslRRjoZCr',
+      sedeAsignada: 'HJLN7LVvZHVX2Rr7eJma',
+      origenLead: 'Vw6usJnpwuBScBm4yiSY',
+      tieneTelefono: '0PvAaqJs7aERycth9mKW',
+      ultimaInteraccion: 'V9bkHHckMsmeC698i1kr',
+      estadoComercial: 'FZTDnqeUyPaRHORQtpEc',
+      statusContacto: 'BcIQ4ABU1Z98P4QNqWuA',
+      fechaAsignacion: 'tODtNHiDxM2bhGHMUfwI',
+      fechaCompra: 'DBu8OOmAavc1LXWtyAx2',
+      fechaPrimeraCompra: 'bZIdwWfU8WKD7Hz3pnqn',
+      fechaUltimaCompra: 'gTpgIitRchybSigsJtwv',
+      fechaUltimaFactura: 'YjxZgQh97PoX8vrud6l3',
+      precioVenta: 'rfxEsUUqXIbq3i0vki3q',
+      numCompras: '43IIRmrsIAyvrXOCvJwe',
+      estadoCompraLista: 'aG6nDjQKvXob6apsWaB2',
+      sedeTiendaCompra: 'W12pi3cD5ZbY8R2NqlwL',
+      anotacionesRedes: 'Jun1LzYK7Y11yhCD6Ift',
+      canalCaptacion: 'vsq2yFqYfKgcqaHu5bwi',
+      contactNo: 'qwtO252zF8ZPnsfuyrE9',
+      idCliente: 'wbI32mOZbUg2Mmd9RihL',
+      historialCompleto: 'cZZF2iWCedZpfD8kqR16'
+    },
     users: {
       redes1: {
         id: 'GLC6pCjW4oP76hcT9QuC',
@@ -100,6 +184,9 @@ export const SEDES_GATEWAY = {
     sedeId: 'ROOSEVELT',
     name: 'Laboratorios Naturales - Sede Roosevelt',
     vtigerSedeName: 'ROOSEVELT',
+    isActive: false,
+    pipeline: null,
+    customFields: null,
     ghl: {
       apiKey: process.env.GHL_API_KEY_ROOSEVELT || '',
       locationId: process.env.GHL_LOCATION_ID_ROOSEVELT || ''
@@ -123,6 +210,9 @@ export const SEDES_GATEWAY = {
     sedeId: 'PIURA',
     name: 'Laboratorios Naturales - Sede Piura',
     vtigerSedeName: 'PIURA',
+    isActive: false,
+    pipeline: null,
+    customFields: null,
     ghl: {
       apiKey: process.env.GHL_API_KEY_PIURA || '',
       locationId: process.env.GHL_LOCATION_ID_PIURA || ''
@@ -148,6 +238,9 @@ export const SEDES_GATEWAY = {
     vtigerSedeName: 'CENTRAL',
     isUniversalCentral: true,
     allowActiveRouting: false,
+    isActive: false,
+    pipeline: null,
+    customFields: null,
     ghl: {
       apiKey: process.env.GHL_API_KEY_CENTRAL || 'pit-4d48784c-23cd-466d-a6b2-4850138e35d0',
       locationId: process.env.GHL_LOCATION_ID_CENTRAL || 'ATPYNnsfZ1W8sd6WgWIV'
@@ -217,5 +310,28 @@ export function getGhlHeaders({ locationId = '', sede = '' } = {}) {
 export function getMetaConfigBySede({ locationId = '', pageId = '', sede = '' } = {}) {
   const conf = resolveSedeContext({ locationId, pageId, sede });
   return conf.meta;
+}
+
+/**
+ * Obtiene todas las sedes activas para procesamiento de pipelines y curación
+ */
+export function getActiveSedes() {
+  return Object.values(SEDES_GATEWAY).filter(s => s.isActive && !s.isUniversalCentral);
+}
+
+/**
+ * Resuelve el mapa de Custom Field IDs oficiales de la sede
+ */
+export function resolveSedeCustomFields({ locationId = '', pageId = '', sede = '' } = {}) {
+  const conf = resolveSedeContext({ locationId, pageId, sede });
+  return conf?.customFields || SEDES_GATEWAY.PALACIOS.customFields;
+}
+
+/**
+ * Resuelve el descriptor del pipeline y stages oficiales de la sede
+ */
+export function resolveSedePipeline({ locationId = '', pageId = '', sede = '' } = {}) {
+  const conf = resolveSedeContext({ locationId, pageId, sede });
+  return conf?.pipeline || SEDES_GATEWAY.PALACIOS.pipeline;
 }
 
