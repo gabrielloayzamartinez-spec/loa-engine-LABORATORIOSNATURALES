@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, getGhlHeaders } from './config/index.js';
+import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders } from './config/index.js';
 import { ghlFetch, GHL_HEADERS, getRateLimiterStatus } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
@@ -145,59 +145,67 @@ async function runExpressAssignment() {
 
   try {
     const timeStr = new Date().toLocaleTimeString('es-PE', { hour12: false });
-    const url = `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=5&sortBy=date_updated`;
-    const res = await fetchWithRetry(url, { headers: HEADERS_CONTACTS });
-    if (res.status !== 200) {
-      console.log(`[${timeStr}] [Worker 1] Status API: ${res.status}`);
-      return;
-    }
-
-    const data = await res.json();
-    const contacts = data.contacts || [];
-
-    // Capturar también actividad reciente en conversaciones (Facebook Messenger / DM)
-    try {
-      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=5`;
-      const convRes = await fetchWithRetry(convUrl, { headers: { ...HEADERS_CONTACTS, 'Version': '2021-04-15' } });
-      if (convRes.status === 200) {
-        const convData = await convRes.json();
-        for (const cv of (convData.conversations || [])) {
-          if (cv.contactId && !contacts.some(c => c.id === cv.contactId)) {
-            contacts.push({ id: cv.contactId, dateUpdated: cv.lastMessageDate, firstName: cv.contactName || 'Lead Chat' });
-          }
-        }
-      }
-    } catch (cErr) {}
+    const targetLocations = [
+      { id: locationId, headers: HEADERS_CONTACTS, name: 'Palacios' },
+      { id: SEDES_GATEWAY.BENAVIDES.ghl.locationId, headers: getGhlHeaders({ locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId }), name: 'Benavides' }
+    ];
 
     let countNew = 0;
 
-    for (const contact of contacts) {
-      const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
-      const lastProcessedUpdate = processedContactTimestamps.get(contact.id) || 0;
-      
-      // Si ya procesamos esta actualización exacta, saltamos (previene loops infinitos)
-      if (updatedAt <= lastProcessedUpdate) continue;
-
-      const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
-      // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
-      if (hoursAgo > 24) continue;
-
-      countNew++;
-      console.log(`[${timeStr}] [Worker 1] [PROCESSING] Lead fresco: ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
-      
-      const result = await routeChatByContact(contact.id, true);
-      
-      // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
-      if (result === 'RETRY' || result === 'RETRY_INDEXING') {
-        console.log(`[${timeStr}] [Worker 1] [RETRY] Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
-      } else {
-        // Guardamos el timestamp exacto de esta actualización para no volver a procesarla hasta que el lead vuelva a hacer algo
-        processedContactTimestamps.set(contact.id, updatedAt);
-        stats.contactsProcessed++;
+    for (const loc of targetLocations) {
+      if (!loc.id) continue;
+      const url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc.id}&limit=5&sortBy=date_updated`;
+      const res = await fetchWithRetry(url, { headers: loc.headers });
+      if (res.status !== 200) {
+        console.log(`[${timeStr}] [Worker 1] Status API (${loc.name}): ${res.status}`);
+        continue;
       }
-      
-      // Rate-Limit Shield: 1500ms estrictos entre contactos
-      await sleep(1500);
+
+      const data = await res.json();
+      const contacts = data.contacts || [];
+
+      // Capturar también actividad reciente en conversaciones (Facebook Messenger / DM)
+      try {
+        const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=5`;
+        const convRes = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
+        if (convRes.status === 200) {
+          const convData = await convRes.json();
+          for (const cv of (convData.conversations || [])) {
+            if (cv.contactId && !contacts.some(c => c.id === cv.contactId)) {
+              contacts.push({ id: cv.contactId, dateUpdated: cv.lastMessageDate, firstName: cv.contactName || 'Lead Chat' });
+            }
+          }
+        }
+      } catch (cErr) {}
+
+      for (const contact of contacts) {
+        const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
+        const lastProcessedUpdate = processedContactTimestamps.get(contact.id) || 0;
+        
+        // Si ya procesamos esta actualización exacta, saltamos (previene loops infinitos)
+        if (updatedAt <= lastProcessedUpdate) continue;
+
+        const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
+        // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
+        if (hoursAgo > 24) continue;
+
+        countNew++;
+        console.log(`[${timeStr}] [Worker 1] [PROCESSING] Lead fresco (${loc.name}): ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
+        
+        const result = await routeChatByContact(contact.id, true, false, { locationId: loc.id, headers: loc.headers });
+        
+        // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
+        if (result === 'RETRY' || result === 'RETRY_INDEXING') {
+          console.log(`[${timeStr}] [Worker 1] [RETRY] Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
+        } else {
+          // Guardamos el timestamp exacto de esta actualización para no volver a procesarla hasta que el lead vuelva a hacer algo
+          processedContactTimestamps.set(contact.id, updatedAt);
+          stats.contactsProcessed++;
+        }
+        
+        // Rate-Limit Shield: 1500ms estrictos entre contactos
+        await sleep(1500);
+      }
     }
 
     if (countNew === 0) {
@@ -807,7 +815,7 @@ app.post('/webhook/ghl-contact', async (req, res) => {
     // Worker 1 / Worker 3: Ingesta Inmediata y Ruteo Inteligente
     setTimeout(async () => {
       try {
-        await routeChatByContact(contactData.id);
+        await routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId });
         if (global.pushLiveLog) global.pushLiveLog(`[WORKER] Worker 1 Webhook: Ruteado e hidratado ${contactData.id}`);
       } catch (err) {
         console.error("[Worker 1 Webhook Error]:", err.message);
@@ -829,6 +837,7 @@ app.post('/webhook/chat-router', async (req, res) => {
   try {
     const payload = req.body;
     let contactId = payload.contactId || (payload.contact && payload.contact.id);
+    const targetLoc = payload.locationId || req.query?.locationId;
     
     if (!contactId) {
       return res.status(400).send({ error: 'Falta contactId en el payload.' });
@@ -837,7 +846,7 @@ app.post('/webhook/chat-router', async (req, res) => {
     res.status(200).send({ success: true, message: 'Webhook recibido, enrutando...' });
     
     // Llamar al Agente 3 de forma asíncrona
-    await routeChatByContact(contactId);
+    await routeChatByContact(contactId, true, false, targetLoc ? { locationId: targetLoc } : {});
   } catch (error) {
     console.error("[Agente 3 Webhook Error]:", error.message);
   }

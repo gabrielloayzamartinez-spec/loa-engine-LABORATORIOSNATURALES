@@ -149,5 +149,41 @@
     "stageGanadoId": "3174c6f7-397e-42de-9ee7-780053c3920a",
     "stagePerdidoId": "c35c57b1-a17c-432d-aa17-e1da89beb012"
   },
-  "updatedAt": "2026-09-10T22:25:05.765Z"
+  "benavides": {
+    "pipelineId": "Dv8kOeJvsMs9WMyTJAfD",
+    "pipelineName": "🚀 Embudo Comercial (Redes - Benavides)",
+    "stages": [
+      {
+        "id": "e93516ad-bbac-48cf-9f31-6d4aa0715e1e",
+        "name": "💬 Prospecto Inicial (Sin Teléfono)",
+        "position": 1
+      },
+      {
+        "id": "c5dfcdf8-3ab3-43d2-8c33-6f5396bbd223",
+        "name": "📞 Contacto Capturado",
+        "position": 2
+      },
+      {
+        "id": "0fc0152e-3a68-4fb4-9434-eb2d279c709e",
+        "name": "⏳ Seguimiento / Negociación",
+        "position": 3
+      },
+      {
+        "id": "baf424a2-0a06-4b6f-affb-216ee1d27786",
+        "name": "🎉 Ganado (Compró)",
+        "position": 4
+      },
+      {
+        "id": "686c258d-4b5d-4b5d-ba11-e4456c995c7a",
+        "name": "❌ Perdido / Sin Respuesta",
+        "position": 5
+      }
+    ],
+    "stageProspectoInicialId": "e93516ad-bbac-48cf-9f31-6d4aa0715e1e",
+    "stageContactoCapturadoId": "c5dfcdf8-3ab3-43d2-8c33-6f5396bbd223",
+    "stageSeguimientoId": "0fc0152e-3a68-4fb4-9434-eb2d279c709e",
+    "stageGanadoId": "baf424a2-0a06-4b6f-affb-216ee1d27786",
+    "stagePerdidoId": "686c258d-4b5d-4b5d-ba11-e4456c995c7a"
+  },
+  "updatedAt": "2026-09-18T00:01:09.587Z"
 }

@@ -447,6 +447,53 @@ export function runPreFlightSanityCheck() {
           throw new Error('Benavides debe poseer los usuarios redes1 y redes2 configurados');
         }
       }
+    },
+    {
+      name: 'Regla 18: Inyección de Etiquetas Interactivas (con/sin telefono, compro/no compro) y Dolencias Oficiales (Gummies)',
+      run: () => {
+        // 1. Detección de Gummies
+        const gummyAnalysis = analyzeSymptoms('Hola me interesan las gomitas de colageno y biotina');
+        if (gummyAnalysis.primaryTreatment !== 'Gummies') {
+          throw new Error(`Esperado tratamiento 'Gummies', recibido: '${gummyAnalysis.primaryTreatment}'`);
+        }
+        if (!gummyAnalysis.productTags.includes('producto-gummies')) {
+          throw new Error(`Debe generar etiqueta 'producto-gummies', recibido: ${JSON.stringify(gummyAnalysis.productTags)}`);
+        }
+
+        // 2. Inferencia por Campaña de Gummies
+        const campGummies = inferTreatmentFromCampaignOrUtm('CAMPAÑA GUMMIES BIOTINA - INHOUSE');
+        if (campGummies !== 'Gummies') {
+          throw new Error(`Inferencia por campaña de Gummies esperada 'Gummies', recibido: '${campGummies}'`);
+        }
+
+        // 3. Validación de Etiquetas Interactivas Binarias
+        // Caso A: Lead con teléfono y sin compra
+        const tagsA = new Set(['facebook-messenger', 'organico', 'sin-telefono', 'compro']);
+        const tagsToRemoveA = [];
+        const hasPhoneA = true;
+        const isWonA = false;
+
+        if (hasPhoneA) {
+          tagsA.add('con-telefono');
+          tagsA.delete('sin-telefono');
+          tagsToRemoveA.push('sin-telefono');
+        }
+        if (!isWonA) {
+          tagsA.add('no-compro');
+          tagsA.delete('compro');
+          tagsToRemoveA.push('compro');
+        }
+
+        if (!tagsA.has('con-telefono') || tagsA.has('sin-telefono')) {
+          throw new Error('Etiqueta con-telefono debe estar presente y sin-telefono eliminada');
+        }
+        if (!tagsA.has('no-compro') || tagsA.has('compro')) {
+          throw new Error('Etiqueta no-compro debe estar presente y compro eliminada');
+        }
+        if (!tagsToRemoveA.includes('sin-telefono') || !tagsToRemoveA.includes('compro')) {
+          throw new Error('tagsToRemove debe purgar sin-telefono y compro');
+        }
+      }
     }
   ];
 

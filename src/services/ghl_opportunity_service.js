@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { GHL_CONFIG } from '../config/index.js';
+import { GHL_CONFIG, getGhlHeaders } from '../config/index.js';
 import { tokenBucketQueue } from './token_bucket_queue.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
@@ -52,9 +52,11 @@ async function fetchWithRetry(url, options, attempt = 1) {
 /**
  * Busca oportunidades existentes de un contacto
  */
-export async function findContactOpportunities(contactId) {
+export async function findContactOpportunities(contactId, options = {}) {
   try {
-    const res = await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/search?location_id=${locationId}&contact_id=${contactId}`, { headers: HEADERS });
+    const targetLocId = options.locationId || locationId;
+    const targetHeaders = options.headers || getGhlHeaders({ locationId: targetLocId, sede: options.sede });
+    const res = await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/search?location_id=${targetLocId}&contact_id=${contactId}`, { headers: targetHeaders });
     if (res.status === 200) {
       const data = await res.json();
       return data.opportunities || [];
@@ -70,20 +72,26 @@ export async function findContactOpportunities(contactId) {
  * Si isWon = true, lo mueve a Ganado.
  * Si isWon = false y es nuevo, lo mete a Prospecto Inicial.
  */
-export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0, assignedTo = null) {
+export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0, assignedTo = null, options = {}) {
   const cache = loadPipelineCache();
   if (!cache || !cache.unified) {
     console.error("[WARN] Pipeline unificado no encontrado en caché. Ejecuta pipeline_manager.js primero.");
     return;
   }
 
-  const unifiedPipelineId = cache.unified.pipelineId || 'TetMBFc4R1p4cpNhRr2L';
-  const stages = cache.unified.stages || [];
-  const stageProspectoId = stages[0]?.id || cache.unified.stageProspectoInicialId || '6c38e349-79d6-4ee4-be81-e16112f3c279';
-  const stageCapturadoId = stages[1]?.id || cache.unified.stageContactoCapturadoId || '0da5ba47-8747-4edd-a271-2f927ccc3937';
-  const stageSeguimientoId = stages[2]?.id || cache.unified.stageSeguimientoId || '5ce95579-c5b3-4b36-a963-9936ee5ae996';
-  const stageGanadoId = stages[3]?.id || cache.unified.stageGanadoId || '3174c6f7-397e-42de-9ee7-780053c3920a';
-  const stagePerdidoId = stages[4]?.id || cache.unified.stagePerdidoId || 'c35c57b1-a17c-432d-aa17-e1da89beb012';
+  const targetLocId = options.locationId || locationId;
+  const targetHeaders = options.headers || getGhlHeaders({ locationId: targetLocId, sede: options.sede });
+
+  const isBenavides = targetLocId === 'QXcNBK6XCgpQaZ81Z8pv' || options.sede?.toUpperCase() === 'BENAVIDES';
+  const pipeConf = (isBenavides && cache.benavides) ? cache.benavides : cache.unified;
+
+  const unifiedPipelineId = pipeConf.pipelineId || 'TetMBFc4R1p4cpNhRr2L';
+  const stages = pipeConf.stages || [];
+  const stageProspectoId = stages[0]?.id || pipeConf.stageProspectoInicialId || '6c38e349-79d6-4ee4-be81-e16112f3c279';
+  const stageCapturadoId = stages[1]?.id || pipeConf.stageContactoCapturadoId || '0da5ba47-8747-4edd-a271-2f927ccc3937';
+  const stageSeguimientoId = stages[2]?.id || pipeConf.stageSeguimientoId || '5ce95579-c5b3-4b36-a963-9936ee5ae996';
+  const stageGanadoId = stages[3]?.id || pipeConf.stageGanadoId || '3174c6f7-397e-42de-9ee7-780053c3920a';
+  const stagePerdidoId = stages[4]?.id || pipeConf.stagePerdidoId || 'c35c57b1-a17c-432d-aa17-e1da89beb012';
 
   // Orden jerárquico de etapas (de menor a mayor avance)
   // Solo se puede AVANZAR, nunca retroceder.
@@ -101,7 +109,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
   }
 
   // 1. Buscar si ya existe una oportunidad
-  const opps = await findContactOpportunities(contactId);
+  const opps = await findContactOpportunities(contactId, { locationId: targetLocId, headers: targetHeaders });
   const existingOpp = opps.find(o => o.pipelineId === unifiedPipelineId);
 
   await tokenBucketQueue.enqueue(async () => {
@@ -115,7 +123,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
           console.log(`[Pipeline] [WON] Moviendo Oportunidad de ${contactId} a GANADO (Valor: $${monetaryValue})`);
           const putWonPayload = {
             pipelineId: unifiedPipelineId,
-            locationId: locationId,
+            locationId: targetLocId,
             name: contactName || "Oportunidad Comercial",
             pipelineStageId: stageGanadoId,
             status: 'won',
@@ -126,7 +134,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
 
           await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
             method: 'PUT',
-            headers: HEADERS,
+            headers: targetHeaders,
             body: JSON.stringify(putWonPayload)
           });
         }
@@ -146,7 +154,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
         if (needsMonetaryUpdate || needsAdvisorAssign) {
           const putRankPayload = {
             pipelineId: unifiedPipelineId,
-            locationId: locationId,
+            locationId: targetLocId,
             name: contactName || existingOpp.name,
             pipelineStageId: existingOpp.pipelineStageId,
             status: existingOpp.status,
@@ -157,7 +165,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
 
           await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
             method: 'PUT',
-            headers: HEADERS,
+            headers: targetHeaders,
             body: JSON.stringify(putRankPayload)
           });
         }
@@ -168,7 +176,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       if (currentRank === 0 && (existingOpp.name !== contactName || (!existingOpp.assignedTo && assignedTo))) {
         const updateRank0Payload = {
           pipelineId: unifiedPipelineId,
-          locationId: locationId,
+          locationId: targetLocId,
           name: contactName || existingOpp.name,
           pipelineStageId: existingOpp.pipelineStageId,
           status: existingOpp.status,
@@ -179,7 +187,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
 
         await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${existingOpp.id}`, {
           method: 'PUT',
-          headers: HEADERS,
+          headers: targetHeaders,
           body: JSON.stringify(updateRank0Payload)
         });
       }
@@ -191,7 +199,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
       console.log(`[Pipeline] [OPPORTUNITY] Creando nueva Oportunidad para ${contactId} en Etapa ${isWon ? 'GANADO' : 'INICIAL'}`);
       const createPayload = {
         pipelineId: unifiedPipelineId,
-        locationId: locationId,
+        locationId: targetLocId,
         name: contactName || "Oportunidad Comercial",
         pipelineStageId: targetStageId,
         status: targetStatus,
@@ -202,7 +210,7 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
 
       await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/`, {
         method: 'POST',
-        headers: HEADERS,
+        headers: targetHeaders,
         body: JSON.stringify(createPayload)
       });
     }

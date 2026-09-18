@@ -27,7 +27,7 @@ const SYMPTOM_DICTIONARY = {
   ],
   'Potencia': [
     'potencia', 'vigor', 'ereccion', 'sexual', 'libido', 'cansancio intimo', 'rendimiento',
-    'testosterona', 'energia masculina', 'deseo sexual', 'fuerza intima', 'poder interior',
+    'testosterona', 'tetosterona', 'energia masculina', 'deseo sexual', 'fuerza intima', 'poder interior',
     'texto men', 'textomen'
   ],
   'Colageno': [
@@ -43,6 +43,9 @@ const SYMPTOM_DICTIONARY = {
   ],
   'Hongos': [
     'hongo', 'hongos', 'pie de atleta', 'onicomicosis', 'unas amarillas', 'comezon pies'
+  ],
+  'Gummies': [
+    'gummies', 'gomitas', 'gummy', 'gomita', 'gomas', 'colageno en gomitas', 'vitaminas gomitas', 'suplemento gomitas'
   ]
 };
 
@@ -73,13 +76,15 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
 
   // 2. Detección directa de títulos publicitarios ("MUESTRA GRATIS [PRODUCTO]")
   const directAdMatches = [
-    { regex: /muestra gratis potencia/i, treatment: 'Potencia' },
+    { regex: /muestra gratis potencia|muestra gratis tetosterona|muestra gratis testosterona/i, treatment: 'Potencia' },
     { regex: /muestra gratis artritis/i, treatment: 'Artritis' },
     { regex: /muestra gratis diabetes/i, treatment: 'Diabetes' },
     { regex: /muestra gratis prostata/i, treatment: 'Prostata' },
     { regex: /muestra gratis colageno/i, treatment: 'Colageno' },
     { regex: /muestra gratis vision/i, treatment: 'Vision' },
     { regex: /muestra gratis gastro/i, treatment: 'Gastro' },
+    { regex: /muestra gratis hongos/i, treatment: 'Hongos' },
+    { regex: /muestra gratis gummies|muestra gratis gomitas/i, treatment: 'Gummies' },
     { regex: /poder interior/i, treatment: 'Potencia' }
   ];
 
@@ -133,6 +138,7 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
 export function inferTreatmentFromCampaignOrUtm(text) {
   if (!text) return null;
   const norm = normalizeText(text);
+  if (/gumm(?:y|ies)|gomita|gomitas/i.test(norm)) return 'Gummies';
   if (/colageno|colagen|collagen|piel|arrugas/i.test(norm)) return 'Colageno';
   if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior|testosterona|tetosterona|texto men|textomen|testo\b/i.test(norm)) return 'Potencia';
   if (/diabetes|glucosa|azucar|nopal/i.test(norm)) return 'Diabetes';

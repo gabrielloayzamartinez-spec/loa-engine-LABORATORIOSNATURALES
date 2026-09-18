@@ -1,4 +1,4 @@
-import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext } from '../config/index.js';
+import { GHL_CONFIG, FB_PAGE_ID_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders } from '../config/index.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
@@ -77,14 +77,15 @@ export function buildAdHistoryNoteBody({
 Powered by LOA Engine - Gabriel Loayza`;
 }
 
-export async function saveAdHistoryNote(contactId, params) {
+export async function saveAdHistoryNote(contactId, params, options = {}) {
   const noteBody = buildAdHistoryNoteBody(params);
+  const targetHeaders = options.headers || getGhlHeaders({ locationId: options.locationId || locationId });
 
   try {
     const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
     await fetchWithRetry(noteUrl, {
       method: 'POST',
-      headers: HEADERS,
+      headers: targetHeaders,
       body: JSON.stringify({ body: noteBody })
     });
     console.log(`[Agente 4 Save Process] [NOTE] Nota histórica inyectada para contacto ${contactId}`);
@@ -110,7 +111,7 @@ export async function saveMudanzaHistoryNote(contactId, {
   timeDiffStr,
   isCustomerWon,
   vContact
-}) {
+}, options = {}) {
   const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
   const noteBody = `🚨 [MUDANZA DE SEDE AUTORIZADA - TIEMPO DE GRACIA EXPIRADO]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -129,11 +130,12 @@ ${vContact ? `• Historial vTiger: ID ${vContact.id} | Compras: ${vContact.spl_
 Protocolo de Exclusividad y Tiempos de Gracia
 LOA Engine - Laboratorios Naturales`;
 
+  const targetHeaders = options.headers || getGhlHeaders({ locationId: options.locationId || locationId });
   try {
     const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
     await fetchWithRetry(noteUrl, {
       method: 'POST',
-      headers: HEADERS,
+      headers: targetHeaders,
       body: JSON.stringify({ body: noteBody })
     });
     console.log(`[Agente 3] [MUDANZA-NOTE] Tarjeta de nota histórica de mudanza inyectada para contacto ${contactId}`);
@@ -188,14 +190,45 @@ export { acquireContactLock, releaseContactLock };
  * Evalúa los últimos mensajes de un contacto para enrutar el chat a la sede correcta,
  * aplicando una regla "Anti-Vivazos" (cooldown de 24 horas) para evitar rebotes entre oficinas.
  */
-export async function routeChatByContact(contactId, isLive = false, isDryRun = false) {
+export async function routeChatByContact(contactId, isLive = false, isDryRun = false, options = {}) {
   await acquireContactLock(contactId);
   try {
     console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive}, DryRun: ${isDryRun})`);
 
-    // 1. Obtener la conversación del contacto
-    const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&contactId=${contactId}`;
-    const convRes = await fetchWithRetry(convUrl, { headers: HEADERS }, 1, isLive);
+    let activeLocationId = options.locationId || locationId;
+    let activeHeaders = options.headers || getGhlHeaders({ locationId: activeLocationId, sede: options.sede });
+
+    // 1. Cargar contacto de GHL UNA SOLA VEZ con detección y fallback de subcuenta (Palacios <-> Benavides)
+    let contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: activeHeaders }, 1, isLive);
+
+    if (contactRes.status === 403 || contactRes.status === 404) {
+      const altLocId = activeLocationId === locationId ? SEDES_GATEWAY.BENAVIDES.ghl.locationId : locationId;
+      const altHeaders = getGhlHeaders({ locationId: altLocId });
+      const altRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: altHeaders }, 1, isLive);
+      if (altRes.status === 200) {
+        contactRes = altRes;
+        activeLocationId = altLocId;
+        activeHeaders = altHeaders;
+        console.log(`[Agente 3] [MULTI-SEDE] Contacto ${contactId} resuelto en subcuenta ${activeLocationId}`);
+      }
+    }
+
+    if (contactRes.status !== 200) {
+      console.log(`[Agente 3] No se pudo obtener el contacto ${contactId}. Status: ${contactRes.status}`);
+      if (contactRes.status >= 500) return 'RETRY';
+      return;
+    }
+
+    const contactData = await contactRes.json();
+    const contact = contactData.contact || contactData;
+    if (contact.locationId && contact.locationId !== activeLocationId) {
+      activeLocationId = contact.locationId;
+      activeHeaders = getGhlHeaders({ locationId: activeLocationId });
+    }
+
+    // 2. Obtener la conversación del contacto
+    const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${activeLocationId}&contactId=${contactId}`;
+    const convRes = await fetchWithRetry(convUrl, { headers: activeHeaders }, 1, isLive);
     
     if (convRes.status !== 200) {
       console.log(`[Agente 3] No se pudieron obtener las conversaciones para ${contactId}. Status: ${convRes.status}`);
@@ -221,9 +254,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Usaremos la conversación más reciente
     const convId = conversations[0].id;
 
-    // 2. Traer los últimos mensajes (pedimos unos 20 para ver el historial cercano)
-    const msgUrl = `https://services.leadconnectorhq.com/conversations/${convId}/messages?locationId=${locationId}&limit=20`;
-    const msgRes = await fetchWithRetry(msgUrl, { headers: HEADERS }, 1, isLive);
+    // 3. Traer los últimos mensajes (pedimos unos 20 para ver el historial cercano)
+    const msgUrl = `https://services.leadconnectorhq.com/conversations/${convId}/messages?locationId=${activeLocationId}&limit=20`;
+    const msgRes = await fetchWithRetry(msgUrl, { headers: activeHeaders }, 1, isLive);
     
     if (msgRes.status !== 200) {
       console.log(`[Agente 3] No se pudieron obtener los mensajes para la conv ${convId}. Status: ${msgRes.status}`);
@@ -237,7 +270,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Ordenar todos los mensajes de más reciente a más antiguo
     allMessages.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
 
-    // 3. Extraer solo los mensajes entrantes relacionados a una PageID de FB
+    // 4. Extraer solo los mensajes entrantes relacionados a una PageID de FB
     let fbMessages = [];
     for (const m of allMessages) {
       const fbMeta = m.meta?.fb || {};
@@ -276,12 +309,6 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       targetPageId = newestMsg.pageId;
       targetPageName = FB_PAGE_ID_MAP[targetPageId];
     }
-
-    // 5. Cargar contacto de GHL UNA SOLA VEZ (se reutiliza para fallback de sede y para el procesamiento completo)
-    const contactRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: HEADERS }, 1, isLive);
-    if (contactRes.status !== 200) return;
-    const contactData = await contactRes.json();
-    const contact = contactData.contact || contactData;
 
     // Fallback: Si no se determinó por mensaje de Facebook, verificar si el contacto ya tiene etiquetas de sede
     if (!targetPageName) {
@@ -534,7 +561,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
     if ((!targetVtigerNota || !targetAdId || !targetTratamiento) && fullName.length >= 3) {
       try {
-        const searchRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&query=${encodeURIComponent(fullName)}`, { headers: HEADERS }, 1, isLive);
+        const searchRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/?locationId=${activeLocationId}&query=${encodeURIComponent(fullName)}`, { headers: activeHeaders }, 1, isLive);
         if (searchRes.status === 200) {
           const sData = await searchRes.json();
           const matches = (sData.contacts || []).filter(c => c.id !== contact.id);
@@ -622,7 +649,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // 1. Definir la ÚNICA etiqueta de producto permitida (El Tratamiento Principal)
-    const ALL_PRODUCT_TAGS = ['producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 'producto-colageno', 'producto-vision', 'producto-gastro', 'producto-hongos'];
+    const ALL_PRODUCT_TAGS = [
+      'producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 
+      'producto-tetosterona', 'producto-colageno', 'producto-vision', 'producto-gastro', 
+      'producto-hongos', 'producto-gummies'
+    ];
     const activeProductTag = targetTratamiento ? `producto-${targetTratamiento.toLowerCase()}` : null;
     
     // 2. Solo añadimos LA etiqueta principal, ignorando detecciones secundarias de NLP para evitar que se disparen múltiples bots
@@ -770,6 +801,28 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.warn(`[Agente 3] [WARN] No se pudo evaluar estado comercial en vivo para ${contactId}:`, commErr.message);
     }
 
+    // 🏷️ INYECCIÓN DE ETIQUETAS ACCIONABLES (TELÉFONO & ESTADO COMERCIAL)
+    const hasPhone = Boolean(contact.phone || (shippingData && shippingData.hasPhone));
+    if (hasPhone) {
+      newTagsSet.add('con-telefono');
+      newTagsSet.delete('sin-telefono');
+      if ((contact.tags || []).includes('sin-telefono')) tagsToRemove.push('sin-telefono');
+    } else {
+      newTagsSet.add('sin-telefono');
+      newTagsSet.delete('con-telefono');
+      if ((contact.tags || []).includes('con-telefono')) tagsToRemove.push('con-telefono');
+    }
+
+    if (finalCustomerWon) {
+      newTagsSet.add('compro');
+      newTagsSet.delete('no-compro');
+      if ((contact.tags || []).includes('no-compro')) tagsToRemove.push('no-compro');
+    } else {
+      newTagsSet.add('no-compro');
+      newTagsSet.delete('compro');
+      if ((contact.tags || []).includes('compro')) tagsToRemove.push('compro');
+    }
+
     // SINCRONIZACION DE PIPELINE (Orquestacion LOA)
     try {
       const cleanSede = (targetPageName?.toLowerCase().includes('bionatural') || targetPageName?.toLowerCase().includes('palacios')) 
@@ -778,7 +831,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const campaignSnippet = (latestCampaign || targetAdName || 'Directa').substring(0, 32);
       const prodPrefix = targetTratamiento && targetTratamiento !== 'General' ? `[${targetTratamiento.toUpperCase()}] ` : '';
       const cardTitle = `${prodPrefix}${fullName} | ${cleanSede} | ${campaignSnippet}`;
-      await syncUnifiedPipelineOpportunity(contactId, cardTitle, finalCustomerWon, true, finalMonetaryValue, targetAdvisorId);
+      await syncUnifiedPipelineOpportunity(contactId, cardTitle, finalCustomerWon, true, finalMonetaryValue, targetAdvisorId, { locationId: activeLocationId, headers: activeHeaders });
     } catch (oppErr) {
       console.error(`[Agente 3] Error sincronizando pipeline para ${contactId}:`, oppErr.message);
     }
@@ -858,7 +911,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] [CLEANUP] Purgando etiquetas huérfanas de ${contactId}: ${tagsToRemove.join(', ')}`);
       await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
         method: 'DELETE',
-        headers: HEADERS,
+        headers: activeHeaders,
         body: JSON.stringify({ tags: tagsToRemove })
       }, 1, isLive);
     }
@@ -907,7 +960,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     const updateRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
       method: 'PUT',
-      headers: HEADERS,
+      headers: activeHeaders,
       body: JSON.stringify(updatePayload)
     }, 1, isLive);
 
@@ -971,7 +1024,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           isDoubleAdEntry,
           isGraceExpired: isGraceExpiredCalc,
           isMudanzaDeSede: Boolean(isMudanzaDeSede || (previousSede && currentSedeName && previousSede !== currentSedeName))
-        });
+        }, { locationId: activeLocationId, headers: activeHeaders });
       }
 
       // 📌 I. REGISTRO HISTÓRICO DE PROCEDENCIA DE MUDANZA EN TARJETA DE NOTAS
@@ -991,7 +1044,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           timeDiffStr: timeStr,
           isCustomerWon,
           vContact
-        });
+        }, { locationId: activeLocationId, headers: activeHeaders });
       }
     } else {
       const errText = await updateRes.text();
@@ -1016,7 +1069,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             // 3. Reintentar el PUT salvando el resto del contexto (Tags, Custom Fields, Tratamientos)
             const retryRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
               method: 'PUT',
-              headers: HEADERS,
+              headers: activeHeaders,
               body: JSON.stringify(updatePayload)
             }, 1, isLive);
             
@@ -1028,7 +1081,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
                    const notaText = `[AVISO] NÚMERO RESCATADO DE VTIGER: ${rescateValor}\n(GHL bloqueó la inserción automática porque este número ya le pertenece a otro contacto/familiar en esta ubicación. Usa este número para llamar.)`;
                    await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/notes`, {
                      method: 'POST',
-                     headers: HEADERS,
+                     headers: activeHeaders,
                      body: JSON.stringify({ body: notaText, userId: updatePayload.assignedTo || null })
                    }, 1, true);
                    console.log(`[Agente 3] [NOTE] Nota de Rescate insertada exitosamente en GHL para ${contactId}.`);

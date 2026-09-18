@@ -76,13 +76,13 @@ export const SEDES_GATEWAY = {
     ],
     users: {
       redes1: {
-        id: 'GLC6pCjW4oP76hcT8QuC',
+        id: 'GLC6pCjW4oP76hcT9QuC',
         name: 'REDES 1 BENAVIDES',
         email: 'bionatural.benavides@gmail.com',
         role: 'ACCOUNT-USER'
       },
       redes2: {
-        id: 'qicGSpBcrbYnPHpXceV2',
+        id: 'qicGSpBerbYnPHpXdeV2',
         name: 'REDES 2 BENAVIDES',
         email: 'bionatural.benavides.two@gmail.com',
         role: 'ACCOUNT-USER'

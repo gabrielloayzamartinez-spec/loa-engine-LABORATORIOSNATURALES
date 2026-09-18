@@ -101,14 +101,15 @@ function sanitizeForVtigerQuery(value) {
 }
 
 /**
- * Compara dos cadenas de teléfono por los últimos N dígitos.
+ * Compara dos cadenas de teléfono por los últimos N dígitos (10 dígitos en Estados Unidos - NANP).
  */
 function phonesMatch(phone1, phone2, digits = 10) {
   if (!phone1 || !phone2) return false;
   const p1 = String(phone1).replace(/\D/g, '');
   const p2 = String(phone2).replace(/\D/g, '');
   if (p1.length < 7 || p2.length < 7) return false;
-  return p1.slice(-digits) === p2.slice(-digits);
+  const d = Math.min(digits, Math.min(p1.length, p2.length));
+  return p1.slice(-d) === p2.slice(-d);
 }
 
 export async function findVTigerContact(ghlContact, targetSede = null) {
@@ -118,14 +119,15 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
   const targetSedeUpper = (targetSede || ghlContact?.targetSede || ghlContact?.sede || '').toUpperCase().trim();
   
   // ────────────────────────────────────────────
-  // ESTRATEGIA 0: Búsqueda Directa por Teléfono (10 dígitos exactos)
-  // Máxima prioridad para el chatter: si se extrae el número, la vinculación es inmediata (0.2s)
-  // e inmune a diferencias de nombres o apodos en perfiles de redes sociales.
+  // ESTRATEGIA 0: Búsqueda Directa por Teléfono (10 dígitos exactos - Estados Unidos NANP)
+  // En EE.UU. los números telefónicos tienen 10 dígitos (Código de Área 3 dígitos + 7 dígitos locales).
+  // Con prefijo internacional +1 son 11 dígitos. Al extraer los últimos 10 dígitos (last10),
+  // se empata inmediatamente (0.2s) con el número registrado en vTiger (mobile, phone, homephone).
   // ────────────────────────────────────────────
   if (cleanPhone && cleanPhone.length >= 10) {
     const last10 = cleanPhone.slice(-10);
     try {
-      const qPhone = `SELECT * FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}' LIMIT 5;`;
+      const qPhone = `SELECT * FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}' OR mobile = '${cleanPhone}' OR phone = '${cleanPhone}' LIMIT 5;`;
       const phoneMatches = await queryVTiger(qPhone);
       if (phoneMatches && phoneMatches.length > 0) {
         // Prioridad 0 (Aislamiento de Sede): Match exacto en la sede objetivo actual

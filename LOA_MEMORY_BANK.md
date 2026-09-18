@@ -6,6 +6,17 @@
 
 ---
 
+## 🌍 0. MERCADO Y JURISDICCIÓN OPERATIVA: ESTADOS UNIDOS (USA)
+* **País de Operación:** **ESTADOS UNIDOS (USA)** exclusivamente. El negocio atiende al mercado hispanohablante en EE.UU.
+* **Moneda:** **Dólares Americanos ($ USD)** para todo valor de oportunidad, montos de facturación (`cf_3392`, `precio_venta`).
+* **Formato Telefónico:** **NANP 10 Dígitos** (Código de Área 3 dígitos + 7 dígitos de abonado, ej: `3055551234`). Con código de país es `+1` (11 dígitos, ej: `+13055551234`). La vinculación en vTiger usa estrictamente los 10 dígitos nacionales (`cleanPhone.slice(-10)`).
+* **Geografía y Envíos:** Direcciones físicas en EE.UU. (Street, Ave, Blvd, Dr, Apt, Suite, Códigos ZIP de 5 dígitos, Estados como FL, TX, CA, NY, etc.). Descarte automático de países extranjeros.
+* **Zona Horaria del Motor:** **America/New_York (EST / EDT)**.
+* **Padecimientos Oficiales (vTiger `cf_2610`):** `Artritis`, `Tetosterona`, `Diabetes`, `Hongos`, `Gastro`, `Gummies`.
+* **Sedes Operativas:** Multi-tenant aislado entre `PALACIOS` y `BENAVIDES`.
+
+---
+
 ## 1. ESTADO ACTUAL DEL SISTEMA (Logros y Cambios Recientes)
 
 ### A. Desbloqueo y Conexión Total con vTiger CRM
@@ -187,18 +198,8 @@
   3. Ajustar `syncUnifiedPipelineOpportunity` en `ghl_opportunity_service.js` para recibir el padecimiento canónico y enviar la tarjeta al pipeline de producto respectivo.
   4. Nomenclatura de tarjeta: `[PRODUCTO] Nombre Cliente | SEDE | Anuncio`.
 
-### 📌 Tarea 3: Estrategia 0 en `findVTigerContact` (Búsqueda Directa por Teléfono de 10 dígitos)
-- **Contexto:** Cuando el chatter extrae el teléfono en GHL, la búsqueda en vTiger debe ser instantánea y no depender de si el nombre de Facebook coincide con vTiger.
-- **Acción:**
-  - Agregar en `src/services/vtiger_api_service.js`:
-    ```javascript
-    if (cleanPhone && cleanPhone.length >= 10) {
-      const last10 = cleanPhone.slice(-10);
-      const q = `SELECT * FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' LIMIT 3;`;
-      ...
-    }
-    ```
-  - Probado exitosamente en sandbox: responde en 0.2s devolviendo id, compras y sede original.
+### 📌 Tarea 3: Estrategia 0 en `findVTigerContact` (Búsqueda Directa por Teléfono de 10 dígitos US)
+- **Estado:** ✅ COMPLETADA AL 100%. Implementada en `vtiger_api_service.js` con soporte NANP 10 dígitos (`cleanPhone.slice(-10)`), búsqueda combinada `homephone / mobile / phone` y respuesta en 0.2s.
 
 ### 📌 Tarea 4: Telemetría y Smart Lists en el Dashboard de Admin en GHL
 - **Contexto:** El usuario necesita ver en su panel de administración:
@@ -207,6 +208,21 @@
   - Ventas Sincronizadas en vTiger.
   - Blindajes Activos vs Mudanzas Legítimas por Tiempo de Gracia.
 - **Acción:** Configurar/verificar las etiquetas y filtros correspondientes en GHL.
+
+---
+
+## 5. 🏁 CHECKPOINT DE GUARDADO (Para continuar mañana)
+* **Fecha:** 17 de Septiembre, 2026.
+* **Hitos Consolidados:**
+  1. **Aprovisionamiento Benavides:** Subcuenta `QXcNBK6XCgpQaZ81Z8pv` creada y mapeada con Pipeline Comercial `Dv8kOeJvsMs9WMyTJAfD` y sus 16 Custom Fields vía API.
+  2. **6 Dolencias Oficiales (vTiger `cf_2610`):** Reconocimiento NLP de `Artritis`, `Tetosterona`, `Diabetes`, `Hongos`, `Gastro`, `Gummies` con purga de etiquetas obsoletas.
+  3. **Etiquetas Interactivas:** Inyección de `con-telefono`/`sin-telefono` y `compro`/`no-compro` con eliminación mutua forzada.
+  4. **Lógica Comercial vTiger:** Ground Truth absoluto para montos ($ USD), purga de falsas compras y sincronización automática bidireccional.
+  5. **Jurisdicción USA:** Operación fija en Estados Unidos (USD, 10 dígitos telefónicos NANP, zona horaria EST `America/New_York`).
+  6. **Suites de Pruebas:** 18/18 Reglas aprobadas (100% verde en todas las pruebas).
+* **Para Mañana:**
+  - Desplegar / verificar en Render (`git push origin main`).
+  - Configurar las Smart Lists de GHL y revisar el flujo en vivo con leads entrantes.
 
 ---
 
