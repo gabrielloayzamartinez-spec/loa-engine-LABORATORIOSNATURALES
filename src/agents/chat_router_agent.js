@@ -369,8 +369,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         targetAdvisorId = SEDES_GATEWAY.BENAVIDES.users.redes1.id;
         targetAdvisorName = SEDES_GATEWAY.BENAVIDES.users.redes1.name;
       } else {
-        targetAdvisorId = PALACIOS_USERS.ernesto.id;
-        targetAdvisorName = PALACIOS_USERS.ernesto.name;
+        targetAdvisorId = SEDES_GATEWAY.PALACIOS.users.ernesto.id;
+        targetAdvisorName = SEDES_GATEWAY.PALACIOS.users.ernesto.name;
       }
     }
 
@@ -385,15 +385,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         targetAdvisorId = SEDES_GATEWAY.BENAVIDES.users.redes1.id;
         targetAdvisorName = SEDES_GATEWAY.BENAVIDES.users.redes1.name;
       }
-    } else if (activeLocationId === locationId) {
+    } else if (activeLocationId === SEDES_GATEWAY.PALACIOS.ghl.locationId || activeLocationId === locationId) {
       const palaciosUserIds = [
-        PALACIOS_USERS.ultra.id,
-        PALACIOS_USERS.ernesto.id
+        SEDES_GATEWAY.PALACIOS.users.ultra.id,
+        SEDES_GATEWAY.PALACIOS.users.ernesto.id
       ];
       if (!palaciosUserIds.includes(targetAdvisorId)) {
         console.warn(`[Agente 3] [GUARD] Prevenida asignación errónea de asesor (${targetAdvisorId}) en Palacios. Corrigiendo a REDES PALACIOS ERNESTO.`);
-        targetAdvisorId = PALACIOS_USERS.ernesto.id;
-        targetAdvisorName = PALACIOS_USERS.ernesto.name;
+        targetAdvisorId = SEDES_GATEWAY.PALACIOS.users.ernesto.id;
+        targetAdvisorName = SEDES_GATEWAY.PALACIOS.users.ernesto.name;
       }
     }
 

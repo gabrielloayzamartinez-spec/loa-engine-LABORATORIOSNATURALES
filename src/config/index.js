@@ -183,6 +183,16 @@ export const PALACIOS_USERS = {
   }
 };
 
+// 🛡️ Blindaje: Alias de acceso directo para evitar TypeErrors
+Object.defineProperty(PALACIOS_USERS, 'ernesto', {
+  get: () => PALACIOS_USERS["naturales bionatural"],
+  enumerable: false
+});
+Object.defineProperty(PALACIOS_USERS, 'ultra', {
+  get: () => PALACIOS_USERS["bionatural ultra"],
+  enumerable: false
+});
+
 // ==========================================
 // 6. GATEWAY MULTI-SEDE ORCHESTRATOR
 // ==========================================
