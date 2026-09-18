@@ -821,9 +821,22 @@ app.post('/webhook/ghl-contact', async (req, res) => {
       // safe fallback
     }
     let contactData = contactPayload.contact || contactPayload;
-    const effectiveLocId = contactData.locationId || req.body?.locationId || contactPayload?.location_id || locationId;
+    let effectiveLocId = contactData.locationId || req.body?.locationId || contactPayload?.location_id || locationId;
 
-    // Si el payload no tiene ID de GHL, debemos crearlo/actualizarlo (Upsert) primero
+    // 🛡️ HERMETISMO ESTRICTO: Enrutamiento forzoso a la subcuenta correcta según la sede del contacto
+    const detectedSede = (
+      contactData.sede || 
+      contactData.targetSede || 
+      (contactData.customFields || []).find(f => f.key === 'contact.vtiger_sede__tienda_compra' || f.id === 'W12pi3cD5ZbY8R2NqlwL' || f.id === '50pTZdtYYYcF1Wtz4j4s')?.field_value ||
+      (contactData.tags || []).find(t => typeof t === 'string' && t.startsWith('sede-'))?.replace('sede-', '') ||
+      ''
+    ).toUpperCase().trim();
+
+    if (detectedSede === 'BENAVIDES') {
+      effectiveLocId = SEDES_GATEWAY.BENAVIDES.ghl.locationId;
+    } else if (detectedSede === 'PALACIOS') {
+      effectiveLocId = SEDES_GATEWAY.PALACIOS.ghl.locationId || locationId;
+    }
     if (!contactData.id) {
       
       // FIX AGENTE 1: Si vTiger envía un lead sin teléfono ni correo, GHL lo rechazará (HTTP 400).

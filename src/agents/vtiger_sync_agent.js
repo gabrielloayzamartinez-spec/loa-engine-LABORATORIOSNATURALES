@@ -22,36 +22,50 @@ async function fetchWithRetry(url, options, attempt = 1) {
 }
 
 /**
- * Encuentra un contacto en GHL usando teléfono o email (soporta Palacios y Benavides).
+ * Encuentra un contacto en GHL respetando la línea estricta de hermetismo de Sede.
+ * Solo busca en la subcuenta correspondiente a la sede del contacto en vTiger (cf_3451).
  */
 async function findGhlContact(vContact) {
-  const cleanPhone = String(vContact.mobile || vContact.phone || '').replace(/\D/g, '');
+  const cleanPhone = String(vContact.mobile || vContact.phone || vContact.homephone || '').replace(/\D/g, '');
   const email = vContact.email || '';
+  const vSede = String(vContact.cf_3451 || '').toUpperCase().trim();
 
-  const locationsToSearch = [
-    { locId: locationId, headers: getGhlHeaders({ locationId }) },
-    { locId: SEDES_GATEWAY.BENAVIDES.ghl.locationId, headers: getGhlHeaders({ locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId }) }
-  ];
+  // 🛡️ HERMETISMO ESTRICTO: Determinar subcuenta objetivo según la sede en vTiger
+  let targetLocId = null;
+  if (vSede === 'BENAVIDES') {
+    targetLocId = SEDES_GATEWAY.BENAVIDES.ghl.locationId;
+  } else if (vSede === 'PALACIOS') {
+    targetLocId = locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId;
+  } else if (vSede === 'ROOSEVELT' && SEDES_GATEWAY.ROOSEVELT) {
+    targetLocId = SEDES_GATEWAY.ROOSEVELT.ghl?.locationId;
+  } else if (vSede === 'PIURA' && SEDES_GATEWAY.PIURA) {
+    targetLocId = SEDES_GATEWAY.PIURA.ghl?.locationId;
+  }
 
-  for (const { locId, headers } of locationsToSearch) {
-    if (cleanPhone.length >= 7) {
-      const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${locId}&query=${cleanPhone}`;
-      const res = await fetchWithRetry(searchUrl, { headers });
-      if (res.status === 200) {
-        const data = await res.json();
-        const contacts = data.contacts || [];
-        if (contacts.length > 0) return contacts[0];
-      }
+  // Si el registro no tiene sede válida reconocida, NO sincronizar para evitar filtraciones entre sedes
+  if (!targetLocId) {
+    return null;
+  }
+
+  const headers = getGhlHeaders({ locationId: targetLocId });
+
+  if (cleanPhone.length >= 7) {
+    const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${targetLocId}&query=${cleanPhone}`;
+    const res = await fetchWithRetry(searchUrl, { headers });
+    if (res.status === 200) {
+      const data = await res.json();
+      const contacts = data.contacts || [];
+      if (contacts.length > 0) return { ...contacts[0], locationId: targetLocId };
     }
+  }
 
-    if (email.includes('@')) {
-      const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${locId}&query=${encodeURIComponent(email)}`;
-      const res = await fetchWithRetry(searchUrl, { headers });
-      if (res.status === 200) {
-        const data = await res.json();
-        const contacts = data.contacts || [];
-        if (contacts.length > 0) return contacts[0];
-      }
+  if (email.includes('@')) {
+    const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${targetLocId}&query=${encodeURIComponent(email)}`;
+    const res = await fetchWithRetry(searchUrl, { headers });
+    if (res.status === 200) {
+      const data = await res.json();
+      const contacts = data.contacts || [];
+      if (contacts.length > 0) return { ...contacts[0], locationId: targetLocId };
     }
   }
 
