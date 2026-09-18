@@ -79,22 +79,25 @@ export function evaluateCommercialTruth(ghlContact = {}, vContact = null) {
  */
 export const COMMERCIAL_FIELD_IDS_BENAVIDES = {
   ESTADO_COMERCIAL: 'FZTDnqeUyPaRHORQtpEc', // contact.vtiger_estado_comercial
-  STATUS_CONTACTO: null,
-  FECHA_ASIGNACION: null,
-  FECHA_COMPRA: null,
-  FECHA_PRIMERA_COMPRA: null,
+  STATUS_CONTACTO: 'BcIQ4ABU1Z98P4QNqWuA',  // contact.vtiger_status_del_contacto
+  FECHA_ASIGNACION: 'tODtNHiDxM2bhGHMUfwI', // contact.fecha_ultima_asignacion
+  FECHA_COMPRA: 'DBu8OOmAavc1LXWtyAx2',     // contact.fecha_compra
+  FECHA_PRIMERA_COMPRA: 'bZIdwWfU8WKD7Hz3pnqn', // contact.vtiger_fecha_primera_compra
   FECHA_ULTIMA_COMPRA: 'gTpgIitRchybSigsJtwv',  // contact.vtiger_fecha_ltima_compra
-  FECHA_ULTIMA_FACTURA: null,
+  FECHA_ULTIMA_FACTURA: 'YjxZgQh97PoX8vrud6l3', // contact.vtiger_fecha_ultima_factura
   PRECIO_VENTA: 'rfxEsUUqXIbq3i0vki3q',     // contact.precio_venta
   NUM_COMPRAS: '43IIRmrsIAyvrXOCvJwe',      // contact.vtiger_total_compras
   ESTADO_COMPRA_LISTA: 'aG6nDjQKvXob6apsWaB2', // contact.estado_de_compra
-  SEDE_TIENDA_COMPRA: 'HJLN7LVvZHVX2Rr7eJma',  // contact.sede_asignada
-  ANOTACIONES_REDES: 'cZZF2iWCedZpfD8kqR16',   // contact.vtiger_historial_completo
-  CANAL_CAPTACION: 'Vw6usJnpwuBScBm4yiSY',     // contact.origen_lead
-  CONTACT_NO: null,
+  SEDE_TIENDA_COMPRA: 'W12pi3cD5ZbY8R2NqlwL',  // contact.vtiger_sede__tienda_compra
+  ANOTACIONES_REDES: 'Jun1LzYK7Y11yhCD6Ift',   // contact.vtiger_anotaciones_redes
+  CANAL_CAPTACION: 'vsq2yFqYfKgcqaHu5bwi',     // contact.vtiger_canal_captacion
+  CONTACT_NO: 'qwtO252zF8ZPnsfuyrE9',          // contact.vtiger_contact_no
   FECHA_CREACION_VT: 'V9bkHHckMsmeC698i1kr',   // contact.ultima_interaccion
-  ID_CLIENTE_VT: null,
-  TIENE_TELEFONO: '0PvAaqJs7aERycth9mKW'       // contact.tiene_telfono
+  ID_CLIENTE_VT: 'wbI32mOZbUg2Mmd9RihL',        // contact.vtiger_id_cliente
+  TIENE_TELEFONO: '0PvAaqJs7aERycth9mKW',      // contact.tiene_telfono
+  SEDE_ASIGNADA: 'HJLN7LVvZHVX2Rr7eJma',       // contact.sede_asignada
+  ORIGEN_LEAD: 'Vw6usJnpwuBScBm4yiSY',         // contact.origen_lead
+  HISTORIAL_COMPLETO: 'cZZF2iWCedZpfD8kqR16'   // contact.vtiger_historial_completo
 };
 
 export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null, locationId = null) {

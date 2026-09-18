@@ -458,8 +458,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const UTM_MEDIUM_FIELD = isBenavidesLoc ? 'XwjFGpmds9nvS3e45P5c' : 'HVjiEMKYR2feXviAZ2Jd';
     const UTM_CAMPAIGN_FIELD = isBenavidesLoc ? 'o5AQRN1o7qkhSomgYiaG' : 'KS3iYmIjVcmFJV7MIDnT';
     const UTM_CONTENT_FIELD = isBenavidesLoc ? 'a8zymCz1usSfr8kxiNYq' : 'Vmzz5BxbMcrlInmuiblM';
-    const UTM_TERM_FIELD = isBenavidesLoc ? null : 'Wh4IIv4TEbxJaZBi95cp';
-    const ADSET_ID_FIELD = isBenavidesLoc ? null : 'XTGicfQtDwBrlr2qPKxF';
+    const UTM_TERM_FIELD = isBenavidesLoc ? 'tWGsiDXWU8EXNHGNT1po' : 'Wh4IIv4TEbxJaZBi95cp';
+    const ADSET_ID_FIELD = isBenavidesLoc ? 'PS7wvoCZg8bslRRjoZCr' : 'XTGicfQtDwBrlr2qPKxF';
     const SEDE_ASIGNADA_FIELD = isBenavidesLoc ? 'HJLN7LVvZHVX2Rr7eJma' : '7SgOMq4Aeti7gN1SqVN6';
     const ORIGEN_LEAD_FIELD = isBenavidesLoc ? 'Vw6usJnpwuBScBm4yiSY' : 'cN6NrhXqMlEhyp35g7bs';
     const TIENE_TELEFONO_FIELD = isBenavidesLoc ? '0PvAaqJs7aERycth9mKW' : null;
