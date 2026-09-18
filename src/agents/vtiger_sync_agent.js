@@ -35,7 +35,7 @@ async function findGhlContact(vContact) {
   if (vSede === 'BENAVIDES') {
     targetLocId = SEDES_GATEWAY.BENAVIDES.ghl.locationId;
   } else if (vSede === 'PALACIOS') {
-    targetLocId = locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId;
+    targetLocId = SEDES_GATEWAY.PALACIOS.ghl.locationId;
   } else if (vSede === 'ROOSEVELT' && SEDES_GATEWAY.ROOSEVELT) {
     targetLocId = SEDES_GATEWAY.ROOSEVELT.ghl?.locationId;
   } else if (vSede === 'PIURA' && SEDES_GATEWAY.PIURA) {
@@ -130,7 +130,7 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       }
 
       // 3. Evaluar y Sanear Campos Comerciales (Regla de Oro: vTiger manda)
-      const targetLocId = ghlContact.locationId || locationId;
+      const targetLocId = ghlContact.locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId;
       const truth = evaluateCommercialTruth(ghlContact, vContact);
       const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact, targetLocId);
 

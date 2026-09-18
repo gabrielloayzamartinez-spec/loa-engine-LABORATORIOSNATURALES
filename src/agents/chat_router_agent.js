@@ -324,7 +324,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         targetAdvisorId = SEDES_GATEWAY.BENAVIDES.users.redes1.id;
         targetAdvisorName = SEDES_GATEWAY.BENAVIDES.users.redes1.name;
       }
-    } else if (activeLocationId === SEDES_GATEWAY.PALACIOS.ghl.locationId || activeLocationId === locationId) {
+    } else if (activeLocationId === SEDES_GATEWAY.PALACIOS.ghl.locationId) {
       const palaciosUserIds = [
         SEDES_GATEWAY.PALACIOS.users.ultra.id,
         SEDES_GATEWAY.PALACIOS.users.ernesto.id
@@ -1026,11 +1026,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     } else {
       const errText = await updateRes.text();
       const isDuplicateConflict = updateRes.status === 400 && errText.includes('duplicated contacts') && errText.includes('matchingField');
-      const isUserNotExist = updateRes.status === 400 && errText.includes('does not exist in this location');
+      const isUserNotExist = updateRes.status === 400 && (
+        errText.includes('does not exist in this location') ||
+        errText.includes('User') ||
+        errText.includes('assignedTo')
+      );
 
       // 🛡️ AUTO-HEALING: Asesor no existe en esta ubicación (Reintentar sin assignedTo)
-      if (isUserNotExist && updatePayload.assignedTo) {
-        console.warn(`[Agente 3] [AUTO-HEAL] Asesor no existe en esta ubicación. Reintentando actualización sin assignedTo para ${contactId}...`);
+      if (isUserNotExist) {
+        console.warn(`[Agente 3] [AUTO-HEAL] Asesor no válido para ubicación (${activeLocationId}). Reintentando actualización atómica sin assignedTo para ${contactId}...`);
         delete updatePayload.assignedTo;
         const retryUserRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
           method: 'PUT',
@@ -1038,7 +1042,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           body: JSON.stringify(updatePayload)
         }, 1, isLive);
         if (retryUserRes.status === 200) {
-          console.log(`[Agente 3] [SUCCESS] Contacto ${contactId} actualizado exitosamente sin assignedTo.`);
+          console.log(`[Agente 3] [SUCCESS] [AUTO-HEAL] Contacto ${contactId} actualizado exitosamente sin assignedTo.`);
           return 'SUCCESS';
         }
       }
@@ -1119,9 +1123,10 @@ let lastSyncCheck = Date.now() - 60000; // Buscar desde hace 1 minuto
 
 export async function runChatRouterPoller() {
   try {
-    // Buscar conversaciones que tuvieron actividad reciente
-    const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=20`;
-    const res = await fetchWithRetry(convUrl, { headers: HEADERS });
+    const targetPalaciosLoc = SEDES_GATEWAY.PALACIOS.ghl.locationId;
+    const targetPalaciosHeaders = getGhlHeaders({ locationId: targetPalaciosLoc });
+    const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${targetPalaciosLoc}&limit=20`;
+    const res = await fetchWithRetry(convUrl, { headers: targetPalaciosHeaders });
     
     if (res.status !== 200) return;
     
@@ -1133,7 +1138,7 @@ export async function runChatRouterPoller() {
       const lastProc = processedTimestamps.get(conv.contactId) || 0;
       if (Date.now() - lastProc > 60000) { // 60 segundos de debounce por contacto
         processedTimestamps.set(conv.contactId, Date.now());
-        routeChatByContact(conv.contactId).catch(err => console.error(err));
+        routeChatByContact(conv.contactId, false, false, { locationId: targetPalaciosLoc, headers: targetPalaciosHeaders }).catch(err => console.error(err));
       }
     }
   } catch (error) {
@@ -1146,10 +1151,12 @@ export async function runChatRouterPoller() {
  * Barre las bandejas asignadas a cada asesor y reasigna cualquier lead que pertenezca a otra página.
  */
 export async function runInboxSedeCleaner() {
+  const targetPalaciosLoc = SEDES_GATEWAY.PALACIOS.ghl.locationId;
+  const targetPalaciosHeaders = getGhlHeaders({ locationId: targetPalaciosLoc });
   for (const [, advisor] of Object.entries(PALACIOS_USERS)) {
     try {
-      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&assignedTo=${advisor.id}&limit=20`;
-      const res = await fetchWithRetry(convUrl, { headers: HEADERS });
+      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${targetPalaciosLoc}&assignedTo=${advisor.id}&limit=20`;
+      const res = await fetchWithRetry(convUrl, { headers: targetPalaciosHeaders });
       if (res.status !== 200) continue;
 
       const data = await res.json();

@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders } from './config/index.js';
+import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders, getActiveSedes } from './config/index.js';
 import { ghlFetch, GHL_HEADERS, getRateLimiterStatus } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
@@ -147,10 +147,11 @@ async function runExpressAssignment() {
 
   try {
     const timeStr = new Date().toLocaleTimeString('es-PE', { hour12: false });
-    const targetLocations = [
-      { id: locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId, headers: HEADERS_CONTACTS, name: 'Palacios' },
-      { id: SEDES_GATEWAY.BENAVIDES.ghl.locationId, headers: getGhlHeaders({ locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId }), name: 'Benavides' }
-    ];
+    const targetLocations = getActiveSedes().map(s => ({
+      id: s.ghl.locationId,
+      headers: getGhlHeaders({ locationId: s.ghl.locationId }),
+      name: s.name
+    }));
 
     let countNew = 0;
 
@@ -244,10 +245,11 @@ async function runUnassignedConversationsGuardian() {
   if (isUnassignedGuardianRunning) return;
   isUnassignedGuardianRunning = true;
   try {
-    const targetLocations = [
-      { id: locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId, headers: HEADERS_CONTACTS, name: 'Palacios' },
-      { id: SEDES_GATEWAY.BENAVIDES.ghl.locationId, headers: getGhlHeaders({ locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId }), name: 'Benavides' }
-    ];
+    const targetLocations = getActiveSedes().map(s => ({
+      id: s.ghl.locationId,
+      headers: getGhlHeaders({ locationId: s.ghl.locationId }),
+      name: s.name
+    }));
 
     await Promise.all(targetLocations.map(async (loc) => {
       if (!loc.id) return;
@@ -315,7 +317,7 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
     sedes: {
-      palacios: { locationId: locationId, active: true },
+      palacios: { locationId: SEDES_GATEWAY.PALACIOS.ghl.locationId, active: true },
       benavides: { locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId, active: true }
     },
     vtiger: vtigerConnectionStatus,
@@ -823,7 +825,7 @@ app.post('/webhook/ghl-contact', async (req, res) => {
       // safe fallback
     }
     let contactData = contactPayload.contact || contactPayload;
-    let effectiveLocId = contactData.locationId || req.body?.locationId || contactPayload?.location_id || locationId;
+    let effectiveLocId = contactData.locationId || req.body?.locationId || contactPayload?.location_id || SEDES_GATEWAY.PALACIOS.ghl.locationId;
 
     // 🛡️ HERMETISMO ESTRICTO: Enrutamiento forzoso a la subcuenta correcta según la sede del contacto
     const detectedSede = (
@@ -837,7 +839,7 @@ app.post('/webhook/ghl-contact', async (req, res) => {
     if (detectedSede === 'BENAVIDES') {
       effectiveLocId = SEDES_GATEWAY.BENAVIDES.ghl.locationId;
     } else if (detectedSede === 'PALACIOS') {
-      effectiveLocId = SEDES_GATEWAY.PALACIOS.ghl.locationId || locationId;
+      effectiveLocId = SEDES_GATEWAY.PALACIOS.ghl.locationId;
     }
     if (!contactData.id) {
       
