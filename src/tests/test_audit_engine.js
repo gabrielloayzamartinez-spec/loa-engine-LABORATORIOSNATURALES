@@ -432,7 +432,8 @@ export function runPreFlightSanityCheck() {
 
         // 3. Verificar headers GHL desacoplados
         const bHeaders = getGhlHeaders({ sede: 'BENAVIDES' });
-        if (!bHeaders.Authorization.includes('pit-3e6d43f5-70f6-4b8e-ba75-04a8d05a162e')) {
+        const expectedBenavidesKey = process.env.GHL_API_KEY_BENAVIDES || '';
+        if (!bHeaders.Authorization || !bHeaders.Authorization.startsWith('Bearer ') || (expectedBenavidesKey && !bHeaders.Authorization.includes(expectedBenavidesKey))) {
           throw new Error(`Header GHL Benavides no contiene la API Key esperada: ${bHeaders.Authorization}`);
         }
 

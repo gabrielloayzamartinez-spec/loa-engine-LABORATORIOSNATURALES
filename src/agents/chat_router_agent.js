@@ -322,8 +322,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     if (!targetPageName) {
-      console.log(`[Agente 3] No se pudo determinar la página para el contacto ${contactId}.`);
-      return;
+      if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
+        targetPageName = "Naturales Bio Corp";
+      } else {
+        targetPageName = "Naturales BioNatural";
+      }
     }
 
     // 🏢 Resolver Sede Actual de la Fanpage / Mensaje
@@ -331,12 +334,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       pageId: targetPageId,
       pageName: targetPageName
     });
+    if (!currentSedeName) {
+      currentSedeName = (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) ? 'BENAVIDES' : 'PALACIOS';
+    }
 
     // Determinar a qué asesor le corresponde esta página (por Sede, Page ID o por Nombre de Fanpage)
     let targetAdvisorId = null;
     let targetAdvisorName = null;
 
-    const resolvedSede = resolveSedeContext({ pageId: targetPageId, sede: currentSedeName, locationId });
+    const resolvedSede = resolveSedeContext({ pageId: targetPageId, sede: currentSedeName, locationId: activeLocationId });
     if (resolvedSede && resolvedSede.users) {
       if (resolvedSede.sedeId === 'BENAVIDES') {
         if (targetPageId === '510617778807469' || targetPageName?.toLowerCase().includes('corp')) {
@@ -357,16 +363,37 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    // Fallback general por PALACIOS_USERS
+    // Fallback general contextual por subcuenta activa (NUNCA mezclar asesores de otra subcuenta)
     if (!targetAdvisorId) {
-      for (const [, advisor] of Object.entries(PALACIOS_USERS)) {
-        const matchById = targetPageId && advisor.fbPageIds && advisor.fbPageIds.includes(targetPageId);
-        const matchByName = targetPageName && advisor.pages && advisor.pages.includes(targetPageName);
-        if (matchById || matchByName) {
-          targetAdvisorId = advisor.id;
-          targetAdvisorName = advisor.name;
-          break;
-        }
+      if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
+        targetAdvisorId = SEDES_GATEWAY.BENAVIDES.users.redes1.id;
+        targetAdvisorName = SEDES_GATEWAY.BENAVIDES.users.redes1.name;
+      } else {
+        targetAdvisorId = PALACIOS_USERS.ernesto.id;
+        targetAdvisorName = PALACIOS_USERS.ernesto.name;
+      }
+    }
+
+    // 🛡️ BLINDAJE MULTI-SEDE ESTRICTO: Un contacto en Benavides solo puede asignarse a un usuario de Benavides
+    if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
+      const benavidesUserIds = [
+        SEDES_GATEWAY.BENAVIDES.users.redes1.id,
+        SEDES_GATEWAY.BENAVIDES.users.redes2.id
+      ];
+      if (!benavidesUserIds.includes(targetAdvisorId)) {
+        console.warn(`[Agente 3] [GUARD] Prevenida asignación errónea de asesor (${targetAdvisorId}) en Benavides. Corrigiendo a REDES 1 BENAVIDES.`);
+        targetAdvisorId = SEDES_GATEWAY.BENAVIDES.users.redes1.id;
+        targetAdvisorName = SEDES_GATEWAY.BENAVIDES.users.redes1.name;
+      }
+    } else if (activeLocationId === locationId) {
+      const palaciosUserIds = [
+        PALACIOS_USERS.ultra.id,
+        PALACIOS_USERS.ernesto.id
+      ];
+      if (!palaciosUserIds.includes(targetAdvisorId)) {
+        console.warn(`[Agente 3] [GUARD] Prevenida asignación errónea de asesor (${targetAdvisorId}) en Palacios. Corrigiendo a REDES PALACIOS ERNESTO.`);
+        targetAdvisorId = PALACIOS_USERS.ernesto.id;
+        targetAdvisorName = PALACIOS_USERS.ernesto.name;
       }
     }
 
@@ -421,15 +448,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    // Custom Field IDs Oficiales
-    const ID_ANUNCIO_FIELD = '6w3yMjLgIw6npUKWIosr';
-    const AD_ID_ALT_FIELD = 'ujLG5Ogp94WfynVubapT';
-    const TRATAMIENTO_FIELD = 'WcrrCIL4A2203kIbeFsJ';
-    const VTIGER_NOTAS_FIELD = 'cZu95uKBqVydDEh24enl';
-    const UTM_SOURCE_FIELD = 'L3eEulpe8II7q0UAJnKZ';
-    const UTM_MEDIUM_FIELD = 'HVjiEMKYR2feXviAZ2Jd';
-    const UTM_CAMPAIGN_FIELD = 'KS3iYmIjVcmFJV7MIDnT';
-    const UTM_CONTENT_FIELD = 'Vmzz5BxbMcrlInmuiblM';
+    // Custom Field IDs Oficiales Dinámicos por Subcuenta
+    const isBenavidesLoc = activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId;
+    const ID_ANUNCIO_FIELD = isBenavidesLoc ? 'bjIdaPk0dzyuNw0RCMwn' : '6w3yMjLgIw6npUKWIosr';
+    const AD_ID_ALT_FIELD = isBenavidesLoc ? 'xYgC0RFCZZ1GagK2aaXu' : 'ujLG5Ogp94WfynVubapT';
+    const TRATAMIENTO_FIELD = isBenavidesLoc ? 'xqDD056VzkFTOxHniDkw' : 'WcrrCIL4A2203kIbeFsJ';
+    const VTIGER_NOTAS_FIELD = isBenavidesLoc ? 'cZZF2iWCedZpfD8kqR16' : 'cZu95uKBqVydDEh24enl';
+    const UTM_SOURCE_FIELD = isBenavidesLoc ? 'yAi98DhTmnBuHppg9Taj' : 'L3eEulpe8II7q0UAJnKZ';
+    const UTM_MEDIUM_FIELD = isBenavidesLoc ? 'XwjFGpmds9nvS3e45P5c' : 'HVjiEMKYR2feXviAZ2Jd';
+    const UTM_CAMPAIGN_FIELD = isBenavidesLoc ? 'o5AQRN1o7qkhSomgYiaG' : 'KS3iYmIjVcmFJV7MIDnT';
+    const UTM_CONTENT_FIELD = isBenavidesLoc ? 'a8zymCz1usSfr8kxiNYq' : 'Vmzz5BxbMcrlInmuiblM';
 
     const existingCustomFields = contact.customFields || [];
     const rawCurrentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
@@ -520,7 +548,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const metaDetails = await getMetaAdDetails(targetAdId, {
         sede: currentSedeName,
         pageId: targetPageId,
-        locationId
+        locationId: activeLocationId
       });
       if (metaDetails) {
         latestCampaign = metaDetails.campaignName || latestCampaign;
@@ -795,7 +823,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const truth = evaluateCommercialTruth(contact, vContact);
       finalCustomerWon = truth.isWon;
       finalMonetaryValue = truth.totalSpent;
-      const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact);
+      const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact, activeLocationId);
       customFieldsToUpdate.push(...sanitizedCommercialFields);
     } catch (commErr) {
       console.warn(`[Agente 3] [WARN] No se pudo evaluar estado comercial en vivo para ${contactId}:`, commErr.message);

@@ -21,8 +21,8 @@ export const SEDES_GATEWAY = {
     name: 'Laboratorios Naturales - Sede Palacios',
     vtigerSedeName: 'PALACIOS',
     ghl: {
-      apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY || 'pit-4d48784c-23cd-466d-a6b2-4850138e35d0',
-      locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || 'ATPYNnsfZ1W8sd6WgWIV'
+      apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY || '',
+      locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || ''
     },
     meta: {
       appId: process.env.META_APP_ID_PALACIOS || '',
@@ -58,8 +58,8 @@ export const SEDES_GATEWAY = {
     name: 'Laboratorios Naturales - Sede Benavides',
     vtigerSedeName: 'BENAVIDES',
     ghl: {
-      apiKey: process.env.GHL_API_KEY_BENAVIDES || 'pit-3e6d43f5-70f6-4b8e-ba75-04a8d05a162e',
-      locationId: process.env.GHL_LOCATION_ID_BENAVIDES || 'QXcNBK6XCgpQaZ81Z8pv'
+      apiKey: process.env.GHL_API_KEY_BENAVIDES || '',
+      locationId: process.env.GHL_LOCATION_ID_BENAVIDES || ''
     },
     meta: {
       appId: process.env.META_APP_ID_BENAVIDES || '',

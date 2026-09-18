@@ -110,8 +110,9 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       }
 
       // 3. Evaluar y Sanear Campos Comerciales (Regla de Oro: vTiger manda)
+      const targetLocId = ghlContact.locationId || locationId;
       const truth = evaluateCommercialTruth(ghlContact, vContact);
-      const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact);
+      const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact, targetLocId);
 
       // 4. Armar Payload de Actualización Atómica
       const updatePayload = {

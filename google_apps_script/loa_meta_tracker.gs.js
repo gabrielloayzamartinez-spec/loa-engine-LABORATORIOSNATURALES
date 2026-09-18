@@ -6,7 +6,7 @@
  * Triggers: setupDiario (1:00 AM diario), sincronizarSedesHaciaMadre (cada hora)
  */
 
-const META_ACCESS_TOKEN = 'EAAPBItTNhNwBSeOPwB8k1yMTiuwja7ePfZCBEIih1WHI6QWQoK4PW5qarVr9fslip6xAbk1vWUjWGM5ZA17ijgpJoyFOXBZAMQ3pmZAqan5oFIrInWNJhfMZC3GkrCErI6vhaTzEdEc3NZA71qoeoGhc8XVtur6rnlAeSZCVLl7UUD4sqZA9rZBMjxJKqddY4gL6JH5YCzVJS37KKfL02kP49Y69pewfVZBd8mLvpn88iYtnQM5haYt49SRYfSTaPWaxHqAaZCDkotLLkE2vqWHcSBw';
+const META_ACCESS_TOKEN = 'YOUR_META_ACCESS_TOKEN_HERE';
 const GRAPH_VERSION = 'v20.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
