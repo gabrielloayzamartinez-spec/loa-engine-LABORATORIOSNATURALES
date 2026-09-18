@@ -22,8 +22,8 @@ export const SEDES_GATEWAY = {
     vtigerSedeName: 'PALACIOS',
     isActive: true,
     ghl: {
-      apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY || 'pit-8148816f-fe78-4db8-9b5c-7c6713284b0e',
-      locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || '5NqOaPYqWyIw2FPBfoRg'
+      apiKey: process.env.GHL_API_KEY_PALACIOS || 'pit-8148816f-fe78-4db8-9b5c-7c6713284b0e',
+      locationId: process.env.GHL_LOCATION_ID_PALACIOS || '5NqOaPYqWyIw2FPBfoRg'
     },
     meta: {
       appId: process.env.META_APP_ID_PALACIOS || '',
@@ -242,8 +242,8 @@ export const SEDES_GATEWAY = {
     pipeline: null,
     customFields: null,
     ghl: {
-      apiKey: process.env.GHL_API_KEY_CENTRAL || 'pit-4d48784c-23cd-466d-a6b2-4850138e35d0',
-      locationId: process.env.GHL_LOCATION_ID_CENTRAL || 'ATPYNnsfZ1W8sd6WgWIV'
+      apiKey: process.env.GHL_API_KEY_CENTRAL || process.env.GHL_API_KEY || 'pit-4d48784c-23cd-466d-a6b2-4850138e35d0',
+      locationId: process.env.GHL_LOCATION_ID_CENTRAL || process.env.GHL_LOCATION_ID || 'ATPYNnsfZ1W8sd6WgWIV'
     },
     meta: {
       appId: process.env.META_APP_ID_PALACIOS || '',
