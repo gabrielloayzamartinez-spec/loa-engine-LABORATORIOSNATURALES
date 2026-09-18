@@ -458,6 +458,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const UTM_MEDIUM_FIELD = isBenavidesLoc ? 'XwjFGpmds9nvS3e45P5c' : 'HVjiEMKYR2feXviAZ2Jd';
     const UTM_CAMPAIGN_FIELD = isBenavidesLoc ? 'o5AQRN1o7qkhSomgYiaG' : 'KS3iYmIjVcmFJV7MIDnT';
     const UTM_CONTENT_FIELD = isBenavidesLoc ? 'a8zymCz1usSfr8kxiNYq' : 'Vmzz5BxbMcrlInmuiblM';
+    const UTM_TERM_FIELD = isBenavidesLoc ? null : 'Wh4IIv4TEbxJaZBi95cp';
+    const ADSET_ID_FIELD = isBenavidesLoc ? null : 'XTGicfQtDwBrlr2qPKxF';
+    const SEDE_ASIGNADA_FIELD = isBenavidesLoc ? 'HJLN7LVvZHVX2Rr7eJma' : '7SgOMq4Aeti7gN1SqVN6';
+    const ORIGEN_LEAD_FIELD = isBenavidesLoc ? 'Vw6usJnpwuBScBm4yiSY' : 'cN6NrhXqMlEhyp35g7bs';
+    const TIENE_TELEFONO_FIELD = isBenavidesLoc ? '0PvAaqJs7aERycth9mKW' : null;
+    const ULTIMA_INTERACCION_FIELD = isBenavidesLoc ? 'V9bkHHckMsmeC698i1kr' : 'Yd0Ix40PYOcZQn6TokaX';
 
     const existingCustomFields = contact.customFields || [];
     const rawCurrentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
@@ -758,11 +764,6 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       newTagsSet.add('🔥-lead-caliente');
     }
 
-    if (targetVtigerNota) {
-      newTagsSet.add('vtiger');
-      newTagsSet.add('prospecto-vtiger');
-    }
-
     if (duplicateCount > 1) {
       newTagsSet.add('alerta-duplicado-clic');
       newTagsSet.add(`pauta-clic-x${duplicateCount}`);
@@ -810,11 +811,17 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
     if (targetVtigerNota) customFieldsToUpdate.push({ id: VTIGER_NOTAS_FIELD, key: 'contact.vtiger_historial_completo', field_value: targetVtigerNota });
     
-    // UTMs
-    customFieldsToUpdate.push({ id: UTM_SOURCE_FIELD, key: 'contact.utm_source', field_value: 'facebook' });
-    customFieldsToUpdate.push({ id: UTM_MEDIUM_FIELD, key: 'contact.utm_medium', field_value: isPaidAd ? 'cpc' : 'messenger' });
-    if (latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, key: 'contact.utm_campaign', field_value: latestCampaign });
-    if (targetAdName) customFieldsToUpdate.push({ id: UTM_CONTENT_FIELD, key: 'contact.utm_content', field_value: targetAdName });
+    // UTMs & Tarjeta de Contacto Completa (Sede, Origen, UTMs, Teléfono, Interacción)
+    if (UTM_SOURCE_FIELD) customFieldsToUpdate.push({ id: UTM_SOURCE_FIELD, key: 'contact.utm_source', field_value: 'facebook' });
+    if (UTM_MEDIUM_FIELD) customFieldsToUpdate.push({ id: UTM_MEDIUM_FIELD, key: 'contact.utm_medium', field_value: isPaidAd ? 'cpc' : 'messenger' });
+    if (UTM_CAMPAIGN_FIELD && latestCampaign) customFieldsToUpdate.push({ id: UTM_CAMPAIGN_FIELD, key: 'contact.utm_campaign', field_value: latestCampaign });
+    if (UTM_CONTENT_FIELD) customFieldsToUpdate.push({ id: UTM_CONTENT_FIELD, key: 'contact.utm_content', field_value: targetAdName || targetTratamiento || 'Anuncio' });
+    if (UTM_TERM_FIELD && latestAdSetName) customFieldsToUpdate.push({ id: UTM_TERM_FIELD, key: 'contact.utm_term', field_value: latestAdSetName });
+    if (ADSET_ID_FIELD && latestAdSetName) customFieldsToUpdate.push({ id: ADSET_ID_FIELD, key: 'contact.adset_id', field_value: latestAdSetName });
+    if (SEDE_ASIGNADA_FIELD) customFieldsToUpdate.push({ id: SEDE_ASIGNADA_FIELD, key: 'contact.sede_asignada', field_value: currentSedeName });
+    if (ORIGEN_LEAD_FIELD && vtigerSource) customFieldsToUpdate.push({ id: ORIGEN_LEAD_FIELD, key: 'contact.origen_lead', field_value: vtigerSource });
+    if (TIENE_TELEFONO_FIELD) customFieldsToUpdate.push({ id: TIENE_TELEFONO_FIELD, key: 'contact.tiene_telfono', field_value: (contact.phone || (shippingData && shippingData.hasPhone)) ? 'Sí' : 'No' });
+    if (ULTIMA_INTERACCION_FIELD) customFieldsToUpdate.push({ id: ULTIMA_INTERACCION_FIELD, key: 'contact.ultima_interaccion', field_value: new Date().toISOString().split('T')[0] });
 
     // 🏢 G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO - DOMINIO AISLADO)
     let finalCustomerWon = isCustomerWon;
@@ -849,6 +856,29 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       newTagsSet.add('no-compro');
       newTagsSet.delete('compro');
       if ((contact.tags || []).includes('compro')) tagsToRemove.push('compro');
+    }
+
+    // 🏢 INYECCIÓN FLUIDA DE ETIQUETAS VTIGER EN VIVO
+    if (vContact || targetVtigerNota) {
+      newTagsSet.add('vtiger');
+      newTagsSet.add('vtiger-sincronizado');
+      if (finalCustomerWon) {
+        newTagsSet.add('cliente-vtiger');
+        newTagsSet.delete('prospecto-vtiger');
+        if ((contact.tags || []).includes('prospecto-vtiger')) tagsToRemove.push('prospecto-vtiger');
+      } else {
+        newTagsSet.add('prospecto-vtiger');
+        newTagsSet.delete('cliente-vtiger');
+        if ((contact.tags || []).includes('cliente-vtiger')) tagsToRemove.push('cliente-vtiger');
+      }
+      if (vContact?.cf_994) {
+        const vStClean = String(vContact.cf_994).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        if (vStClean) newTagsSet.add(`vtiger-status-${vStClean}`);
+      }
+      if (vContact?.cf_3507) {
+        const vCanalClean = String(vContact.cf_3507).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        if (vCanalClean) newTagsSet.add(`canal-${vCanalClean}`);
+      }
     }
 
     // SINCRONIZACION DE PIPELINE (Orquestacion LOA)
@@ -947,9 +977,19 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const CRITICAL_CF_IDS = [
       ID_ANUNCIO_FIELD, AD_ID_ALT_FIELD, TRATAMIENTO_FIELD, VTIGER_NOTAS_FIELD,
       UTM_SOURCE_FIELD, UTM_MEDIUM_FIELD, UTM_CAMPAIGN_FIELD, UTM_CONTENT_FIELD,
+      SEDE_ASIGNADA_FIELD, ORIGEN_LEAD_FIELD, TIENE_TELEFONO_FIELD, ULTIMA_INTERACCION_FIELD,
+      UTM_TERM_FIELD, ADSET_ID_FIELD,
+      // Palacios
       '8EQtKkiW7Z022bcN0vhS', '5TY5AIOpu1c8f6WosyF2', 'RLxFOTXkICXLWShjaLaB',
-      'GZKRu2z1Z156lRUfyrpo', '5js0Lfbh5XDLq87SDgdT'
-    ];
+      'GZKRu2z1Z156lRUfyrpo', '5js0Lfbh5XDLq87SDgdT', 'jfaxRCXTLZQCuzsTl49v',
+      '7SgOMq4Aeti7gN1SqVN6', 'cN6NrhXqMlEhyp35g7bs', 'Wh4IIv4TEbxJaZBi95cp',
+      'XTGicfQtDwBrlr2qPKxF', 'Yd0Ix40PYOcZQn6TokaX',
+      // Benavides
+      'FZTDnqeUyPaRHORQtpEc', 'aG6nDjQKvXob6apsWaB2', 'rfxEsUUqXIbq3i0vki3q',
+      '43IIRmrsIAyvrXOCvJwe', 'HJLN7LVvZHVX2Rr7eJma', 'gTpgIitRchybSigsJtwv',
+      'Vw6usJnpwuBScBm4yiSY', 'eBE29SIhviHr2yDJT1Y6', 'V9bkHHckMsmeC698i1kr',
+      '0PvAaqJs7aERycth9mKW'
+    ].filter(Boolean);
     const hasCFChanges = customFieldsToUpdate.some(cf => {
       if (!CRITICAL_CF_IDS.includes(cf.id)) return false;
       const existing = currentCFs.find(f => f.id === cf.id);

@@ -79,21 +79,22 @@ export function evaluateCommercialTruth(ghlContact = {}, vContact = null) {
  */
 export const COMMERCIAL_FIELD_IDS_BENAVIDES = {
   ESTADO_COMERCIAL: 'FZTDnqeUyPaRHORQtpEc', // contact.vtiger_estado_comercial
-  STATUS_CONTACTO: '5TY5AIOpu1c8f6WosyF2',  // contact.vtiger_status_del_contacto
-  FECHA_ASIGNACION: 'RLxFOTXkICXLWShjaLaB', // contact.fecha_ultima_asignacion
-  FECHA_COMPRA: 'GZKRu2z1Z156lRUfyrpo',     // contact.fecha_compra
-  FECHA_PRIMERA_COMPRA: 'OJYOXVqKp33A6T5HZK5I', // contact.vtiger_fecha_primera_compra
+  STATUS_CONTACTO: null,
+  FECHA_ASIGNACION: null,
+  FECHA_COMPRA: null,
+  FECHA_PRIMERA_COMPRA: null,
   FECHA_ULTIMA_COMPRA: 'gTpgIitRchybSigsJtwv',  // contact.vtiger_fecha_ltima_compra
-  FECHA_ULTIMA_FACTURA: '1U0XzfuI9HUQDqQVMeSV', // contact.vtiger_fecha_ultima_factura
+  FECHA_ULTIMA_FACTURA: null,
   PRECIO_VENTA: 'rfxEsUUqXIbq3i0vki3q',     // contact.precio_venta
   NUM_COMPRAS: '43IIRmrsIAyvrXOCvJwe',      // contact.vtiger_total_compras
   ESTADO_COMPRA_LISTA: 'aG6nDjQKvXob6apsWaB2', // contact.estado_de_compra
   SEDE_TIENDA_COMPRA: 'HJLN7LVvZHVX2Rr7eJma',  // contact.sede_asignada
   ANOTACIONES_REDES: 'cZZF2iWCedZpfD8kqR16',   // contact.vtiger_historial_completo
   CANAL_CAPTACION: 'Vw6usJnpwuBScBm4yiSY',     // contact.origen_lead
-  CONTACT_NO: 'eBE29SIhviHr2yDJT1Y6',          // contact.vtiger_contact_no
+  CONTACT_NO: null,
   FECHA_CREACION_VT: 'V9bkHHckMsmeC698i1kr',   // contact.ultima_interaccion
-  ID_CLIENTE_VT: 'PNr3LsTpXAwmyvPnvI11'        // contact.vtiger_id_cliente
+  ID_CLIENTE_VT: null,
+  TIENE_TELEFONO: '0PvAaqJs7aERycth9mKW'       // contact.tiene_telfono
 };
 
 export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null, locationId = null) {
@@ -107,56 +108,62 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
   const fieldIds = isBenavides ? COMMERCIAL_FIELD_IDS_BENAVIDES : COMMERCIAL_FIELD_IDS;
 
   // Estado comercial y estatus del contacto
-  fields.push({
-    id: fieldIds.ESTADO_COMERCIAL,
-    key: 'contact.vtiger_estado_comercial',
-    field_value: truth.commercialStatus
-  });
+  if (fieldIds.ESTADO_COMERCIAL) {
+    fields.push({
+      id: fieldIds.ESTADO_COMERCIAL,
+      key: 'contact.vtiger_estado_comercial',
+      field_value: truth.commercialStatus
+    });
+  }
 
-  fields.push({
-    id: fieldIds.STATUS_CONTACTO,
-    key: 'contact.vtiger_status_del_contacto',
-    field_value: truth.contactStatus
-  });
+  if (fieldIds.STATUS_CONTACTO) {
+    fields.push({
+      id: fieldIds.STATUS_CONTACTO,
+      key: 'contact.vtiger_status_del_contacto',
+      field_value: truth.contactStatus
+    });
+  }
 
   // Campo personalizado para Listas Inteligentes
-  fields.push({
-    id: fieldIds.ESTADO_COMPRA_LISTA,
-    key: 'contact.estado_de_compra',
-    field_value: truth.isWon ? 'Comprador' : 'No Comprador'
-  });
+  if (fieldIds.ESTADO_COMPRA_LISTA) {
+    fields.push({
+      id: fieldIds.ESTADO_COMPRA_LISTA,
+      key: 'contact.estado_de_compra',
+      field_value: truth.isWon ? 'Comprador' : 'No Comprador'
+    });
+  }
 
   if (!truth.isWon) {
     // 🛡️ PROSPECTO SIN VENTA:
     // Purgar de raíz cualquier fecha de compra ficticia y establecer fecha de asignación limpia
     const today = new Date().toISOString().split('T')[0];
-    fields.push({ id: fieldIds.FECHA_ASIGNACION, key: 'contact.fecha_ultima_asignacion', field_value: today });
-    fields.push({ id: fieldIds.FECHA_COMPRA, key: 'contact.fecha_compra', field_value: '' });
-    fields.push({ id: fieldIds.FECHA_PRIMERA_COMPRA, key: 'contact.vtiger_fecha_primera_compra', field_value: '' });
-    fields.push({ id: fieldIds.FECHA_ULTIMA_COMPRA, key: 'contact.vtiger_fecha_ultima_compra', field_value: '' });
-    fields.push({ id: fieldIds.FECHA_ULTIMA_FACTURA, key: 'contact.vtiger_fecha_ultima_factura', field_value: '' });
-    fields.push({ id: fieldIds.PRECIO_VENTA, key: 'contact.precio_venta', field_value: '' });
+    if (fieldIds.FECHA_ASIGNACION) fields.push({ id: fieldIds.FECHA_ASIGNACION, key: 'contact.fecha_ultima_asignacion', field_value: today });
+    if (fieldIds.FECHA_COMPRA) fields.push({ id: fieldIds.FECHA_COMPRA, key: 'contact.fecha_compra', field_value: '' });
+    if (fieldIds.FECHA_PRIMERA_COMPRA) fields.push({ id: fieldIds.FECHA_PRIMERA_COMPRA, key: 'contact.vtiger_fecha_primera_compra', field_value: '' });
+    if (fieldIds.FECHA_ULTIMA_COMPRA) fields.push({ id: fieldIds.FECHA_ULTIMA_COMPRA, key: 'contact.vtiger_fecha_ultima_compra', field_value: '' });
+    if (fieldIds.FECHA_ULTIMA_FACTURA) fields.push({ id: fieldIds.FECHA_ULTIMA_FACTURA, key: 'contact.vtiger_fecha_ultima_factura', field_value: '' });
+    if (fieldIds.PRECIO_VENTA) fields.push({ id: fieldIds.PRECIO_VENTA, key: 'contact.precio_venta', field_value: '' });
   } else {
     // 👑 CLIENTE CON VENTA REAL: Preservar fechas y totales de facturación
     if (truth.realFirstPurchaseDate) {
-      fields.push({ id: fieldIds.FECHA_COMPRA, key: 'contact.fecha_compra', field_value: truth.realFirstPurchaseDate });
-      fields.push({ id: fieldIds.FECHA_PRIMERA_COMPRA, key: 'contact.vtiger_fecha_primera_compra', field_value: truth.realFirstPurchaseDate });
+      if (fieldIds.FECHA_COMPRA) fields.push({ id: fieldIds.FECHA_COMPRA, key: 'contact.fecha_compra', field_value: truth.realFirstPurchaseDate });
+      if (fieldIds.FECHA_PRIMERA_COMPRA) fields.push({ id: fieldIds.FECHA_PRIMERA_COMPRA, key: 'contact.vtiger_fecha_primera_compra', field_value: truth.realFirstPurchaseDate });
     }
     if (truth.realLastPurchaseDate) {
-      fields.push({ id: fieldIds.FECHA_ULTIMA_COMPRA, key: 'contact.vtiger_fecha_ultima_compra', field_value: truth.realLastPurchaseDate });
-      fields.push({ id: fieldIds.FECHA_ULTIMA_FACTURA, key: 'contact.vtiger_fecha_ultima_factura', field_value: truth.realLastPurchaseDate });
+      if (fieldIds.FECHA_ULTIMA_COMPRA) fields.push({ id: fieldIds.FECHA_ULTIMA_COMPRA, key: 'contact.vtiger_fecha_ultima_compra', field_value: truth.realLastPurchaseDate });
+      if (fieldIds.FECHA_ULTIMA_FACTURA) fields.push({ id: fieldIds.FECHA_ULTIMA_FACTURA, key: 'contact.vtiger_fecha_ultima_factura', field_value: truth.realLastPurchaseDate });
     }
-    if (truth.salesCount > 0) {
+    if (truth.salesCount > 0 && fieldIds.NUM_COMPRAS) {
       fields.push({ id: fieldIds.NUM_COMPRAS, key: 'contact.spl_num_compras', field_value: String(truth.salesCount) });
     }
-    if (truth.totalSpent > 0) {
+    if (truth.totalSpent > 0 && fieldIds.PRECIO_VENTA) {
       fields.push({ id: fieldIds.PRECIO_VENTA, key: 'contact.precio_venta', field_value: String(truth.totalSpent.toFixed(2)) });
     }
   }
 
   if (vContact) {
     // Inyección de nuevos campos extendidos de vTiger
-    if (vContact.cf_3451) {
+    if (vContact.cf_3451 && fieldIds.SEDE_TIENDA_COMPRA) {
       fields.push({ id: fieldIds.SEDE_TIENDA_COMPRA, key: 'contact.vtiger_sede__tienda_compra', field_value: vContact.cf_3451 });
     }
     
@@ -168,22 +175,22 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
     if (vContact.cf_2572) {
       anotaciones += ` / PROVEEDOR: ${vContact.cf_2572}`;
     }
-    anotaciones = anotaciones.replace(/^ \/ /, '').trim(); // Clean leading slash if cf_2471 was empty
+    anotaciones = anotaciones.replace(/^ \/ /, '').trim();
     
-    if (anotaciones) {
+    if (anotaciones && fieldIds.ANOTACIONES_REDES) {
       fields.push({ id: fieldIds.ANOTACIONES_REDES, key: 'contact.vtiger_anotaciones_redes', field_value: anotaciones });
     }
 
-    if (vContact.cf_3507) {
+    if (vContact.cf_3507 && fieldIds.CANAL_CAPTACION) {
       fields.push({ id: fieldIds.CANAL_CAPTACION, key: 'contact.vtiger_canal_captacion', field_value: vContact.cf_3507 });
     }
-    if (vContact.contact_no) {
+    if (vContact.contact_no && fieldIds.CONTACT_NO) {
       fields.push({ id: fieldIds.CONTACT_NO, key: 'contact.vtiger_contact_no', field_value: vContact.contact_no });
     }
-    if (vContact.createdtime) {
+    if (vContact.createdtime && fieldIds.FECHA_CREACION_VT) {
       fields.push({ id: fieldIds.FECHA_CREACION_VT, key: 'contact.vtiger_fecha_creacion', field_value: vContact.createdtime });
     }
-    if (vContact.id) {
+    if (vContact.id && fieldIds.ID_CLIENTE_VT) {
       fields.push({ id: fieldIds.ID_CLIENTE_VT, key: 'contact.vtiger_id_cliente', field_value: vContact.id });
     }
   }

@@ -127,6 +127,12 @@ class LearningBrain {
       if (fs.existsSync(BRAIN_FILE)) {
         const raw = fs.readFileSync(BRAIN_FILE, 'utf-8');
         this.memory = JSON.parse(raw);
+        // 🛡️ Blindaje: Asegurar que el vocabulario semilla inicial siempre esté disponible
+        for (const [phrase, weights] of Object.entries(INITIAL_SEED.vocabularyWeights)) {
+          if (!this.memory.vocabularyWeights[phrase]) {
+            this.memory.vocabularyWeights[phrase] = { ...weights };
+          }
+        }
       } else {
         this.memory = JSON.parse(JSON.stringify(INITIAL_SEED));
         this.save();
@@ -140,15 +146,16 @@ class LearningBrain {
   save() {
     if (this._saveTimeout) return; // Debounce en proceso
 
-    // Poda de memoria (Limitar vocabulario a ~2000 entradas)
-    const vocabKeys = Object.keys(this.memory.vocabularyWeights);
-    if (vocabKeys.length > 2000) {
-      const sorted = vocabKeys.map(phrase => {
+    // Poda de memoria: Limitar frases aprendidas dinámicamente a 3500 sin tocar las semillas
+    const SEED_KEYS = new Set(Object.keys(INITIAL_SEED.vocabularyWeights));
+    const dynamicKeys = Object.keys(this.memory.vocabularyWeights).filter(k => !SEED_KEYS.has(k));
+    if (dynamicKeys.length > 3500) {
+      const sorted = dynamicKeys.map(phrase => {
         const sum = Object.values(this.memory.vocabularyWeights[phrase]).reduce((a, b) => a + b, 0);
         return { phrase, sum };
       }).sort((a, b) => b.sum - a.sum);
 
-      const keysToRemove = sorted.slice(2000).map(k => k.phrase);
+      const keysToRemove = sorted.slice(3500).map(k => k.phrase);
       for (const k of keysToRemove) {
         delete this.memory.vocabularyWeights[k];
       }

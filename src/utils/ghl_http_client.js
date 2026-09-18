@@ -27,16 +27,22 @@ export const GHL_HEADERS_READ = {
 };
 
 // ==========================================
-// RATE LIMITER GLOBAL ÚNICO
+// RATE LIMITER AISLADO POR SUBCUENTA
 // ==========================================
-let globalBlockedUntil = 0;
+const rateLimiters = new Map();
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function getLimiterKey(options = {}) {
+  const headers = options.headers || {};
+  const auth = headers.Authorization || headers.authorization || headers['Authorization'] || 'default';
+  return String(auth).substring(0, 25);
+}
+
 /**
- * Fetch con reintentos y rate limiter GLOBAL compartido.
+ * Fetch con reintentos y rate limiter AISLADO por subcuenta.
  * 
  * @param {string} url - URL del endpoint de GHL
  * @param {object} options - Opciones de fetch (method, headers, body)
@@ -44,12 +50,14 @@ function sleep(ms) {
  * @param {string} caller - Identificador del módulo que llama (para logs)
  * @returns {Response}
  */
-export async function ghlFetch(url, options, attempt = 1, caller = 'GHL') {
-  // Respetar el bloqueo global antes de hacer cualquier llamada
+export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
+  const limiterKey = getLimiterKey(options);
   const now = Date.now();
-  if (now < globalBlockedUntil) {
-    const waitMs = globalBlockedUntil - now;
-    console.log(`[${caller}] ⏸️ Rate limiter global activo. Esperando ${Math.ceil(waitMs / 1000)}s...`);
+  const blockedUntil = rateLimiters.get(limiterKey) || 0;
+
+  if (now < blockedUntil) {
+    const waitMs = blockedUntil - now;
+    console.log(`[${caller}] ⏸️ Rate limiter activo para subcuenta. Esperando ${Math.ceil(waitMs / 1000)}s...`);
     await sleep(waitMs);
   }
 
@@ -58,11 +66,11 @@ export async function ghlFetch(url, options, attempt = 1, caller = 'GHL') {
     const res = await fetch(url, options);
 
     if (res.status === 429) {
-      // Bloqueo GLOBAL: si cualquier módulo recibe 429, TODOS se pausan
+      // Bloqueo AISLADO: solo se pausa la subcuenta que recibió el 429
       const retryAfter = parseInt(res.headers.get('retry-after') || '60', 10);
       const blockMs = retryAfter * 1000;
-      globalBlockedUntil = Date.now() + blockMs;
-      console.warn(`[${caller}] ⚠️ GHL retornó 429. Rate Limiter GLOBAL activado por ${retryAfter}s. Todos los módulos pausados.`);
+      rateLimiters.set(limiterKey, Date.now() + blockMs);
+      console.warn(`[${caller}] ⚠️ GHL retornó 429 para subcuenta (${limiterKey.substring(0, 10)}...). Pausa de ${retryAfter}s en esta subcuenta.`);
       
       await sleep(blockMs);
       if (attempt < 4) return ghlFetch(url, options, attempt + 1, caller);
@@ -81,13 +89,17 @@ export async function ghlFetch(url, options, attempt = 1, caller = 'GHL') {
 }
 
 /**
- * Métricas del rate limiter global (para el dashboard /health)
+ * Métricas del rate limiter (para el dashboard /health)
  */
 export function getRateLimiterStatus() {
   const now = Date.now();
+  let maxBlocked = 0;
+  for (const [, blocked] of rateLimiters.entries()) {
+    if (blocked > maxBlocked) maxBlocked = blocked;
+  }
   return {
-    isBlocked: now < globalBlockedUntil,
-    blockedForMs: now < globalBlockedUntil ? globalBlockedUntil - now : 0,
-    blockedUntil: globalBlockedUntil > 0 ? new Date(globalBlockedUntil).toISOString() : null
+    isBlocked: now < maxBlocked,
+    blockedForMs: now < maxBlocked ? maxBlocked - now : 0,
+    blockedUntil: maxBlocked > 0 ? new Date(maxBlocked).toISOString() : null
   };
 }

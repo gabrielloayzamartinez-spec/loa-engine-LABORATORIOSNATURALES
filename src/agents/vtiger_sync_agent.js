@@ -114,13 +114,41 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       const truth = evaluateCommercialTruth(ghlContact, vContact);
       const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact, targetLocId);
 
-      // 4. Armar Payload de Actualización Atómica
-      const updatePayload = {
-        customFields: customFieldsToUpdate
-      };
+      const isBenavides = Boolean(
+        (targetLocId && targetLocId.includes('QXcNBK6XCgpQaZ81Z8pv')) ||
+        (ghlContact?.locationId && ghlContact.locationId.includes('QXcNBK6XCgpQaZ81Z8pv'))
+      );
 
-      // 4.1 Etiquetas Interactivas (Teléfono & Compra)
+      const idAnuncioField = isBenavides ? 'bjIdaPk0dzyuNw0RCMwn' : '6w3yMjLgIw6npUKWIosr';
+      const adIdAltField = isBenavides ? 'xYgC0RFCZZ1GagK2aaXu' : 'ujLG5Ogp94WfynVubapT';
+      const utmCampaignField = isBenavides ? 'o5AQRN1o7qkhSomgYiaG' : 'KS3iYmIjVcmFJV7MIDnT';
+      const utmSourceField = isBenavides ? 'yAi98DhTmnBuHppg9Taj' : 'L3eEulpe8II7q0UAJnKZ';
+      const utmMediumField = isBenavides ? 'XwjFGpmds9nvS3e45P5c' : 'HVjiEMKYR2feXviAZ2Jd';
+      const sedeAsignadaField = isBenavides ? 'HJLN7LVvZHVX2Rr7eJma' : '7SgOMq4Aeti7gN1SqVN6';
+      const origenLeadField = isBenavides ? 'Vw6usJnpwuBScBm4yiSY' : 'cN6NrhXqMlEhyp35g7bs';
+      const tieneTelefonoField = isBenavides ? '0PvAaqJs7aERycth9mKW' : null;
+
+      if (vContact.cf_2850) {
+        customFieldsToUpdate.push({ id: idAnuncioField, key: 'contact.id_de_anuncio', field_value: String(vContact.cf_2850).trim() });
+        customFieldsToUpdate.push({ id: adIdAltField, key: 'contact.ad_id', field_value: String(vContact.cf_2850).trim() });
+      }
+      if (vContact.cf_3472) {
+        customFieldsToUpdate.push({ id: utmCampaignField, key: 'contact.utm_campaign', field_value: String(vContact.cf_3472).trim() });
+      }
+      customFieldsToUpdate.push({ id: utmSourceField, key: 'contact.utm_source', field_value: 'facebook' });
+      customFieldsToUpdate.push({ id: utmMediumField, key: 'contact.utm_medium', field_value: 'cpc' });
+      customFieldsToUpdate.push({ id: sedeAsignadaField, key: 'contact.sede_asignada', field_value: isBenavides ? 'BENAVIDES' : 'PALACIOS' });
+      if (vContact.cf_3507) {
+        customFieldsToUpdate.push({ id: origenLeadField, key: 'contact.origen_lead', field_value: String(vContact.cf_3507).trim() });
+      }
+
+      // 4. Armar Payload de Actualización Atómica
+      // 4.1 Etiquetas Interactivas (Teléfono & Compra & vTiger Sync)
       const hasPhone = Boolean(ghlContact.phone || vContact.mobile || vContact.phone);
+      if (tieneTelefonoField) {
+        customFieldsToUpdate.push({ id: tieneTelefonoField, key: 'contact.tiene_telfono', field_value: hasPhone ? 'Sí' : 'No' });
+      }
+
       const newTagsSet = new Set((ghlContact.tags || []).map(t => String(t).trim()));
 
       if (hasPhone) {
@@ -131,12 +159,28 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
         newTagsSet.delete('con-telefono');
       }
 
+      newTagsSet.add('vtiger');
+      newTagsSet.add('vtiger-sincronizado');
+
       if (truth.isWon) {
         newTagsSet.add('compro');
         newTagsSet.delete('no-compro');
+        newTagsSet.add('cliente-vtiger');
+        newTagsSet.delete('prospecto-vtiger');
       } else {
         newTagsSet.add('no-compro');
         newTagsSet.delete('compro');
+        newTagsSet.add('prospecto-vtiger');
+        newTagsSet.delete('cliente-vtiger');
+      }
+
+      if (vContact.cf_994) {
+        const vStClean = String(vContact.cf_994).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        if (vStClean) newTagsSet.add(`vtiger-status-${vStClean}`);
+      }
+      if (vContact.cf_3507) {
+        const vCanalClean = String(vContact.cf_3507).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        if (vCanalClean) newTagsSet.add(`canal-${vCanalClean}`);
       }
 
       // 4.2 Refuerzo de Etiquetas de Producto (vTiger manda sobre GHL)
@@ -157,12 +201,10 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
         }
       }
       
-      updatePayload.tags = Array.from(newTagsSet);
-
-      // Limpieza de strings vacíos
-      for (const key of Object.keys(updatePayload.customFields)) {
-        if (updatePayload.customFields[key] === '') delete updatePayload.customFields[key];
-      }
+      const updatePayload = {
+        customFields: customFieldsToUpdate.filter(cf => cf && cf.id && cf.field_value !== ''),
+        tags: Array.from(newTagsSet)
+      };
 
       // 5. Inyectar a GHL (Custom Fields y Tags sanados) con headers específicos de subcuenta
       const targetHeaders = getGhlHeaders({ locationId: targetLocId });

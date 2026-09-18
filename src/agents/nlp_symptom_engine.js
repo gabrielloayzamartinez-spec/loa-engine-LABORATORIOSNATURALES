@@ -120,7 +120,7 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
   const topScore = sortedTreatments.length > 0 ? scores[sortedTreatments[0]] : 0;
   const primaryTreatment = topScore >= 100 ? sortedTreatments[0] : null;
   const productTags = sortedTreatments
-    .filter(t => scores[t] >= 100)
+    .filter(t => scores[t] >= 300 && (scores[t] >= topScore * 0.5 || t === primaryTreatment))
     .map(t => `producto-${t.toLowerCase()}`);
 
   return {

@@ -152,13 +152,13 @@ async function runExpressAssignment() {
 
     let countNew = 0;
 
-    for (const loc of targetLocations) {
-      if (!loc.id) continue;
+    await Promise.all(targetLocations.map(async (loc) => {
+      if (!loc.id) return;
       const url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc.id}&limit=20&sortBy=date_updated`;
       const res = await fetchWithRetry(url, { headers: loc.headers });
       if (res.status !== 200) {
         console.warn(`[${timeStr}] [Worker 1] Status API (${loc.name}): ${res.status} - Verifica credenciales de subcuenta.`);
-        continue;
+        return;
       }
 
       const data = await res.json();
@@ -213,10 +213,10 @@ async function runExpressAssignment() {
           stats.contactsProcessed++;
         }
         
-        // Rate-Limit Shield: 1500ms estrictos entre contactos
-        await sleep(1500);
+        // Rate-Limit Shield: 1200ms entre contactos dentro de cada sede
+        await sleep(1200);
       }
-    }
+    }));
 
     if (countNew === 0) {
       console.log(`[${timeStr}] [Worker 1] 🟢 Radar en vivo activo. (Sin mensajes nuevos en los últimos 30 min - Esperando tráfico...)`);
@@ -235,8 +235,8 @@ async function runExpressAssignment() {
 // Único ciclo activo continuo: cada 20 segundos para webhooks
 setInterval(runExpressAssignment, 20000);
 
-// 🛡️ GUARDIÁN CONTINUO DE BANDEJAS SIN ASIGNAR (MULTI-SEDE: PALACIOS & BENAVIDES)
-// Barre cada 45 segundos para garantizar que ningún lead quede "Sin asignar"
+// 🛡️ GUARDIÁN CONTINUO DE BANDEJAS SIN ASIGNAR (MULTI-SEDE EN SIMULTÁNEO: PALACIOS & BENAVIDES)
+// Barre cada 45 segundos en paralelo para garantizar que ningún lead quede "Sin asignar"
 let isUnassignedGuardianRunning = false;
 async function runUnassignedConversationsGuardian() {
   if (isUnassignedGuardianRunning) return;
@@ -247,20 +247,20 @@ async function runUnassignedConversationsGuardian() {
       { id: SEDES_GATEWAY.BENAVIDES.ghl.locationId, headers: getGhlHeaders({ locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId }), name: 'Benavides' }
     ];
 
-    for (const loc of targetLocations) {
-      if (!loc.id) continue;
+    await Promise.all(targetLocations.map(async (loc) => {
+      if (!loc.id) return;
       const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=30`;
       const res = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
-      if (res.status !== 200) continue;
+      if (res.status !== 200) return;
 
       const data = await res.json();
       const unassigned = (data.conversations || []).filter(c => !c.assignedTo && c.contactId);
       for (const conv of unassigned) {
         console.log(`[Unassigned Guardian] 🚨 Lead sin asignar detectado en ${loc.name}: ${conv.contactName || 'Lead'} (${conv.contactId}). Enrutando...`);
         await routeChatByContact(conv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
-        await sleep(1500);
+        await sleep(1200);
       }
-    }
+    }));
   } catch (gErr) {
     console.error('[Unassigned Guardian Error]:', gErr.message);
   } finally {
@@ -821,6 +821,7 @@ app.post('/webhook/ghl-contact', async (req, res) => {
       // safe fallback
     }
     let contactData = contactPayload.contact || contactPayload;
+    const effectiveLocId = contactData.locationId || req.body?.locationId || contactPayload?.location_id || locationId;
 
     // Si el payload no tiene ID de GHL, debemos crearlo/actualizarlo (Upsert) primero
     if (!contactData.id) {
@@ -833,7 +834,6 @@ app.post('/webhook/ghl-contact', async (req, res) => {
          safeEmail = `${cleanName}-${Date.now()}@vtigermigrated.com`;
       }
 
-      const effectiveLocId = contactData.locationId || req.body?.locationId || locationId;
       const upsertBody = {
         locationId: effectiveLocId,
         firstName: contactData.firstName,
@@ -870,20 +870,20 @@ app.post('/webhook/ghl-contact', async (req, res) => {
       return res.status(400).send({ error: 'Missing contact data or ID' });
     }
 
-    // AGENTE 1: FAST SYNC INMEDIATO (Push-based, sin saturar API)
+    // AGENTE 1: FAST SYNC INMEDIATO (Push-based, fluido y sin delay)
     // Extraemos UTMs y Ad ID del payload del webhook para inyectarlos en los Custom Fields.
     // Worker 1 / Worker 3: Ingesta Inmediata y Ruteo Inteligente
-    setTimeout(async () => {
+    setImmediate(async () => {
       try {
         await routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId });
-        if (global.pushLiveLog) global.pushLiveLog(`[WORKER] Worker 1 Webhook: Ruteado e hidratado ${contactData.id}`);
+        if (global.pushLiveLog) global.pushLiveLog(`[WORKER] Worker 1 Webhook: Ruteado e hidratado ${contactData.id} (${effectiveLocId})`);
       } catch (err) {
         console.error("[Worker 1 Webhook Error]:", err.message);
       }
-    }, 1000); // Pequeño delay de 1 seg para asegurar que GHL terminó de indexar
+    });
 
     stats.webhooksReceived++;
-    res.status(200).send({ success: true, message: 'Webhook payload received and upserted successfully' });
+    res.status(200).send({ success: true, message: 'Webhook payload received and queued for immediate processing' });
 
   } catch (error) {
     console.error("[Webhook Error]:", error.message);
@@ -963,6 +963,20 @@ app.post('/webhook/vtiger', async (req, res) => {
       });
       stats.vtigerSynced = (stats.vtigerSynced || 0) + 1;
       stats.vtigerStatus = '🟢 Conectado y Aprendiendo';
+    }
+
+    // Sincronización instantánea hacia GHL si el webhook trae datos de contacto (Prioridad Nivel 1)
+    const phone = payload.mobile || payload.phone || payload.homephone || payload.telefono;
+    const email = payload.email;
+    if (phone || email) {
+      setImmediate(async () => {
+        try {
+          const { runVTigerToGHLPoller } = await import('./agents/vtiger_sync_agent.js');
+          await runVTigerToGHLPoller(2);
+        } catch (vSyncErr) {
+          console.error("[vTiger Webhook Sync Error]:", vSyncErr.message);
+        }
+      });
     }
   } catch (err) {
     console.error("[vTiger Webhook Error]:", err.message);
