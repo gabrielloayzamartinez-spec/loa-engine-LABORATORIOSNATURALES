@@ -22,7 +22,7 @@ export const SEDES_GATEWAY = {
     vtigerSedeName: 'PALACIOS',
     ghl: {
       apiKey: process.env.GHL_API_KEY_PALACIOS || process.env.GHL_API_KEY || '',
-      locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || ''
+      locationId: process.env.GHL_LOCATION_ID_PALACIOS || process.env.GHL_LOCATION_ID || 'ATPYNnsfZ1W8sd6WgWIV'
     },
     meta: {
       appId: process.env.META_APP_ID_PALACIOS || '',
@@ -59,7 +59,7 @@ export const SEDES_GATEWAY = {
     vtigerSedeName: 'BENAVIDES',
     ghl: {
       apiKey: process.env.GHL_API_KEY_BENAVIDES || '',
-      locationId: process.env.GHL_LOCATION_ID_BENAVIDES || ''
+      locationId: process.env.GHL_LOCATION_ID_BENAVIDES || 'QXcNBK6XCgpQaZ81Z8pv'
     },
     meta: {
       appId: process.env.META_APP_ID_BENAVIDES || '',

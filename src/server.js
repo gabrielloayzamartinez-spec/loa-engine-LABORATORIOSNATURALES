@@ -146,7 +146,7 @@ async function runExpressAssignment() {
   try {
     const timeStr = new Date().toLocaleTimeString('es-PE', { hour12: false });
     const targetLocations = [
-      { id: locationId, headers: HEADERS_CONTACTS, name: 'Palacios' },
+      { id: locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId, headers: HEADERS_CONTACTS, name: 'Palacios' },
       { id: SEDES_GATEWAY.BENAVIDES.ghl.locationId, headers: getGhlHeaders({ locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId }), name: 'Benavides' }
     ];
 
@@ -154,10 +154,10 @@ async function runExpressAssignment() {
 
     for (const loc of targetLocations) {
       if (!loc.id) continue;
-      const url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc.id}&limit=5&sortBy=date_updated`;
+      const url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc.id}&limit=20&sortBy=date_updated`;
       const res = await fetchWithRetry(url, { headers: loc.headers });
       if (res.status !== 200) {
-        console.log(`[${timeStr}] [Worker 1] Status API (${loc.name}): ${res.status}`);
+        console.warn(`[${timeStr}] [Worker 1] Status API (${loc.name}): ${res.status} - Verifica credenciales de subcuenta.`);
         continue;
       }
 
@@ -166,13 +166,23 @@ async function runExpressAssignment() {
 
       // Capturar también actividad reciente en conversaciones (Facebook Messenger / DM)
       try {
-        const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=5`;
+        const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=20`;
         const convRes = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
         if (convRes.status === 200) {
           const convData = await convRes.json();
           for (const cv of (convData.conversations || [])) {
-            if (cv.contactId && !contacts.some(c => c.id === cv.contactId)) {
-              contacts.push({ id: cv.contactId, dateUpdated: cv.lastMessageDate, firstName: cv.contactName || 'Lead Chat' });
+            if (cv.contactId) {
+              const existing = contacts.find(c => c.id === cv.contactId);
+              if (!existing) {
+                contacts.push({
+                  id: cv.contactId,
+                  dateUpdated: cv.lastMessageDate,
+                  firstName: cv.contactName || 'Lead Chat',
+                  isUnassigned: !cv.assignedTo
+                });
+              } else if (!cv.assignedTo) {
+                existing.isUnassigned = true;
+              }
             }
           }
         }
@@ -182,8 +192,8 @@ async function runExpressAssignment() {
         const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
         const lastProcessedUpdate = processedContactTimestamps.get(contact.id) || 0;
         
-        // Si ya procesamos esta actualización exacta, saltamos (previene loops infinitos)
-        if (updatedAt <= lastProcessedUpdate) continue;
+        // Si ya procesamos esta actualización exacta Y el contacto ya está asignado, saltamos (previene loops)
+        if (updatedAt <= lastProcessedUpdate && !contact.isUnassigned) continue;
 
         const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
         // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
@@ -224,6 +234,40 @@ async function runExpressAssignment() {
 
 // Único ciclo activo continuo: cada 20 segundos para webhooks
 setInterval(runExpressAssignment, 20000);
+
+// 🛡️ GUARDIÁN CONTINUO DE BANDEJAS SIN ASIGNAR (MULTI-SEDE: PALACIOS & BENAVIDES)
+// Barre cada 45 segundos para garantizar que ningún lead quede "Sin asignar"
+let isUnassignedGuardianRunning = false;
+async function runUnassignedConversationsGuardian() {
+  if (isUnassignedGuardianRunning) return;
+  isUnassignedGuardianRunning = true;
+  try {
+    const targetLocations = [
+      { id: locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId, headers: HEADERS_CONTACTS, name: 'Palacios' },
+      { id: SEDES_GATEWAY.BENAVIDES.ghl.locationId, headers: getGhlHeaders({ locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId }), name: 'Benavides' }
+    ];
+
+    for (const loc of targetLocations) {
+      if (!loc.id) continue;
+      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=30`;
+      const res = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
+      if (res.status !== 200) continue;
+
+      const data = await res.json();
+      const unassigned = (data.conversations || []).filter(c => !c.assignedTo && c.contactId);
+      for (const conv of unassigned) {
+        console.log(`[Unassigned Guardian] 🚨 Lead sin asignar detectado en ${loc.name}: ${conv.contactName || 'Lead'} (${conv.contactId}). Enrutando...`);
+        await routeChatByContact(conv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
+        await sleep(1500);
+      }
+    }
+  } catch (gErr) {
+    console.error('[Unassigned Guardian Error]:', gErr.message);
+  } finally {
+    isUnassignedGuardianRunning = false;
+  }
+}
+setInterval(runUnassignedConversationsGuardian, 45000);
 
 // Demonio Inverso: Sincroniza cambios de vTiger -> GHL cada 3 minutos (180,000 ms)
 import { runVTigerToGHLPoller } from './agents/vtiger_sync_agent.js';
@@ -761,6 +805,7 @@ app.get('/', (req, res) => res.redirect('/health'));
 
 app.post('/webhook/ghl-contact', async (req, res) => {
   try {
+    const contactPayload = req.body || {};
     const logPath = path.join(process.cwd(), 'scratch', 'webhook_logs.txt');
     try {
       if (fs.existsSync(logPath)) {
@@ -850,9 +895,9 @@ app.post('/webhook/ghl-contact', async (req, res) => {
 // ==========================================
 app.post('/webhook/chat-router', async (req, res) => {
   try {
-    const payload = req.body;
-    let contactId = payload.contactId || (payload.contact && payload.contact.id);
-    const targetLoc = payload.locationId || req.query?.locationId;
+    const payload = req.body || {};
+    let contactId = payload.contactId || payload.contact_id || payload.id || (payload.contact && payload.contact.id);
+    const targetLoc = payload.locationId || payload.location_id || req.query?.locationId || req.query?.location_id;
     
     if (!contactId) {
       return res.status(400).send({ error: 'Falta contactId en el payload.' });
