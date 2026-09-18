@@ -116,7 +116,18 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
   const cleanPhone = ghlContact.phone ? ghlContact.phone.replace(/\D/g, '') : '';
   const firstName = sanitizeForVtigerQuery(ghlContact.firstName);
   const lastName = sanitizeForVtigerQuery(ghlContact.lastName);
-  const targetSedeUpper = (targetSede || ghlContact?.targetSede || ghlContact?.sede || '').toUpperCase().trim();
+
+  // 🛡️ RESOLUCIÓN INFALIBLE DE SEDE OBJETIVO:
+  let targetSedeUpper = (targetSede || ghlContact?.targetSede || ghlContact?.sede || '').toUpperCase().trim();
+  if (!targetSedeUpper && ghlContact?.locationId) {
+    if (ghlContact.locationId.includes('QXcNBK6XCgpQaZ81Z8pv')) targetSedeUpper = 'BENAVIDES';
+    else if (ghlContact.locationId.includes('k7A6VqEevA3Ec2nhyL3d') || ghlContact.locationId.includes('ATPYNnsfZ1W8sd6WgWIV')) targetSedeUpper = 'PALACIOS';
+    else if (ghlContact.locationId.includes('ROOSEVELT')) targetSedeUpper = 'ROOSEVELT';
+    else if (ghlContact.locationId.includes('PIURA')) targetSedeUpper = 'PIURA';
+  }
+
+  // Cláusula SQL física para aislamiento de sede
+  const sedeClause = targetSedeUpper ? ` AND cf_3451 = '${targetSedeUpper}'` : '';
   
   // ────────────────────────────────────────────
   // ESTRATEGIA 0: Búsqueda Directa por Teléfono (10 dígitos exactos - Estados Unidos NANP)
@@ -127,21 +138,22 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
   if (cleanPhone && cleanPhone.length >= 10) {
     const last10 = cleanPhone.slice(-10);
     try {
-      const qPhone = `SELECT * FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}' OR mobile = '${cleanPhone}' OR phone = '${cleanPhone}' LIMIT 5;`;
-      const phoneMatches = await queryVTiger(qPhone);
+      const qPhone = `SELECT * FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}' OR mobile = '${cleanPhone}' OR phone = '${cleanPhone}' LIMIT 10;`;
+      let phoneMatches = await queryVTiger(qPhone);
       if (phoneMatches && phoneMatches.length > 0) {
-        // Prioridad 0 (Aislamiento de Sede): Match exacto en la sede objetivo actual
+        // Blindaje estricto: Si hay sede objetivo, exigir coincidencia estricta. CERO FALLBACK a otra sede.
         if (targetSedeUpper) {
-          const sedeMatch = phoneMatches.find(v => (v.cf_3451 || '').toUpperCase().trim() === targetSedeUpper);
-          if (sedeMatch) return sedeMatch;
+          phoneMatches = phoneMatches.filter(v => (v.cf_3451 || '').toUpperCase().trim() === targetSedeUpper);
         }
 
-        // Prioridad A: Match con compras registradas
-        const withSales = phoneMatches.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
-        if (withSales) return withSales;
+        if (phoneMatches.length > 0) {
+          // Prioridad A: Match con compras registradas
+          const withSales = phoneMatches.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
+          if (withSales) return withSales;
 
-        // Prioridad B: Primer match disponible
-        return phoneMatches[0];
+          // Prioridad B: Primer match disponible dentro de la sede
+          return phoneMatches[0];
+        }
       }
     } catch (pErr) {
       console.warn(`[VTiger API] [WARN] Error en búsqueda directa por teléfono (${last10}):`, pErr.message);
@@ -149,50 +161,72 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
   }
   
   // ────────────────────────────────────────────
-  // ESTRATEGIA 1: Búsqueda por Nombre + Apellido (LIKE para tolerancia a tildes/variaciones)
+  // ESTRATEGIA 1: Búsqueda por Nombre + Apellido
   // ────────────────────────────────────────────
   if (firstName.length >= 2 && lastName.length >= 2) {
-    // Intentar primero con igualdad exacta (más rápido)
-    let q = `SELECT * FROM Contacts WHERE firstname = '${firstName}' AND lastname = '${lastName}';`;
+    // 1. Intentar primero con igualdad exacta + filtro de sede
+    let q = `SELECT * FROM Contacts WHERE firstname = '${firstName}' AND lastname = '${lastName}'${sedeClause};`;
     let potentialContacts = await queryVTiger(q);
     
-    // Si no hay resultados exactos, intentar con LIKE (tolerante a tildes)
+    // 2. Si no hay resultados exactos, intentar con LIKE + filtro de sede
     if (!potentialContacts || potentialContacts.length === 0) {
-      // Tomar los primeros 3 caracteres como ancla para LIKE
       const fnPrefix = firstName.substring(0, Math.min(4, firstName.length));
       const lnPrefix = lastName.substring(0, Math.min(4, lastName.length));
-      q = `SELECT * FROM Contacts WHERE firstname LIKE '${fnPrefix}%' AND lastname LIKE '${lnPrefix}%';`;
+      q = `SELECT * FROM Contacts WHERE firstname LIKE '${fnPrefix}%' AND lastname LIKE '${lnPrefix}%'${sedeClause};`;
       potentialContacts = await queryVTiger(q);
     }
     
     if (potentialContacts && potentialContacts.length > 0) {
-      // Prioridad 0 (Aislamiento de Sede): Match exacto en la sede objetivo actual
+      // 🛡️ REGLA 1 (AISLAMIENTO ABSOLUTO): Filtrar estrictamente por la sede objetivo
       if (targetSedeUpper) {
-        const sedeMatch = potentialContacts.find(v => (v.cf_3451 || '').toUpperCase().trim() === targetSedeUpper);
-        if (sedeMatch) return sedeMatch;
+        potentialContacts = potentialContacts.filter(v => (v.cf_3451 || '').toUpperCase().trim() === targetSedeUpper);
       }
 
-      // Prioridad 1: Match exacto por teléfono
+      // Si no hay ningún contacto para esta sede, retorno NULL de inmediato (CERO FALLBACK A OTRAS SEDES)
+      if (potentialContacts.length === 0) {
+        return null;
+      }
+
+      // 🛡️ REGLA 2 (BLINDAJE DE HOMÓNIMOS POR TELÉFONO):
+      // Si el lead en GHL ya tiene un número telefónico conocido,
+      // comparamos contra los teléfonos que tenga el candidato en vTiger.
+      // Si el candidato tiene teléfonos y NINGUNO coincide con el lead, es un homónimo diferente -> DESCARTADO.
       if (cleanPhone) {
+        const matchingByPhone = [];
+        const withoutPhone = [];
+        
         for (const v of potentialContacts) {
           const vPhones = [v.homephone, v.mobile, v.phone, v.otherphone].filter(Boolean);
-          if (vPhones.some(p => phonesMatch(cleanPhone, p))) {
-            return v;
+          if (vPhones.length > 0) {
+            if (vPhones.some(p => phonesMatch(cleanPhone, p))) {
+              matchingByPhone.push(v);
+            }
+            // Si tiene teléfonos pero ninguno coincide, NO se agrega (homónimo rechazado)
+          } else {
+            // El candidato en vTiger no tiene teléfono registrado
+            withoutPhone.push(v);
           }
         }
+
+        if (matchingByPhone.length > 0) {
+          const withSales = matchingByPhone.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
+          return withSales || matchingByPhone[0];
+        }
+
+        // Si todos los candidatos tenían teléfonos y ninguno coincidió, ABORTAR vinculación
+        if (withoutPhone.length === 0) {
+          console.log(`[VTiger API] [SEDE-SHIELD] Homónimo de ${firstName} ${lastName} en sede ${targetSedeUpper} descartado por teléfono en conflicto.`);
+          return null;
+        }
+
+        // Si hay candidatos en la misma sede sin teléfono registrado, nos quedamos con ellos
+        potentialContacts = withoutPhone;
       }
-      
-      // Prioridad 2: Si solo hay 1 resultado y los nombres coinciden suficientemente, devolverlo
-      if (potentialContacts.length === 1) {
-        return potentialContacts[0];
-      }
-      
-      // Prioridad 3: Si hay múltiples resultados sin teléfono para desempatar,
-      // devolver el que tenga compras (más probable que sea relevante)
+
+      // Prioridad: El que tenga compras dentro de la sede
       const withSales = potentialContacts.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
       if (withSales) return withSales;
       
-      // Si nada desempata, devolver el primero
       return potentialContacts[0];
     }
   }
@@ -203,9 +237,14 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
   const email = ghlContact.email;
   if (email && email.includes('@')) {
     const cleanEmail = sanitizeForVtigerQuery(email);
-    const q = `SELECT * FROM Contacts WHERE email = '${cleanEmail}' LIMIT 1;`;
-    const contacts = await queryVTiger(q);
-    if (contacts.length > 0) return contacts[0];
+    const q = `SELECT * FROM Contacts WHERE email = '${cleanEmail}'${sedeClause} LIMIT 1;`;
+    let contacts = await queryVTiger(q);
+    if (contacts && contacts.length > 0) {
+      if (targetSedeUpper) {
+        contacts = contacts.filter(v => (v.cf_3451 || '').toUpperCase().trim() === targetSedeUpper);
+      }
+      if (contacts.length > 0) return contacts[0];
+    }
   }
   
   // ────────────────────────────────────────────
@@ -214,11 +253,14 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
   if (cleanPhone && (firstName.length >= 3 || lastName.length >= 3)) {
     const nameToSearch = lastName.length >= 3 ? lastName : firstName;
     const field = lastName.length >= 3 ? 'lastname' : 'firstname';
-    const q = `SELECT * FROM Contacts WHERE ${field} = '${nameToSearch}' LIMIT 20;`;
+    const q = `SELECT * FROM Contacts WHERE ${field} = '${nameToSearch}'${sedeClause} LIMIT 20;`;
     try {
-      const contacts = await queryVTiger(q);
+      let contacts = await queryVTiger(q);
       if (contacts && contacts.length > 0) {
-        // Solo devolver si hay match de teléfono (evitar falsos positivos)
+        if (targetSedeUpper) {
+          contacts = contacts.filter(v => (v.cf_3451 || '').toUpperCase().trim() === targetSedeUpper);
+        }
+        // Solo devolver si hay match de teléfono estricto
         for (const v of contacts) {
           const vPhones = [v.homephone, v.mobile, v.phone, v.otherphone].filter(Boolean);
           if (vPhones.some(p => phonesMatch(cleanPhone, p))) {

@@ -449,11 +449,19 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const shippingData = extractShippingData(combinedText, contact.phone);
     const effectivePhone = contact.phone || (shippingData?.hasPhone ? shippingData.phone : null);
 
-    // 🏢 C. GROUND TRUTH DE VTIGER CRM: Verdad Clínica y Comercial Confirmada
     let vtigerTreatment = null;
     let vContact = null;
     try {
       vContact = await findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName);
+      if (vContact) {
+        // 🛡️ SEDE-SHIELD: Bloqueo total de contacto de otra sede
+        const vSede = (vContact.cf_3451 || '').toUpperCase().trim();
+        const curSede = (currentSedeName || '').toUpperCase().trim();
+        if (vSede && curSede && vSede !== curSede) {
+          console.warn(`[Agente 3] [SEDE-SHIELD] Bloqueado match vTiger ${vContact.id} (Sede: ${vSede}) para subcuenta de ${curSede}. Contacto invalidado.`);
+          vContact = null;
+        }
+      }
       if (vContact) {
         const vCond = vContact.cf_2610 || '';
         vtigerTreatment = inferTreatmentFromCampaignOrUtm(vCond) || (vCond.length > 2 ? vCond : null);
@@ -674,6 +682,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // La mudanza de sede entre subcuentas ya no existe. Cada contacto pertenece a la sede de su subcuenta.
     const isMudanzaDeSede = false;
     newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
+
+    // 🧹 Purga forzosa de etiquetas obsoletas de mudanza que hayan quedado de sincronizaciones previas
+    const MUDANZA_OBSOLETE_TAGS = ['mudanza-desde-palacios', 'mudanza-desde-benavides', 'mudanza-de-sede', 'mudanza-gracia-expirada'];
+    for (const mTag of MUDANZA_OBSOLETE_TAGS) {
+      if (newTagsSet.has(mTag)) {
+        newTagsSet.delete(mTag);
+        tagsToRemove.push(mTag);
+      }
+    }
 
     // Alerta de Lead Caliente (Teléfono o Dirección)
     if (shippingData.isHotLead) {

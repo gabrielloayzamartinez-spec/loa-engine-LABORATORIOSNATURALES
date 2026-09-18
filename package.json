@@ -5,7 +5,7 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "test": "node src/tests/test_audit_engine.js && node src/tests/test_commercial_engine.js && node src/tests/test_cooldown_mudanza.js && node src/tests/test_doble_ingreso.js",
+    "test": "node src/tests/test_audit_engine.js && node src/tests/test_commercial_engine.js && node src/tests/test_cooldown_mudanza.js && node src/tests/test_doble_ingreso.js && node src/tests/test_sede_isolation.js",
     "start": "node src/server.js",
     "start:all": "concurrently \"npm run start:node\" \"npm run start:python\"",
     "start:node": "node src/server.js",

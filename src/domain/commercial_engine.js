@@ -105,13 +105,24 @@ export const COMMERCIAL_FIELD_IDS_BENAVIDES = {
 };
 
 export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null, locationId = null) {
-  const truth = evaluateCommercialTruth(ghlContact, vContact);
-  const fields = [];
-
   const isBenavides = Boolean(
     (locationId && locationId.includes('QXcNBK6XCgpQaZ81Z8pv')) ||
     (ghlContact?.locationId && ghlContact.locationId.includes('QXcNBK6XCgpQaZ81Z8pv'))
   );
+  const expectedSede = isBenavides ? 'BENAVIDES' : 'PALACIOS';
+
+  // 🛡️ SEDE-SHIELD: Validar que el vContact pertenezca a la misma sede de la subcuenta GHL
+  let validVContact = vContact;
+  if (validVContact && validVContact.cf_3451) {
+    const vSede = String(validVContact.cf_3451).trim().toUpperCase();
+    if (vSede && vSede !== expectedSede) {
+      console.warn(`[CommercialEngine] [SEDE-SHIELD] Bloqueado vContact ${validVContact.id} (${vSede}) para subcuenta de ${expectedSede}.`);
+      validVContact = null;
+    }
+  }
+
+  const truth = evaluateCommercialTruth(ghlContact, validVContact);
+  const fields = [];
   const fieldIds = isBenavides ? COMMERCIAL_FIELD_IDS_BENAVIDES : COMMERCIAL_FIELD_IDS;
 
   // Estado comercial y estatus del contacto
@@ -168,37 +179,37 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
     }
   }
 
-  if (vContact) {
-    // Inyección de nuevos campos extendidos de vTiger
-    if (vContact.cf_3451 && fieldIds.SEDE_TIENDA_COMPRA) {
-      fields.push({ id: fieldIds.SEDE_TIENDA_COMPRA, key: 'contact.vtiger_sede__tienda_compra', field_value: vContact.cf_3451 });
+  if (validVContact) {
+    // Inyección de nuevos campos extendidos de vTiger legítimos de la misma sede
+    if (validVContact.cf_3451 && fieldIds.SEDE_TIENDA_COMPRA) {
+      fields.push({ id: fieldIds.SEDE_TIENDA_COMPRA, key: 'contact.vtiger_sede__tienda_compra', field_value: validVContact.cf_3451 });
     }
     
     // Anotaciones Redes (incluyendo Sexo y Proveedor si existen)
-    let anotaciones = String(vContact.cf_2471 || '').trim();
-    if (vContact.cf_2821 && vContact.cf_2821 !== '--') {
-      anotaciones += ` / SEXO: ${vContact.cf_2821}`;
+    let anotaciones = String(validVContact.cf_2471 || '').trim();
+    if (validVContact.cf_2821 && validVContact.cf_2821 !== '--') {
+      anotaciones += ` / SEXO: ${validVContact.cf_2821}`;
     }
-    if (vContact.cf_2572) {
-      anotaciones += ` / PROVEEDOR: ${vContact.cf_2572}`;
+    if (validVContact.cf_2572) {
+      anotaciones += ` / PROVEEDOR: ${validVContact.cf_2572}`;
     }
     anotaciones = anotaciones.replace(/^ \/ /, '').trim();
     
-    if (anotaciones && fieldIds.ANOTACIONES_REDES) {
+    if (fieldIds.ANOTACIONES_REDES) {
       fields.push({ id: fieldIds.ANOTACIONES_REDES, key: 'contact.vtiger_anotaciones_redes', field_value: anotaciones });
     }
 
-    if (vContact.cf_3507 && fieldIds.CANAL_CAPTACION) {
-      fields.push({ id: fieldIds.CANAL_CAPTACION, key: 'contact.vtiger_canal_captacion', field_value: vContact.cf_3507 });
+    if (validVContact.cf_3507 && fieldIds.CANAL_CAPTACION) {
+      fields.push({ id: fieldIds.CANAL_CAPTACION, key: 'contact.vtiger_canal_captacion', field_value: validVContact.cf_3507 });
     }
-    if (vContact.contact_no && fieldIds.CONTACT_NO) {
-      fields.push({ id: fieldIds.CONTACT_NO, key: 'contact.vtiger_contact_no', field_value: vContact.contact_no });
+    if (validVContact.contact_no && fieldIds.CONTACT_NO) {
+      fields.push({ id: fieldIds.CONTACT_NO, key: 'contact.vtiger_contact_no', field_value: validVContact.contact_no });
     }
-    if (vContact.createdtime && fieldIds.FECHA_CREACION_VT) {
-      fields.push({ id: fieldIds.FECHA_CREACION_VT, key: 'contact.vtiger_fecha_creacion', field_value: vContact.createdtime });
+    if (validVContact.createdtime && fieldIds.FECHA_CREACION_VT) {
+      fields.push({ id: fieldIds.FECHA_CREACION_VT, key: 'contact.vtiger_fecha_creacion', field_value: validVContact.createdtime });
     }
-    if (vContact.id && fieldIds.ID_CLIENTE_VT) {
-      fields.push({ id: fieldIds.ID_CLIENTE_VT, key: 'contact.vtiger_id_cliente', field_value: vContact.id });
+    if (validVContact.id && fieldIds.ID_CLIENTE_VT) {
+      fields.push({ id: fieldIds.ID_CLIENTE_VT, key: 'contact.vtiger_id_cliente', field_value: validVContact.id });
     }
   }
 

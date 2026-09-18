@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
   "stats": {
-    "totalInferences": 249,
-    "learnedFromSales": 174,
+    "totalInferences": 250,
+    "learnedFromSales": 175,
     "learnedFromAdvisors": 0,
     "falsePositivesPenalized": 1,
-    "lastLearnedAt": "2026-09-18T15:10:32.149Z"
+    "lastLearnedAt": "2026-09-18T16:18:36.687Z"
   },
   "treatments": [
     "Potencia",
@@ -200,7 +200,8 @@
       "Artritis": 10
     },
     "5903": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "6204": {
       "Potencia": 10
@@ -251,7 +252,8 @@
       "Diabetes": 10
     },
     "77033": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "78501": {
       "Artritis": 10
@@ -283,11 +285,14 @@
     "3195948803": {
       "Diabetes": 10
     },
+    "3466066945": {
+      "Potencia": 10
+    },
     "3473441844": {
       "Potencia": 10
     },
     "muestra gratis potencia": {
-      "Potencia": 185,
+      "Potencia": 195,
       "Diabetes": 40,
       "Artritis": 130
     },
@@ -304,7 +309,7 @@
       "Potencia": 20
     },
     "potencia": {
-      "Potencia": 180,
+      "Potencia": 190,
       "Diabetes": 50,
       "Artritis": 150
     },
@@ -312,7 +317,7 @@
       "Potencia": 10
     },
     "rendimiento": {
-      "Potencia": 116,
+      "Potencia": 126,
       "Diabetes": 40,
       "Artritis": 110
     },
@@ -483,13 +488,13 @@
     },
     "muy": {
       "Artritis": 90,
-      "Potencia": 70,
+      "Potencia": 80,
       "Diabetes": 70
     },
     "muy amable": {
       "Artritis": 40,
       "Diabetes": 60,
-      "Potencia": 40
+      "Potencia": 50
     },
     "muy amable jose": {
       "Artritis": 10,
@@ -498,7 +503,7 @@
     "amable": {
       "Artritis": 40,
       "Diabetes": 60,
-      "Potencia": 40
+      "Potencia": 50
     },
     "amable jose": {
       "Artritis": 10,
@@ -524,140 +529,140 @@
     "breve": {
       "Artritis": 80,
       "Diabetes": 80,
-      "Potencia": 50
+      "Potencia": 60
     },
     "breve nos": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "breve nos comunicaremos": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "nos": {
       "Artritis": 150,
       "Diabetes": 110,
-      "Potencia": 150
+      "Potencia": 160
     },
     "nos comunicaremos": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 60
+      "Potencia": 70
     },
     "nos comunicaremos contigo": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 60
+      "Potencia": 70
     },
     "comunicaremos": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 60
+      "Potencia": 70
     },
     "comunicaremos contigo": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 60
+      "Potencia": 70
     },
     "comunicaremos contigo muestra": {
       "Artritis": 40,
       "Diabetes": 60,
-      "Potencia": 40
+      "Potencia": 50
     },
     "contigo": {
       "Artritis": 60,
       "Diabetes": 80,
-      "Potencia": 60
+      "Potencia": 70
     },
     "contigo muestra": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 40
+      "Potencia": 50
     },
     "contigo muestra gratis": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 40
+      "Potencia": 50
     },
     "muestra gratis": {
       "Artritis": 860,
       "Gastro": 50,
       "Diabetes": 380,
-      "Potencia": 290
+      "Potencia": 300
     },
     "muestra gratis solo": {
       "Artritis": 50,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "gratis solo": {
       "Artritis": 50,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "gratis solo activa": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "solo": {
       "Artritis": 640,
       "Diabetes": 290,
-      "Potencia": 190,
+      "Potencia": 200,
       "Gastro": 30
     },
     "solo activa": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "solo activa hoy": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "activa": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "activa hoy": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "activa hoy atender": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "hoy": {
       "Artritis": 580,
-      "Potencia": 170,
+      "Potencia": 180,
       "Diabetes": 210,
       "Gastro": 40
     },
     "hoy atender": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "hoy atender llamada": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "atender": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "atender llamada": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "atender llamada 831": {
       "Artritis": 10
@@ -665,7 +670,7 @@
     "llamada": {
       "Artritis": 40,
       "Diabetes": 70,
-      "Potencia": 50
+      "Potencia": 60
     },
     "llamada 831": {
       "Artritis": 10
@@ -692,16 +697,19 @@
       "Artritis": 10
     },
     "opportunity": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "opportunity created": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "opportunity created finalizar": {
       "Artritis": 10
     },
     "created": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "created finalizar": {
       "Artritis": 10
@@ -767,7 +775,7 @@
     "entrega": {
       "Artritis": 570,
       "Diabetes": 240,
-      "Potencia": 180,
+      "Potencia": 190,
       "Gastro": 30
     },
     "entrega jose": {
@@ -878,7 +886,7 @@
     "direccion": {
       "Artritis": 530,
       "Diabetes": 220,
-      "Potencia": 160,
+      "Potencia": 170,
       "Gastro": 30
     },
     "direccion 305": {
@@ -1147,7 +1155,7 @@
     "tienes": {
       "Artritis": 520,
       "Gastro": 40,
-      "Potencia": 160,
+      "Potencia": 170,
       "Diabetes": 170
     },
     "tienes esos": {
@@ -1202,13 +1210,13 @@
     "buenos": {
       "Artritis": 710,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "buenos dias": {
       "Artritis": 710,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "buenos dias dolor": {
@@ -1217,7 +1225,7 @@
     "dias": {
       "Artritis": 710,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "dias dolor": {
@@ -1559,7 +1567,7 @@
     "naturales": {
       "Artritis": 180,
       "Diabetes": 50,
-      "Potencia": 90
+      "Potencia": 100
     },
     "naturales apartamos": {
       "Artritis": 70,
@@ -1587,13 +1595,13 @@
     "una": {
       "Artritis": 650,
       "Diabetes": 260,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "una muestra": {
       "Artritis": 640,
       "Diabetes": 260,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "una muestra productos": {
@@ -1702,67 +1710,67 @@
     "asegurarnos": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "asegurarnos recibas": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "asegurarnos recibas muestra": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "recibas": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "recibas muestra": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "recibas muestra gratis": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "muestra gratis envianos": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "gratis envianos": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "gratis envianos registrarte": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "envianos": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "envianos registrarte": {
       "Artritis": 690,
       "Diabetes": 230,
-      "Potencia": 200,
+      "Potencia": 210,
       "Gastro": 30
     },
     "envianos registrarte mary": {
@@ -1771,7 +1779,7 @@
     "registrarte": {
       "Artritis": 700,
       "Diabetes": 230,
-      "Potencia": 210,
+      "Potencia": 220,
       "Gastro": 30
     },
     "registrarte mary": {
@@ -1814,877 +1822,877 @@
     },
     "sabemos": {
       "Diabetes": 220,
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 470,
       "Gastro": 30
     },
     "sabemos algo": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "sabemos algo afecta": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "algo": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "algo afecta": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "algo afecta nuestra": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "afecta": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "afecta nuestra": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "afecta nuestra vitalidad": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "nuestra": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "nuestra vitalidad": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "nuestra vitalidad rendimiento": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "vitalidad": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "vitalidad rendimiento": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "vitalidad rendimiento tambien": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "rendimiento tambien": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "rendimiento tambien puede": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "tambien": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 140
     },
     "tambien puede": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "tambien puede influir": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "puede": {
       "Diabetes": 190,
-      "Potencia": 160,
+      "Potencia": 170,
       "Artritis": 530,
       "Gastro": 30
     },
     "puede influir": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "puede influir nos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "influir": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "influir nos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "influir nos sentimos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "nos sentimos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "nos sentimos recordamos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "sentimos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "sentimos recordamos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "sentimos recordamos contamos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "recordamos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "recordamos contamos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "recordamos contamos formulas": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "contamos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 140
     },
     "contamos formulas": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "contamos formulas naturales": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "formulas": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "formulas naturales": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "formulas naturales seguras": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "naturales seguras": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "naturales seguras equipo": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "seguras": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "seguras equipo": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "seguras equipo especialistas": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "equipo": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "equipo especialistas": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "equipo especialistas listos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "especialistas": {
       "Diabetes": 230,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Gastro": 30
     },
     "especialistas listos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "especialistas listos orientarte": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "listos": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "listos orientarte": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "listos orientarte total": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "orientarte": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 470,
       "Gastro": 30
     },
     "orientarte total": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "orientarte total discrecion": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "total": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "total discrecion": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "total discrecion sin": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "discrecion": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 110
     },
     "discrecion sin": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "discrecion sin compromiso": {
       "Diabetes": 40,
-      "Potencia": 90,
+      "Potencia": 100,
       "Artritis": 100
     },
     "sin": {
       "Diabetes": 230,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 570,
       "Gastro": 40
     },
     "sin compromiso": {
       "Diabetes": 220,
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Gastro": 30
     },
     "sin compromiso dejanos": {
       "Diabetes": 220,
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 470,
       "Gastro": 30
     },
     "compromiso": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 570,
       "Gastro": 40
     },
     "compromiso dejanos": {
       "Diabetes": 220,
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 470,
       "Gastro": 30
     },
     "compromiso dejanos guiarte": {
       "Diabetes": 220,
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 470,
       "Gastro": 30
     },
     "dejanos": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 550,
       "Gastro": 30
     },
     "dejanos guiarte": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Gastro": 30
     },
     "dejanos guiarte mejor": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Gastro": 30
     },
     "guiarte": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Gastro": 30
     },
     "guiarte mejor": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Gastro": 30
     },
     "guiarte mejor has": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Gastro": 30
     },
     "mejor": {
       "Diabetes": 240,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 520,
       "Gastro": 30
     },
     "mejor has": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Gastro": 30
     },
     "mejor has sido": {
       "Diabetes": 220,
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Gastro": 30
     },
     "has": {
       "Diabetes": 220,
-      "Potencia": 160,
+      "Potencia": 170,
       "Artritis": 510,
       "Gastro": 30
     },
     "has sido": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "has sido elegido": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "sido": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "sido elegido": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "sido elegido recibir": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "elegido": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "elegido recibir": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "elegido recibir una": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "recibir": {
       "Diabetes": 230,
-      "Potencia": 160,
+      "Potencia": 170,
       "Artritis": 550,
       "Gastro": 30
     },
     "recibir una": {
       "Diabetes": 220,
-      "Potencia": 160,
+      "Potencia": 170,
       "Artritis": 550,
       "Gastro": 30
     },
     "recibir una muestra": {
       "Diabetes": 220,
-      "Potencia": 160,
+      "Potencia": 170,
       "Artritis": 510,
       "Gastro": 30
     },
     "una muestra gratuita": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "muestra gratuita": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "muestra gratuita texto": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "gratuita": {
       "Diabetes": 230,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 520,
       "Gastro": 30
     },
     "gratuita texto": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "gratuita texto men": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "texto": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "texto men": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "texto men recupera": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "men": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "men recupera": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "men recupera energia": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "recupera": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "recupera energia": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "recupera energia deseo": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "energia": {
       "Diabetes": 50,
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 170,
       "Gastro": 10
     },
     "energia deseo": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "energia deseo firmeza": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "deseo": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "deseo firmeza": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "deseo firmeza potencia": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "firmeza": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "firmeza potencia": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "firmeza potencia confianza": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "potencia confianza": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "potencia confianza solo": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "confianza": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "confianza solo": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "confianza solo necesitamos": {
       "Diabetes": 40,
-      "Potencia": 100,
+      "Potencia": 110,
       "Artritis": 110
     },
     "solo necesitamos": {
       "Diabetes": 220,
-      "Potencia": 160,
+      "Potencia": 170,
       "Artritis": 520,
       "Gastro": 30
     },
     "solo necesitamos direccion": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "necesitamos": {
       "Diabetes": 220,
-      "Potencia": 160,
+      "Potencia": 170,
       "Artritis": 520,
       "Gastro": 30
     },
     "necesitamos direccion": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "necesitamos direccion garantizar": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "direccion garantizar": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "direccion garantizar una": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "garantizar": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "garantizar una": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "garantizar una entrega": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "una entrega": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "una entrega segura": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "entrega segura": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "entrega segura puntual": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "segura": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "segura puntual": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "segura puntual cupos": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "puntual": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "puntual cupos": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "puntual cupos limitados": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "cupos": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "cupos limitados": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "cupos limitados aprovecha": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "limitados": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "limitados aprovecha": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "limitados aprovecha oportunidad": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "aprovecha": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "aprovecha oportunidad": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "aprovecha oportunidad unica": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "oportunidad": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 550,
       "Gastro": 30
     },
     "oportunidad unica": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "oportunidad unica bienestar": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "unica": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "unica bienestar": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "unica bienestar natural": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "bienestar": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 520,
       "Gastro": 30
     },
     "bienestar natural": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "bienestar natural buenos": {
       "Diabetes": 210,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 510,
       "Gastro": 30
     },
     "natural": {
       "Diabetes": 220,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 540,
       "Gastro": 30
     },
     "natural buenos": {
       "Diabetes": 210,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 520,
       "Gastro": 30
     },
     "natural buenos dias": {
       "Diabetes": 210,
-      "Potencia": 150,
+      "Potencia": 160,
       "Artritis": 520,
       "Gastro": 30
     },
@@ -2833,7 +2841,7 @@
     },
     "gratis potencia": {
       "Diabetes": 40,
-      "Potencia": 160,
+      "Potencia": 170,
       "Artritis": 130
     },
     "buenos dias josefina": {
@@ -3265,283 +3273,283 @@
       "Potencia": 20
     },
     "puede ser": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 500,
       "Diabetes": 160,
       "Gastro": 30
     },
     "puede ser momento": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "ser": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 500,
       "Diabetes": 160,
       "Gastro": 30
     },
     "ser momento": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "ser momento marque": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "momento": {
-      "Potencia": 230,
+      "Potencia": 240,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "momento marque": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "momento marque diferencia": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "marque": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "marque diferencia": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "marque diferencia hoy": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "diferencia": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "diferencia hoy": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "diferencia hoy tienes": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "hoy tienes": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "hoy tienes oportunidad": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "tienes oportunidad": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "tienes oportunidad recibir": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "oportunidad recibir": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "oportunidad recibir una": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "recibir una nuestras": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "una nuestras": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "una nuestras ultimas": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "nuestras": {
-      "Potencia": 140,
+      "Potencia": 150,
       "Artritis": 480,
       "Diabetes": 170,
       "Gastro": 30
     },
     "nuestras ultimas": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "nuestras ultimas muestras": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "ultimas": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "ultimas muestras": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "ultimas muestras gratis": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "muestras": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "muestras gratis": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "muestras gratis dejes": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "gratis dejes": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "gratis dejes pasar": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "dejes": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "dejes pasar": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "dejes pasar oportunidad": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "pasar": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "pasar oportunidad": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "pasar oportunidad mejorar": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "oportunidad mejorar": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "oportunidad mejorar salud": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "mejorar": {
-      "Potencia": 160,
+      "Potencia": 170,
       "Diabetes": 200,
       "Artritis": 500,
       "Gastro": 30
     },
     "mejorar salud": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 490,
       "Diabetes": 160,
       "Gastro": 30
     },
     "mejorar salud dejanos": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
     },
     "salud": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 500,
       "Diabetes": 160,
       "Gastro": 30
     },
     "salud dejanos": {
-      "Potencia": 130,
+      "Potencia": 140,
       "Artritis": 480,
       "Diabetes": 150,
       "Gastro": 30
@@ -5459,85 +5467,104 @@
     },
     "eduardo": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "eduardo intentamos": {
-      "Diabetes": 10
+      "Diabetes": 10,
+      "Potencia": 10
     },
     "eduardo intentamos llamarte": {
-      "Diabetes": 10
+      "Diabetes": 10,
+      "Potencia": 10
     },
     "intentamos": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "intentamos llamarte": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "intentamos llamarte nos": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "llamarte": {
       "Diabetes": 20,
-      "Artritis": 30
+      "Artritis": 30,
+      "Potencia": 10
     },
     "llamarte nos": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "llamarte nos redirigio": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "nos redirigio": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "nos redirigio buzon": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "redirigio": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "redirigio buzon": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "redirigio buzon voz": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "buzon": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "buzon voz": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "buzon voz correcto": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "voz": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "voz correcto": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "voz correcto 862251": {
       "Diabetes": 10
     },
     "correcto": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "correcto 862251": {
       "Diabetes": 10
@@ -5560,30 +5587,37 @@
     "tenemos": {
       "Diabetes": 20,
       "Artritis": 20,
-      "Potencia": 10
+      "Potencia": 20
     },
     "tenemos muy": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "tenemos muy amable": {
       "Diabetes": 20,
-      "Artritis": 20
+      "Artritis": 20,
+      "Potencia": 10
     },
     "muy amable eduardo": {
-      "Diabetes": 10
+      "Diabetes": 10,
+      "Potencia": 10
     },
     "amable eduardo": {
-      "Diabetes": 10
+      "Diabetes": 10,
+      "Potencia": 10
     },
     "amable eduardo breve": {
-      "Diabetes": 10
+      "Diabetes": 10,
+      "Potencia": 10
     },
     "eduardo breve": {
-      "Diabetes": 10
+      "Diabetes": 10,
+      "Potencia": 10
     },
     "eduardo breve nos": {
-      "Diabetes": 10
+      "Diabetes": 10,
+      "Potencia": 10
     },
     "atender llamada 862": {
       "Diabetes": 10
@@ -6964,47 +6998,47 @@
     },
     "faltando": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "faltando hacerte": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "faltando hacerte llegar": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "hacerte": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "hacerte llegar": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "hacerte llegar muestra": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "llegar": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "llegar muestra": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "llegar muestra gratis": {
       "Diabetes": 10,
-      "Potencia": 10,
+      "Potencia": 20,
       "Artritis": 10
     },
     "muestra gratis comprendo": {
@@ -8914,97 +8948,128 @@
       "Artritis": 10
     },
     "eduardo sabemos": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "eduardo sabemos algo": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "buenos dias eduardo": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "dias eduardo": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "dias eduardo asegurarnos": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "eduardo asegurarnos": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "eduardo asegurarnos recibas": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "envianos registrarte eduardo": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "registrarte eduardo": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "registrarte eduardo faltando": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "eduardo faltando": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "eduardo faltando hacerte": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "muestra gratis 5903": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "gratis 5903": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "gratis 5903 glenhurst": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "5903 glenhurst": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "5903 glenhurst houston": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "glenhurst": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "glenhurst houston": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "glenhurst houston texas": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "houston": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "houston texas": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "houston texas 77033": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "texas": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "texas 77033": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "texas 77033 envien": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "77033 envien": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "77033 envien muestra": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "envien": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "envien muestra": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "envien muestra gratis": {
-      "Artritis": 10
+      "Artritis": 10,
+      "Potencia": 10
     },
     "lucy": {
       "Artritis": 10
@@ -9575,6 +9640,60 @@
     },
     "piden": {
       "Potencia": 10
+    },
+    "voz correcto 3466066945": {
+      "Potencia": 10
+    },
+    "correcto 3466066945": {
+      "Potencia": 10
+    },
+    "correcto 3466066945 tenemos": {
+      "Potencia": 10
+    },
+    "3466066945 tenemos": {
+      "Potencia": 10
+    },
+    "3466066945 tenemos muy": {
+      "Potencia": 10
+    },
+    "atender llamada 3466066945": {
+      "Potencia": 10
+    },
+    "llamada 3466066945": {
+      "Potencia": 10
+    },
+    "llamada 3466066945 eduardo": {
+      "Potencia": 10
+    },
+    "3466066945 eduardo": {
+      "Potencia": 10
+    },
+    "3466066945 eduardo puede": {
+      "Potencia": 10
+    },
+    "eduardo puede": {
+      "Potencia": 10
+    },
+    "eduardo puede ser": {
+      "Potencia": 10
+    },
+    "salud dejanos opportunity": {
+      "Potencia": 10
+    },
+    "dejanos opportunity": {
+      "Potencia": 10
+    },
+    "dejanos opportunity created": {
+      "Potencia": 10
+    },
+    "opportunity created eduardo": {
+      "Potencia": 10
+    },
+    "created eduardo": {
+      "Potencia": 10
+    },
+    "created eduardo sabemos": {
+      "Potencia": 10
     }
   },
   "campaignWeights": {
@@ -9602,7 +9721,7 @@
     "bio collagen plus m benavides cesar": {
       "Artritis": 435,
       "Diabetes": 90,
-      "Potencia": 300
+      "Potencia": 315
     },
     "diabetes benavides cesar": {
       "Gastro": 75,
