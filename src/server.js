@@ -16,6 +16,7 @@ import { syncVtigerGroundTruthToBrain, checkVTigerHealth } from './services/vtig
 import { processVtigerRetryQueue, getVtigerQueueCount } from './services/vtiger_retry_queue.js';
 import { tokenBucketQueue } from './services/token_bucket_queue.js';
 import { runBackgroundCuratorCycle, getCuratorMetrics } from './services/background_curator.js';
+import { runForwardCure, runBackwardCure, getBiCuratorMetrics } from './services/curador_bidireccional_service.js';
 const app = express();
 app.use(express.json());
 
@@ -1020,8 +1021,36 @@ app.get('/api/brain/metrics', (req, res) => {
   res.json({
     learningBrain: learningBrain.getMetrics(),
     tokenBucket: tokenBucketQueue.getMetrics(),
-    curator: getCuratorMetrics()
+    curator: getCuratorMetrics(),
+    biCurator: getBiCuratorMetrics()
   });
+});
+
+app.get('/api/curator/status', (req, res) => {
+  res.json({
+    success: true,
+    biCurator: getBiCuratorMetrics(),
+    backgroundCurator: getCuratorMetrics()
+  });
+});
+
+app.post('/api/curator/run', async (req, res) => {
+  const { sede = 'BENAVIDES', mode = 'forward', limit = 20 } = req.body || {};
+  try {
+    let result;
+    if (mode === 'forward') {
+      result = await runForwardCure(sede, { limit });
+    } else if (mode === 'backward') {
+      result = await runBackwardCure(sede, { limit });
+    } else {
+      const fwd = await runForwardCure(sede, { limit });
+      const bwd = await runBackwardCure(sede, { limit });
+      result = { forward: fwd, backward: bwd };
+    }
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.get('/api/audit/report', (req, res) => {
@@ -1085,6 +1114,27 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   setInterval(() => {
     runBackgroundCuratorCycle(20).catch(err => console.error('[Background Curator Error]:', err.message));
   }, 5 * 60 * 1000);
+
+  // 🩺 CURADOR BI-DIRECCIONAL MULTI-SEDE:
+  // 1. MODO 1: "Del Ahora en Adelante" (Forward / En Vivo) - Cada 25s cura leads y chats frescos
+  setInterval(async () => {
+    try {
+      await runForwardCure('BENAVIDES', { limit: 15 });
+    } catch (e) {}
+    try {
+      await runForwardCure('PALACIOS', { limit: 15 });
+    } catch (e) {}
+  }, 25 * 1000);
+
+  // 2. MODO 2: "Del Ahora para Atrás" (Backward / Histórico Profundo) - Cada 60s procesa 20 contactos
+  let backwardTurn = 0;
+  setInterval(async () => {
+    backwardTurn++;
+    const targetSede = (backwardTurn % 2 === 1) ? 'BENAVIDES' : 'PALACIOS';
+    try {
+      await runBackwardCure(targetSede, { limit: 20 });
+    } catch (e) {}
+  }, 60 * 1000);
 
   // Calibración Periódica de vTiger (Cada 30 min)
   setInterval(() => {

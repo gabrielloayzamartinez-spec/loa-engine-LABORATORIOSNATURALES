@@ -939,7 +939,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     if (!hasChanges) {
       console.log(`[Agente 3] [SYNC] Contacto ${contactId} ya está 100% sincronizado. Omitiendo PUT para evitar parpadeos en pantalla.`);
-      return;
+      return 'UNCHANGED';
     }
 
     // 🧹 Limpieza final del payload para evitar 400 Bad Request por strings vacíos
@@ -1023,6 +1023,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           isMudanzaDeSede: false
         }, { locationId: activeLocationId, headers: activeHeaders });
       }
+      return 'SUCCESS';
     } else {
       const errText = await updateRes.text();
       const isDuplicateConflict = updateRes.status === 400 && errText.includes('duplicated contacts') && errText.includes('matchingField');
@@ -1066,7 +1067,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
                    console.log(`[Agente 3] [WARN] No se pudo insertar la nota de rescate: ${noteErr.message}`);
                  }
                }
-               return;
+               return 'SUCCESS';
             } else {
                console.error(`[Agente 3] [ERROR] [AUTO-HEAL] Auto-Heal falló para ${contactId}. Status: ${retryRes.status}`);
             }
@@ -1088,6 +1089,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
   } catch (error) {
     console.error(`[Agente 3] Error crítico en routeChatByContact:`, error.message);
+    return 'ERROR';
   } finally {
     releaseContactLock(contactId);
   }

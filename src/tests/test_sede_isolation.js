@@ -63,4 +63,26 @@ assert.strictEqual(statusComercial?.field_value, 'SIN VENTA');
 assert.strictEqual(fechaCompra?.field_value, '');
 console.log('✅ Test 3 Pasado: Purga de fechas falsas y estatus SIN VENTA intactos.');
 
+// Test 4: Purga de campos contaminados de Palacios en contacto de Benavides
+console.log('\nTest 4: Purga campos de Palacios heredados previamente si el lead no existe en vTiger Benavides...');
+const ghlContaminatedBenavides = {
+  id: 'lead-contaminated',
+  locationId: 'QXcNBK6XCgpQaZ81Z8pv',
+  customFields: [
+    { id: COMMERCIAL_FIELD_IDS_BENAVIDES.SEDE_TIENDA_COMPRA, value: 'PALACIOS' },
+    { id: COMMERCIAL_FIELD_IDS_BENAVIDES.CONTACT_NO, value: 'CON34449' },
+    { id: COMMERCIAL_FIELD_IDS_BENAVIDES.ID_CLIENTE_VT, value: '12x387529' }
+  ]
+};
+
+const purgedFields = buildSanitizedCommercialFields(ghlContaminatedBenavides, null, 'QXcNBK6XCgpQaZ81Z8pv');
+const purgedSede = purgedFields.find(f => f.id === COMMERCIAL_FIELD_IDS_BENAVIDES.SEDE_TIENDA_COMPRA);
+const purgedContactNo = purgedFields.find(f => f.id === COMMERCIAL_FIELD_IDS_BENAVIDES.CONTACT_NO);
+const purgedIdVT = purgedFields.find(f => f.id === COMMERCIAL_FIELD_IDS_BENAVIDES.ID_CLIENTE_VT);
+
+assert.strictEqual(purgedSede?.field_value, '', 'ERROR: No se purgó la sede ajena');
+assert.strictEqual(purgedContactNo?.field_value, '', 'ERROR: No se purgó el contact_no ajeno');
+assert.strictEqual(purgedIdVT?.field_value, '', 'ERROR: No se purgó el id_cliente ajeno');
+console.log('✅ Test 4 Pasado: Campos de Palacios purgados a vacío en Benavides.');
+
 console.log('\n🎉 TODAS LAS PRUEBAS DE AISLAMIENTO DE SEDE (SEDE-LOCK / SEDE-SHIELD) PASARON AL 100%.');

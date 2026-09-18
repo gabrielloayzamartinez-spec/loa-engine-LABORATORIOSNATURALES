@@ -211,6 +211,21 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
     if (validVContact.id && fieldIds.ID_CLIENTE_VT) {
       fields.push({ id: fieldIds.ID_CLIENTE_VT, key: 'contact.vtiger_id_cliente', field_value: validVContact.id });
     }
+  } else {
+    // 🧹 PURGA QUIRÚRGICA DE CAMPOS CONTAMINADOS:
+    // Si el contacto no tiene registro en vTiger para esta sede, pero en GHL tenía datos heredados erróneamente de otra oficina,
+    // purgar de raíz sede ajena, contact_no ajeno, id_cliente ajeno y anotaciones de otra sede.
+    const existingCFs = ghlContact.customFields || [];
+    const existingSede = existingCFs.find(f => f.id === fieldIds.SEDE_TIENDA_COMPRA)?.value;
+    const existingIdVT = existingCFs.find(f => f.id === fieldIds.ID_CLIENTE_VT)?.value;
+    const existingContactNo = existingCFs.find(f => f.id === fieldIds.CONTACT_NO)?.value;
+
+    if (existingSede && String(existingSede).toUpperCase().trim() !== expectedSede) {
+      if (fieldIds.SEDE_TIENDA_COMPRA) fields.push({ id: fieldIds.SEDE_TIENDA_COMPRA, key: 'contact.vtiger_sede__tienda_compra', field_value: '' });
+      if (existingContactNo && fieldIds.CONTACT_NO) fields.push({ id: fieldIds.CONTACT_NO, key: 'contact.vtiger_contact_no', field_value: '' });
+      if (existingIdVT && fieldIds.ID_CLIENTE_VT) fields.push({ id: fieldIds.ID_CLIENTE_VT, key: 'contact.vtiger_id_cliente', field_value: '' });
+      if (fieldIds.ANOTACIONES_REDES) fields.push({ id: fieldIds.ANOTACIONES_REDES, key: 'contact.vtiger_anotaciones_redes', field_value: '' });
+    }
   }
 
   return fields;
