@@ -39,14 +39,20 @@ export const SEDES_GATEWAY = {
     ],
     users: {
       ernesto: {
-        id: 'G1mp9WCw9jwkNhnSZ2ER',
-        name: 'REDES PALACIOS ERNESTO',
+        id: '8LuTk9jzt5BeaKLxdVru',
+        name: 'REDES 1 ERNESTO',
         email: 'fb.palacios.1@gmail.com',
         role: 'ACCOUNT-USER'
       },
       ultra: {
-        id: 'mOA8p7H0G3MC0TEWrlKf',
-        name: 'REDES PALACIOS ULTRA',
+        id: 'RrzgEyi2VOKIJ7Tf54SR',
+        name: 'REDES 2 CLICK2RING',
+        email: 'fb.palacios.2ultra@gmail.com',
+        role: 'ACCOUNT-USER'
+      },
+      click2ring: {
+        id: 'RrzgEyi2VOKIJ7Tf54SR',
+        name: 'REDES 2 CLICK2RING',
         email: 'fb.palacios.2ultra@gmail.com',
         role: 'ACCOUNT-USER'
       }

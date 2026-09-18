@@ -140,15 +140,15 @@ export const FB_PAGE_ID_MAP = {
 // ==========================================
 export const PALACIOS_USERS = {
   "naturales bionatural": {
-    id: "G1mp9WCw9jwkNhnSZ2ER",
-    name: "REDES PALACIOS ERNESTO",
+    id: "8LuTk9jzt5BeaKLxdVru",
+    name: "REDES 1 ERNESTO",
     email: "fb.palacios.1@gmail.com",
     pages: ["Naturales BioNatural", "Laboratorios Naturales BIO"],
     fbPageIds: ["566501466542620", "718150351371765"]
   },
   "bionatural ultra": {
-    id: "mOA8p7H0G3MC0TEWrlKf",
-    name: "REDES PALACIOS ULTRA",
+    id: "RrzgEyi2VOKIJ7Tf54SR",
+    name: "REDES 2 CLICK2RING",
     email: "fb.palacios.2ultra@gmail.com",
     pages: ["BioNatural - Ultra"],
     fbPageIds: ["111906554968800"]

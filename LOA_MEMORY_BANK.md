@@ -41,16 +41,23 @@
 - Pre-flight sanity check (`test_audit_engine.js`) validado al 100% (10/10 reglas aprobadas).
 
 ### E. Matriz de Proveedores y Pauta Conectada (Sede PALACIOS)
+- **Nueva Subcuenta Palacios (Limpia, Alto Rendimiento):**
+  - Location ID: `5NqOaPYqWyIw2FPBfoRg`
+  - Token API: `pit-8148816f-fe78-4db8-9b5c-7c6713284b0e`
+  - Embudo Maestro: `🚀 Embudo Comercial (Redes - Palacios)` (`YCZePq7oBz7XREDAPtsj`)
 - **Regla Oficial ULTRA:** "Todo lo que viene de pauta de ULTRA proviene de CLICK2RING".
   - Fanpage: `BioNatural - Ultra` (`111906554968800`).
-  - Responsable: `REDES PALACIOS ULTRA` (`mOA8p7H0G3MC0TEWrlKf`).
+  - Responsable: `REDES 2 CLICK2RING` (`RrzgEyi2VOKIJ7Tf54SR` / `fb.palacios.2ultra@gmail.com`).
   - Proveedor: `CLICK2RING`.
-  - Origen generado: `PALACIOS-CLICK2RING-FB-MSGR-[PADECIMIENTO]`. Sede fijada canónicamente en `PALACIOS` (purgado `PALACIOS_ULTRA` inexistente en vTiger).
+  - Origen generado: `PALACIOS-CLICK2RING-FB-MSGR-[PADECIMIENTO]`. Sede fijada canónicamente en `PALACIOS`.
 - **Regla Oficial NATURALES BIONATURAL:**
   - Fanpage: `Naturales BioNatural` (`566501466542620`) y `Laboratorios Naturales BIO` (`718150351371765`).
-  - Responsable: `REDES PALACIOS ERNESTO` (`G1mp9WCw9jwkNhnSZ2ER`).
+  - Responsable: `REDES 1 ERNESTO` (`8LuTk9jzt5BeaKLxdVru` / `fb.palacios.1@gmail.com`).
   - Si el conjunto/campaña dice `IN HOUSE` (ej: `TETOSTERONA - IN HOUSE - ...`): Proveedor = `IN_HOUSE`, Origen = `PALACIOS-IN_HOUSE-FB-MSGR-[PADECIMIENTO]`.
   - Si dice `ERNESTO` o por defecto en esta fanpage: Proveedor = `ERNESTO`, Origen = `PALACIOS-ERNESTO-FB-MSGR-[PADECIMIENTO]`.
+- **Subcuenta Histórica Central Universal (400k Contactos):**
+  - Location ID: `ATPYNnsfZ1W8sd6WgWIV` (`pit-4d48784c-23cd-466d-a6b2-4850138e35d0`)
+  - Rol: Bóveda histórica universal sin ruteo activo (`allowActiveRouting: false`). Preserva consultas y telemetría histórica sin saturar buffers ni generar colas de ruteo.
 - **Captura en Vivo de `adsetName`:** Conectado directamente desde Meta Graph API (`getMetaAdDetails`) hacia `chat_router_agent.js` para detección instantánea de padecimientos y proveedores.
 
 ### F. Estrategia 0: Vinculación Inmediata por Teléfono (0.2s)
