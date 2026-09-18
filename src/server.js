@@ -263,6 +263,21 @@ setInterval(() => {
 // ==========================================
 // 3. HTTP ENDPOINTS, DASHBOARD & WEBHOOKS
 // ==========================================
+app.get('/', (req, res) => res.redirect('/health'));
+
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    sedes: {
+      palacios: { locationId: locationId, active: true },
+      benavides: { locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId, active: true }
+    },
+    vtiger: vtigerConnectionStatus,
+    meta: metaConnectionStatus,
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/health', (req, res) => {
   const healData = getHealMetrics();
   res.send(`
