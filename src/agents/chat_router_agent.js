@@ -99,49 +99,10 @@ export async function saveAdHistoryNote(contactId, params, options = {}) {
 /**
  * 📌 Save Process: Inyecta una Nota Histórica de MUDANZA DE SEDE AUTORIZADA en GHL
  */
-export async function saveMudanzaHistoryNote(contactId, {
-  previousSede,
-  previousSource,
-  currentSede,
-  newSource,
-  advisorName,
-  pageName,
-  campaign,
-  motivo,
-  timeDiffStr,
-  isCustomerWon,
-  vContact
-}, options = {}) {
-  const dateStr = new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
-  const noteBody = `🚨 [MUDANZA DE SEDE AUTORIZADA - TIEMPO DE GRACIA EXPIRADO]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Fecha y Hora: ${dateStr} (EST)
-• Procedencia / Sede Anterior: ${previousSede || 'Sede Externa'}
-• Origen Anterior: ${previousSource || 'N/A'}
-• Nueva Sede Receptora: ${currentSede}
-• Nuevo Origen Asignado: ${newSource}
-• Asesor Comercial Asignado: ${advisorName || 'N/A'}
-• Fanpage de Reingreso: ${pageName || 'N/A'}
-• Campaña / Pauta: ${campaign || 'Directa / Orgánica'}
-• Justificación de Traspaso: ${motivo} (${timeDiffStr})
-• Condición del Contacto: ${isCustomerWon ? 'CLIENTE VENDIDO (+30d sin recompra)' : 'PROSPECTO SIN VENTA (+4d / 96h)'}
-${vContact ? `• Historial vTiger: ID ${vContact.id} | Compras: ${vContact.spl_num_compras || '0'} | Total: $${vContact.cf_3392 || '0'}` : ''}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Protocolo de Exclusividad y Tiempos de Gracia
-LOA Engine - Laboratorios Naturales`;
-
-  const targetHeaders = options.headers || getGhlHeaders({ locationId: options.locationId || locationId });
-  try {
-    const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
-    await fetchWithRetry(noteUrl, {
-      method: 'POST',
-      headers: targetHeaders,
-      body: JSON.stringify({ body: noteBody })
-    });
-    console.log(`[Agente 3] [MUDANZA-NOTE] Tarjeta de nota histórica de mudanza inyectada para contacto ${contactId}`);
-  } catch (err) {
-    console.error(`[Agente 3 Mudanza Note Error]:`, err.message);
-  }
+export async function saveMudanzaHistoryNote(contactId, params = {}, options = {}) {
+  // En la arquitectura multi-tenant de subcuentas aisladas, cada subcuenta es soberana
+  // y la mudanza de sede no existe. Preservado como no-op seguro para retrocompatibilidad.
+  return null;
 }
 
 const HEADERS = GHL_HEADERS;
@@ -230,74 +191,45 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${activeLocationId}&contactId=${contactId}`;
     const convRes = await fetchWithRetry(convUrl, { headers: activeHeaders }, 1, isLive);
     
-    if (convRes.status !== 200) {
-      console.log(`[Agente 3] No se pudieron obtener las conversaciones para ${contactId}. Status: ${convRes.status}`);
-      if (convRes.status >= 500) return 'RETRY';
-      return;
-    }
-
-    const convData = await convRes.json();
-    const conversations = convData.conversations || [];
-    
-    if (conversations.length === 0) {
-      const retries = indexingRetries.get(contactId) || 0;
-      if (retries < 2) {
-        console.log(`[Agente 3] [WAIT] Posible delay de indexación para ${contactId}. Conversaciones vacías. Reintentando en próximo ciclo (Intento ${retries + 1}/2).`);
-        indexingRetries.set(contactId, retries + 1);
-        return 'RETRY_INDEXING';
-      }
-      console.log(`[Agente 3] Sin conversaciones indexadas tras 2 reintentos para ${contactId}. Ignorando.`);
-      indexingRetries.delete(contactId);
-      return;
-    }
-
-    // Usaremos la conversación más reciente
-    const convId = conversations[0].id;
-
-    // 3. Traer los últimos mensajes (pedimos unos 20 para ver el historial cercano)
-    const msgUrl = `https://services.leadconnectorhq.com/conversations/${convId}/messages?locationId=${activeLocationId}&limit=20`;
-    const msgRes = await fetchWithRetry(msgUrl, { headers: activeHeaders }, 1, isLive);
-    
-    if (msgRes.status !== 200) {
-      console.log(`[Agente 3] No se pudieron obtener los mensajes para la conv ${convId}. Status: ${msgRes.status}`);
-      if (msgRes.status >= 500) return 'RETRY';
-      return;
-    }
-
-    const msgData = await msgRes.json();
-    const allMessages = msgData.messages?.messages || [];
-    
-    // Ordenar todos los mensajes de más reciente a más antiguo
-    allMessages.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
-
-    // 4. Extraer solo los mensajes entrantes relacionados a una PageID de FB
+    let allMessages = [];
     let fbMessages = [];
-    for (const m of allMessages) {
-      const fbMeta = m.meta?.fb || {};
-      const pageId = fbMeta.fromPageId || fbMeta.pageId;
-      if (pageId) {
-        const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
-        const validAd = rawAd && rawAd !== 'N/A' && isValidMetaAdId(rawAd) ? String(rawAd).trim() : null;
-        fbMessages.push({
-          id: m.id,
-          pageId: String(pageId),
-          timestamp: new Date(m.dateAdded).getTime(),
-          dateStr: m.dateAdded,
-          adId: validAd
-        });
-      }
-    }
 
-    // Ordenar de más reciente a más antiguo
-    fbMessages.sort((a, b) => b.timestamp - a.timestamp);
+    if (convRes.status === 200) {
+      const convData = await convRes.json();
+      const conversations = convData.conversations || [];
+      
+      if (conversations.length > 0) {
+        const convId = conversations[0].id;
+        const msgUrl = `https://services.leadconnectorhq.com/conversations/${convId}/messages?locationId=${activeLocationId}&limit=20`;
+        const msgRes = await fetchWithRetry(msgUrl, { headers: activeHeaders }, 1, isLive);
+        
+        if (msgRes.status === 200) {
+          const msgData = await msgRes.json();
+          allMessages = msgData.messages?.messages || [];
+          allMessages.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
 
-    if (fbMessages.length === 0) {
-      const retries = indexingRetries.get(contactId) || 0;
-      if (retries < 2) {
-        console.log(`[Agente 3] [WAIT] Posible delay de indexación de FB para ${contactId}. Mensajes de FB vacíos. Reintentando en próximo ciclo (Intento ${retries + 1}/2).`);
-        indexingRetries.set(contactId, retries + 1);
-        return 'RETRY_INDEXING';
+          for (const m of allMessages) {
+            const fbMeta = m.meta?.fb || {};
+            const pageId = fbMeta.fromPageId || fbMeta.pageId;
+            if (pageId) {
+              const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
+              const validAd = rawAd && rawAd !== 'N/A' && isValidMetaAdId(rawAd) ? String(rawAd).trim() : null;
+              fbMessages.push({
+                id: m.id,
+                pageId: String(pageId),
+                timestamp: new Date(m.dateAdded).getTime(),
+                dateStr: m.dateAdded,
+                adId: validAd
+              });
+            }
+          }
+          fbMessages.sort((a, b) => b.timestamp - a.timestamp);
+        }
+      } else {
+        console.log(`[Agente 3] [FAST-PATH] Sin conversaciones indexadas aún para ${contactId}. Procesando y asignando directamente por subcuenta (${activeLocationId}).`);
       }
+    } else {
+      console.log(`[Agente 3] [FAST-PATH] Conversaciones no disponibles (Status ${convRes.status}). Ruteando directamente por subcuenta.`);
     }
 
     let targetPageId = null;
@@ -738,26 +670,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       else if (pName.includes('Palacios') || pName.includes('Ultra')) previousSede = 'PALACIOS';
     }
 
-    const isMudanzaDeSede = Boolean(
-      (previousSede && previousSede !== currentSedeName) ||
-      (expiredGraceMsg && FB_PAGE_ID_MAP[expiredGraceMsg.pageId] && !FB_PAGE_ID_MAP[expiredGraceMsg.pageId].toLowerCase().includes('palacios') && currentSedeName === 'PALACIOS')
-    );
-
-    if (isMudanzaDeSede) {
-      if (!latestAdId) {
-        targetAdId = null;
-      }
-      newTagsSet.add('mudanza-gracia-expirada');
-      newTagsSet.add('mudanza-de-sede');
-      if (previousSede) newTagsSet.add(`mudanza-desde-${previousSede.toLowerCase()}`);
-      newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
-
-      const mudanzaDate = new Date().toLocaleDateString('es-PE');
-      const mudanzaHeader = `[MUDANZA AUTORIZADA ${mudanzaDate}: De ${previousSede || 'Sede Previa'} a ${currentSedeName} (Gracia Expirada)]`;
-      if (!targetVtigerNota || !targetVtigerNota.includes(mudanzaHeader)) {
-        targetVtigerNota = `${mudanzaHeader}\n${targetVtigerNota || ''}`.trim();
-      }
-    }
+    // 🛡️ ARQUITECTURA MULTI-TENANT: Cada subcuenta en GHL es su propia sede soberana e independiente.
+    // La mudanza de sede entre subcuentas ya no existe. Cada contacto pertenece a la sede de su subcuenta.
+    const isMudanzaDeSede = false;
+    newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
 
     // Alerta de Lead Caliente (Teléfono o Dirección)
     if (shippingData.isHotLead) {
@@ -799,10 +715,6 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     } else if (rawCurrentAdId && !isValidMetaAdId(rawCurrentAdId)) {
       // 🧹 PURGA QUIRÚRGICA: Si el contacto tenía una cadena de origen (ej: PALACIOS-...) en el Ad ID, limpiarlo
       console.log(`[Agente 3] [PURGE] Limpiando Ad ID invalido ("${rawCurrentAdId}") para ${contactId}`);
-      customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, key: 'contact.id_de_anuncio', field_value: '' });
-      customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, key: 'contact.ad_id', field_value: '' });
-    } else if (isMudanzaDeSede && !latestAdId) {
-      // Desvincular en GHL el Ad ID de la sede previa tras mudanza orgánica
       customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, key: 'contact.id_de_anuncio', field_value: '' });
       customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, key: 'contact.ad_id', field_value: '' });
     }
@@ -1091,27 +1003,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           treatment: targetTratamiento,
           isDoubleAdEntry,
           isGraceExpired: isGraceExpiredCalc,
-          isMudanzaDeSede: Boolean(isMudanzaDeSede || (previousSede && currentSedeName && previousSede !== currentSedeName))
-        }, { locationId: activeLocationId, headers: activeHeaders });
-      }
-
-      // 📌 I. REGISTRO HISTÓRICO DE PROCEDENCIA DE MUDANZA EN TARJETA DE NOTAS
-      if (isMudanzaDeSede) {
-        const daysPassed = expiredTimeDiffHours > 0 ? Math.round(expiredTimeDiffHours / 24) : 5;
-        const timeStr = expiredTimeDiffHours > 0 ? `${daysPassed} días (${Math.round(expiredTimeDiffHours)}h)` : '+4 días (Tiempo de Gracia Expirado)';
-        const motivoStr = isCustomerWon ? 'Gracia de recompra expirada (+30 días)' : 'Gracia de prospecto expirada (+4 días / 96h)';
-        await saveMudanzaHistoryNote(contactId, {
-          previousSede: previousSede || 'Sede Externa',
-          previousSource: previousSource || 'Sin fuente previa',
-          currentSede: currentSedeName,
-          newSource: vtigerSource,
-          advisorName: targetAdvisorName,
-          pageName: targetPageName,
-          campaign: latestCampaign || targetAdName,
-          motivo: motivoStr,
-          timeDiffStr: timeStr,
-          isCustomerWon,
-          vContact
+          isMudanzaDeSede: false
         }, { locationId: activeLocationId, headers: activeHeaders });
       }
     } else {

@@ -213,8 +213,8 @@ async function runExpressAssignment() {
           stats.contactsProcessed++;
         }
         
-        // Rate-Limit Shield: 1200ms entre contactos dentro de cada sede
-        await sleep(1200);
+        // Rate-Limit Shield Aislado: 300ms entre contactos dentro de cada sede (máximo rendimiento sin exceder cuotas de subcuenta)
+        await sleep(300);
       }
     }));
 
@@ -232,11 +232,11 @@ async function runExpressAssignment() {
   }
 }
 
-// Único ciclo activo continuo: cada 20 segundos para webhooks
-setInterval(runExpressAssignment, 20000);
+// Ciclo activo continuo del radar: cada 10 segundos para máxima fluidez y cero delay
+setInterval(runExpressAssignment, 10000);
 
 // 🛡️ GUARDIÁN CONTINUO DE BANDEJAS SIN ASIGNAR (MULTI-SEDE EN SIMULTÁNEO: PALACIOS & BENAVIDES)
-// Barre cada 45 segundos en paralelo para garantizar que ningún lead quede "Sin asignar"
+// Barre cada 20 segundos en paralelo para garantizar que ningún lead quede "Sin asignar"
 let isUnassignedGuardianRunning = false;
 async function runUnassignedConversationsGuardian() {
   if (isUnassignedGuardianRunning) return;
@@ -249,7 +249,7 @@ async function runUnassignedConversationsGuardian() {
 
     await Promise.all(targetLocations.map(async (loc) => {
       if (!loc.id) return;
-      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=30`;
+      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=50`;
       const res = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
       if (res.status !== 200) return;
 
@@ -258,7 +258,7 @@ async function runUnassignedConversationsGuardian() {
       for (const conv of unassigned) {
         console.log(`[Unassigned Guardian] 🚨 Lead sin asignar detectado en ${loc.name}: ${conv.contactName || 'Lead'} (${conv.contactId}). Enrutando...`);
         await routeChatByContact(conv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
-        await sleep(1200);
+        await sleep(300);
       }
     }));
   } catch (gErr) {
@@ -267,7 +267,7 @@ async function runUnassignedConversationsGuardian() {
     isUnassignedGuardianRunning = false;
   }
 }
-setInterval(runUnassignedConversationsGuardian, 45000);
+setInterval(runUnassignedConversationsGuardian, 20000);
 
 // Demonio Inverso: Sincroniza cambios de vTiger -> GHL cada 3 minutos (180,000 ms)
 import { runVTigerToGHLPoller } from './agents/vtiger_sync_agent.js';
@@ -875,7 +875,10 @@ app.post('/webhook/ghl-contact', async (req, res) => {
     // Worker 1 / Worker 3: Ingesta Inmediata y Ruteo Inteligente
     setImmediate(async () => {
       try {
-        await routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId });
+        const routeResult = await routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId });
+        if (routeResult === 'RETRY') {
+          setTimeout(() => routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId }), 1500);
+        }
         if (global.pushLiveLog) global.pushLiveLog(`[WORKER] Worker 1 Webhook: Ruteado e hidratado ${contactData.id} (${effectiveLocId})`);
       } catch (err) {
         console.error("[Worker 1 Webhook Error]:", err.message);
@@ -905,8 +908,14 @@ app.post('/webhook/chat-router', async (req, res) => {
     
     res.status(200).send({ success: true, message: 'Webhook recibido, enrutando...' });
     
-    // Llamar al Agente 3 de forma asíncrona
-    await routeChatByContact(contactId, true, false, targetLoc ? { locationId: targetLoc } : {});
+    // Llamar al Agente 3 de forma asíncrona inmediata
+    setImmediate(async () => {
+      try {
+        await routeChatByContact(contactId, true, false, targetLoc ? { locationId: targetLoc } : {});
+      } catch (rErr) {
+        console.error("[Chat Router Webhook Error]:", rErr.message);
+      }
+    });
   } catch (error) {
     console.error("[Agente 3 Webhook Error]:", error.message);
   }
