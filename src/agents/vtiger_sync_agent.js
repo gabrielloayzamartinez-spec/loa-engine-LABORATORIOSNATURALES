@@ -134,19 +134,17 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       const truth = evaluateCommercialTruth(ghlContact, vContact);
       const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact, targetLocId);
 
-      const isBenavides = Boolean(
-        (targetLocId && targetLocId.includes('QXcNBK6XCgpQaZ81Z8pv')) ||
-        (ghlContact?.locationId && ghlContact.locationId.includes('QXcNBK6XCgpQaZ81Z8pv'))
-      );
+      const sedeContext = resolveSedeContext({ locationId: targetLocId });
+      const customFieldsIds = sedeContext.customFields || {};
 
-      const idAnuncioField = isBenavides ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
-      const adIdAltField = isBenavides ? 'xYgC0RFCZZ1GagK2aaXu' : 'PUUykPTCijq7rZoLYwAD';
-      const utmCampaignField = isBenavides ? 'o5AQRN1o7qkhSomgYiaG' : '0VEvRUhcoN8o5YiaLAkG';
-      const utmSourceField = isBenavides ? 'yAi98DhTmnBuHppg9Taj' : '7BnlWDntf3bYBBRJNszD';
-      const utmMediumField = isBenavides ? 'XwjFGpmds9nvS3e45P5c' : 'G7Mxwp38qS1pKcE80iOY';
-      const sedeAsignadaField = isBenavides ? 'HJLN7LVvZHVX2Rr7eJma' : 'AXACVLFNsTOEzanAHCdf';
-      const origenLeadField = isBenavides ? 'Vw6usJnpwuBScBm4yiSY' : '4mOsSGfHcGMJkoWUWlyX';
-      const tieneTelefonoField = isBenavides ? '0PvAaqJs7aERycth9mKW' : 'SMAiwKnSvPHWguEbOQxX';
+      const idAnuncioField = customFieldsIds.idAnuncio;
+      const adIdAltField = customFieldsIds.adIdAlt;
+      const utmCampaignField = customFieldsIds.utmCampaign;
+      const utmSourceField = customFieldsIds.utmSource;
+      const utmMediumField = customFieldsIds.utmMedium;
+      const sedeAsignadaField = customFieldsIds.sedeAsignada;
+      const origenLeadField = customFieldsIds.origenLead;
+      const tieneTelefonoField = customFieldsIds.tieneTelefono;
 
       if (vContact.cf_2850) {
         customFieldsToUpdate.push({ id: idAnuncioField, key: 'contact.id_de_anuncio', field_value: String(vContact.cf_2850).trim() });
@@ -157,7 +155,7 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       }
       customFieldsToUpdate.push({ id: utmSourceField, key: 'contact.utm_source', field_value: 'facebook' });
       customFieldsToUpdate.push({ id: utmMediumField, key: 'contact.utm_medium', field_value: 'cpc' });
-      customFieldsToUpdate.push({ id: sedeAsignadaField, key: 'contact.sede_asignada', field_value: isBenavides ? 'BENAVIDES' : 'PALACIOS' });
+      customFieldsToUpdate.push({ id: sedeAsignadaField, key: 'contact.sede_asignada', field_value: sedeContext.sedeId });
       const existingOrigenLead = (ghlContact.customFields || []).find(f => f.id === origenLeadField)?.value || ghlContact.source || '';
       const hasStructuredOrigen = /^[A-Z0-9_]+-[A-Z0-9_]+-[A-Z0-9_]+-[A-Za-z0-9_]+$/.test(String(existingOrigenLead).trim());
       if (vContact.cf_3507 && !hasStructuredOrigen) {
