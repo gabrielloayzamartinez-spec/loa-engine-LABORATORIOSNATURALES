@@ -148,12 +148,34 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
         }
 
         if (phoneMatches.length > 0) {
-          // Prioridad A: Match con compras registradas
-          const withSales = phoneMatches.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
-          if (withSales) return withSales;
+          // [ESCUDO DE HOMONIMIA ESTRICTA]: Cruzar el nombre/apellido.
+          // Previene que familiares que comparten celular (ej. Perez vs Martinez) sean fusionados.
+          const strictMatches = phoneMatches.filter(v => {
+            const vFirst = sanitizeForVtigerQuery(v.firstname || '');
+            const vLast = sanitizeForVtigerQuery(v.lastname || '');
+            
+            // Si en GHL no tenemos nombre, lo dejamos pasar (no hay forma de validar).
+            if (!firstName && !lastName) return true;
 
-          // Prioridad B: Primer match disponible dentro de la sede
-          return phoneMatches[0];
+            // Validar que al menos el Nombre o el Apellido (mínimo 3 letras) compartan raíz
+            // Ej: "MART" y "MARTINEZ" coincidirán. "PEREZ" y "MARTINEZ" fallarán.
+            const lastMatch = (lastName.length >= 3 && vLast.includes(lastName)) || (vLast.length >= 3 && lastName.includes(vLast));
+            const firstMatch = (firstName.length >= 3 && vFirst.includes(firstName)) || (vFirst.length >= 3 && firstName.includes(vFirst));
+
+            // Debe coincidir apellido O nombre para considerarse la misma persona.
+            return lastMatch || firstMatch;
+          });
+
+          if (strictMatches.length > 0) {
+            // Prioridad A: Match con compras registradas
+            const withSales = strictMatches.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
+            if (withSales) return withSales;
+
+            // Prioridad B: Primer match disponible dentro de la sede
+            return strictMatches[0];
+          } else {
+            console.warn(`[VTiger API] [ESCUDO HOMONIMIA] Teléfono ${last10} existe, pero los apellidos/nombres no coinciden. Evitando fusión errónea.`);
+          }
         }
       }
     } catch (pErr) {
