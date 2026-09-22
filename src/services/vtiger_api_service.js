@@ -114,6 +114,14 @@ function phonesMatch(phone1, phone2, digits = 10) {
 
 export async function findVTigerContact(ghlContact, targetSede = null) {
   const cleanPhone = ghlContact.phone ? ghlContact.phone.replace(/\D/g, '') : '';
+  
+  // [REGLA DE ORO: SIN NÚMERO NO HAY BÚSQUEDA]
+  // Previene falsos positivos por nombres comunes (ej. "Maria Rodriguez") en leads que aún no han dejado su celular.
+  if (cleanPhone.length < 7) {
+    console.log(`[VTiger API] [SHIELD] Lead sin teléfono válido detectado (${ghlContact.firstName || 'Desconocido'}). Búsqueda en vTiger abortada para evitar homonimia.`);
+    return null;
+  }
+
   const firstName = sanitizeForVtigerQuery(ghlContact.firstName);
   const lastName = sanitizeForVtigerQuery(ghlContact.lastName);
 
