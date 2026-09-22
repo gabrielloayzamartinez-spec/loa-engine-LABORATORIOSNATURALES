@@ -9,7 +9,7 @@
  */
 
 class TokenBucketQueue {
-  constructor({ maxTokens = 50, refillIntervalMs = 1200 } = {}) {
+  constructor({ maxTokens = 100, refillIntervalMs = 300 } = {}) {
     this.maxTokens = maxTokens;
     this.tokens = maxTokens;
     this.refillIntervalMs = refillIntervalMs;
@@ -68,7 +68,7 @@ class TokenBucketQueue {
           } catch (err) {
             item.reject(err);
           }
-          await this.sleep(500); // 500ms de cortesía para tráfico en vivo
+          await this.sleep(150); // 150ms de cortesía para tráfico en vivo (equilibrado)
           continue;
         }
 

@@ -195,8 +195,9 @@ async function runExpressAssignment() {
         const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
         const lastProcessedUpdate = processedContactTimestamps.get(contact.id) || 0;
         
-        // Si ya procesamos esta actualización exacta Y el contacto ya está asignado, saltamos (previene loops)
-        if (updatedAt <= lastProcessedUpdate && !contact.isUnassigned) continue;
+        // Si ya procesamos esta actualización exacta saltamos (previene loops). 
+        // [MOD]: Hemos quitado el check de (!contact.isUnassigned) para que el radar procese leads nuevos obligatoriamente aunque alguien ya se los haya asignado manualmente en GHL.
+        if (updatedAt <= lastProcessedUpdate) continue;
 
         const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
         // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
@@ -216,8 +217,8 @@ async function runExpressAssignment() {
           stats.contactsProcessed++;
         }
         
-        // Rate-Limit Shield Aislado: 600ms entre contactos dentro de cada sede (máximo rendimiento sin exceder cuotas de subcuenta)
-        await sleep(600);
+        // Rate-Limit Shield Aislado: 100ms entre contactos (optimizado para velocidad extrema)
+        await sleep(100);
       }
     }));
 
@@ -235,8 +236,8 @@ async function runExpressAssignment() {
   }
 }
 
-// Ciclo activo continuo del radar: cada 20 segundos para equilibrio óptimo de fluidez y cuota GHL
-setInterval(runExpressAssignment, 20000);
+// Ciclo activo continuo del radar: cada 5 segundos para máxima hiper-velocidad
+setInterval(runExpressAssignment, 5000);
 
 // [GUARDIAN] GUARDIÁN CONTINUO DE BANDEJAS SIN ASIGNAR (MULTI-SEDE EN SIMULTÁNEO: PALACIOS & BENAVIDES)
 // Barre cada 60 segundos en paralelo para garantizar que ningún lead quede "Sin asignar"
