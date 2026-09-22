@@ -1,0 +1,93 @@
+import fs from 'fs';
+import path from 'path';
+import { GHL_CONFIG } from '../config/index.js';
+
+const { apiKey, locationId } = GHL_CONFIG;
+const HEADERS = {
+  'Authorization': `Bearer ${apiKey}`,
+  'Version': '2021-07-28',
+  'Content-Type': 'application/json'
+};
+
+const PIPELINES_CACHE_FILE = path.join(process.cwd(), 'src', 'config', 'pipelines_cache.json');
+
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url, options, attempt = 1) {
+  try {
+    const res = await fetch(url, options);
+    if (res.status === 429) {
+      console.warn(`[GHL API] Rate limit hit. Waiting ${2000 * attempt}ms...`);
+      await sleep(2000 * attempt);
+      if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
+    }
+    return res;
+  } catch (e) {
+    if (attempt < 5) {
+      await sleep(2000);
+      return fetchWithRetry(url, options, attempt + 1);
+    }
+    throw e;
+  }
+}
+
+async function cleanPipelineMess() {
+  console.log("[CLEAN] Iniciando limpieza masiva de oportunidades basura en GHL...");
+  
+  if (!fs.existsSync(PIPELINES_CACHE_FILE)) {
+    console.error("No se encontró pipelines_cache.json");
+    return;
+  }
+  
+  const cache = JSON.parse(fs.readFileSync(PIPELINES_CACHE_FILE, 'utf8'));
+  const pipelineId = cache.unified.pipelineId;
+  const stageProspectoId = cache.unified.stageProspectoInicialId;
+  
+  let hasMore = true;
+  let totalDeleted = 0;
+  
+  // Usamos el endpoint de búsqueda de GHL (puede requerir paginación o borrar lotes de 100)
+  while (hasMore) {
+    console.log(`Buscando lote de oportunidades basura en la columna 'Prospecto Inicial'...`);
+    // Filtrar estrictamente por el stageProspectoId para NO tocar a los "Ganados"
+    const url = `https://services.leadconnectorhq.com/opportunities/search?location_id=${locationId}&pipeline_id=${pipelineId}&pipeline_stage_id=${stageProspectoId}&limit=100`;
+    const res = await fetchWithRetry(url, { headers: HEADERS });
+    
+    if (res.status !== 200) {
+      console.error("Error buscando oportunidades:", await res.text());
+      break;
+    }
+    
+    const data = await res.json();
+    const opps = data.opportunities || [];
+    
+    if (opps.length === 0) {
+      console.log("[OK] No quedan más oportunidades por borrar. ¡Limpieza terminada!");
+      hasMore = false;
+      break;
+    }
+    
+    console.log(`Encontradas ${opps.length} oportunidades en este lote. Procediendo a borrar...`);
+    
+    for (const opp of opps) {
+      // Borrar la oportunidad
+      const delRes = await fetchWithRetry(`https://services.leadconnectorhq.com/opportunities/${opp.id}`, { method: 'DELETE', headers: HEADERS });
+      if (delRes.status === 200 || delRes.status === 204) {
+        totalDeleted++;
+        if (totalDeleted % 50 === 0) console.log(` Se han borrado ${totalDeleted} oportunidades...`);
+      } else {
+        console.error(`Error borrando oportunidad ${opp.id}: status ${delRes.status}`);
+      }
+      // [SHIELD] API SAFEGUARD: Delay ultra-conservador de medio segundo (500ms) por borrado
+      // Esto asegura máximo 2 peticiones por segundo, dejando el 80% del límite de GHL 
+      // libre para que el Chat Router atienda a los clientes en vivo sin latencia.
+      await sleep(500);
+    }
+  }
+  
+  console.log(`\n[SUCCESS] Limpieza Completada. Se eliminaron un total de ${totalDeleted} oportunidades del pipeline.`);
+}
+
+cleanPipelineMess();

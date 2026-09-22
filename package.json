@@ -1,0 +1,42 @@
+{
+  "name": "ghl-pipeline-maestro-tool",
+  "version": "1.0.0",
+  "description": "Herramienta para crear y distribuir contactos al Pipeline Maestro de GoHighLevel",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "test": "node src/tests/test_audit_engine.js && node src/tests/test_commercial_engine.js && node src/tests/test_cooldown_mudanza.js && node src/tests/test_doble_ingreso.js && node src/tests/test_sede_isolation.js && node src/tests/test_curador_bidireccional.js",
+    "start": "node src/server.js",
+    "start:all": "concurrently \"npm run start:node\" \"npm run start:python\"",
+    "start:node": "node src/server.js",
+    "start:python": "python vtiger_bridge/vtiger_watcher.py",
+    "start:healer": "node src/scripts/historial_healer.js",
+    "sweep:unread": "node src/agents/master_batch_runner.js --unread",
+    "sweep:all": "node src/agents/master_batch_runner.js",
+    "cli": "node src/cli.js",
+    "create": "node src/scripts/pipeline_manager.js",
+    "distribute": "node src/services/distribute_contacts.js"
+  },
+  "keywords": [
+    "ghl",
+    "pipeline",
+    "opportunities",
+    "crm"
+  ],
+  "author": "Antigravity AI",
+  "engines": {
+    "node": ">=20.0.0 <21.0.0"
+  },
+  "dependencies": {
+    "bottleneck": "^2.19.5",
+    "concurrently": "^10.0.5",
+    "csv-parser": "^3.2.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "node-cron": "^4.6.0",
+    "opossum": "^9.0.0",
+    "prom-client": "^15.0.0",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1"
+  }
+}
