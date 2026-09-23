@@ -3,6 +3,7 @@ import path from 'path';
 import { SEDES_GATEWAY, getGhlHeaders } from '../config/index.js';
 import { routeChatByContact } from '../agents/chat_router_agent.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
+import { findVTigerContact } from './vtiger_api_service.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {
@@ -194,6 +195,24 @@ export async function runBackwardCure(sedeName = 'BENAVIDES', options = {}) {
       for (const c of contacts) {
         if (!c.id) continue;
         try {
+          // [AUTO-CURACIÓN]: Detectar y purgar falsos positivos históricos (Escudo Anti-Homonimia)
+          const currentTags = (c.tags || []).map(t => typeof t === 'string' ? t.toLowerCase() : '');
+          const TAGS_TO_STRIP = ['compro', 'no-compro', 'no-contesta'];
+          const hasHistoricalTags = TAGS_TO_STRIP.some(ts => currentTags.includes(ts));
+
+          if (hasHistoricalTags) {
+            const vContact = await findVTigerContact(c, sedeUpper);
+            if (!vContact) {
+              console.log(`[Curador Inverso] 🚨 FALSO POSITIVO DETECTADO en ${c.id} (${c.firstName}). Purgando historial...`);
+              const tagsToRemove = currentTags.filter(t => TAGS_TO_STRIP.includes(t));
+              for (const tag of tagsToRemove) {
+                const urlTag = `https://services.leadconnectorhq.com/contacts/${c.id}/tags`;
+                await ghlFetch(urlTag, { headers, method: 'DELETE', body: JSON.stringify({ tags: [tag] }) }, 1, `Curador-Purga`);
+              }
+              console.log(`[Curador Inverso] ✅ Contacto ${c.id} purgado. Procediendo a re-rutear como virgen.`);
+            }
+          }
+
           const result = await routeChatByContact(c.id, true, false, {
             locationId: locId,
             sede: sedeUpper
@@ -202,6 +221,7 @@ export async function runBackwardCure(sedeName = 'BENAVIDES', options = {}) {
             healed++;
           }
         } catch (err) {
+          console.error(`[Curador Inverso] Error curando contacto ${c.id}:`, err.message);
           errors++;
         }
         await sleep(350); // Throttling seguro para no exceder cuotas de GHL
