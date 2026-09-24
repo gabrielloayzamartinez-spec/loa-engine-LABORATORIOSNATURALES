@@ -34,7 +34,7 @@ export function buildAdHistoryNoteBody({
   const isDiffAd = Boolean(oldAdId && oldAdId !== 'Ninguna previa' && oldAdId !== 'Ninguna previa (Orgánico)' && oldAdId !== newAdId);
   const noteTitle = isDiffAd
     ? `[SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]`
-    : `[SAVE PROCESS: Ruteo y Diagnostico de Pauta]`;
+    : (isDoubleAdEntry ? `[SAVE PROCESS: REINGRESO DE PAUTA / DOBLE INGRESO PUBLICITARIO]` : `[SAVE PROCESS: Ruteo y Diagnostico de Pauta]`);
 
   let interaccionText = `Clic #${clickCount || 1}`;
   if (isDiffAd || isDoubleAdEntry) {
@@ -61,7 +61,7 @@ export function buildAdHistoryNoteBody({
 
   const estadoPautaText = isDiffAd
     ? `ACTUALIZADO (Ad ID y Origen renovados por nuevo anuncio)`
-    : (newAdId ? `VINCULADO (Ad ID y Origen asignados)` : `ORGÁNICO (Sin costo publicitario)`);
+    : (isDoubleAdEntry ? `ACTUALIZADO (Reingreso de pauta detectado - Nuevo clic Meta)` : (newAdId ? `VINCULADO (Ad ID y Origen asignados)` : `ORGÁNICO (Sin costo publicitario)`));
 
   return `${noteTitle}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -77,17 +77,50 @@ export function buildAdHistoryNoteBody({
 Powered by LOA Engine - Gabriel Loayza`;
 }
 
+const lastInjectedNoteTime = new Map();
+
 export async function saveAdHistoryNote(contactId, params, options = {}) {
-  const noteBody = buildAdHistoryNoteBody(params);
+  // 1. Memoria rápida anti-loop (evita ráfagas repetidas en menos de 4 horas para el mismo contacto)
+  const lastTime = lastInjectedNoteTime.get(contactId) || 0;
+  if (Date.now() - lastTime < 4 * 60 * 60 * 1000) {
+    console.log(`[Agente 4 Save Process] [GUARD] Nota ya inyectada hace menos de 4h en memoria para ${contactId}. Omitiendo.`);
+    return null;
+  }
+
   const targetHeaders = options.headers || getGhlHeaders({ locationId: options.locationId || locationId });
+  const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
+
+  // 2. Verificación en GHL: Consultar notas recientes para no duplicar si el proceso se reinicia
+  try {
+    const checkRes = await fetchWithRetry(noteUrl, { headers: targetHeaders });
+    if (checkRes.status === 200) {
+      const notesData = await checkRes.json();
+      const existingNotes = notesData.notes || [];
+      const recentSaveProcessNote = existingNotes.find(n => {
+        const body = n.body || '';
+        if (!body.includes('[SAVE PROCESS:')) return false;
+        const noteDate = new Date(n.dateAdded).getTime();
+        return (Date.now() - noteDate) < (4 * 60 * 60 * 1000); // Menos de 4 horas
+      });
+      if (recentSaveProcessNote) {
+        console.log(`[Agente 4 Save Process] [GUARD] Ya existe nota Save Process creada en GHL en las últimas 4h para ${contactId}. Omitiendo.`);
+        lastInjectedNoteTime.set(contactId, Date.now());
+        return null;
+      }
+    }
+  } catch (checkErr) {
+    // Continuar si falla la lectura previa
+  }
+
+  const noteBody = buildAdHistoryNoteBody(params);
 
   try {
-    const noteUrl = `https://services.leadconnectorhq.com/contacts/${contactId}/notes`;
     await fetchWithRetry(noteUrl, {
       method: 'POST',
       headers: targetHeaders,
       body: JSON.stringify({ body: noteBody })
     });
+    lastInjectedNoteTime.set(contactId, Date.now());
     console.log(`[Agente 4 Save Process] [NOTE] Nota histórica inyectada para contacto ${contactId}`);
     return noteBody;
   } catch (err) {
@@ -746,26 +779,44 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       newTagsSet.add(`pauta-clic-x${duplicateCount}`);
     }
 
- // ALERTA: Doble Ingreso Publicitario (Detección Avanzada CPM)
+    // ALERTA: Doble Ingreso Publicitario (Detección Avanzada CPM)
     let isDoubleAdEntry = false;
+
+    const KNOWN_TRIGGER_KEYWORDS = [
+      'muestra gratis', 'azucar alta', 'hormigueo', 'diabetes', 'glucosa', 'potencia', 'dolor intenso', 'prostata', 'colageno', 'mala circulacion', 'vision borrosa'
+    ];
+    const newestInboundMsg = allMessages.find(m => m.direction === 'inbound');
+    const hasTriggerKeyword = Boolean(newestInboundMsg && KNOWN_TRIGGER_KEYWORDS.some(kw => (newestInboundMsg.body || '').toLowerCase().includes(kw)));
+
+    let hoursSinceFirstTouch = 0;
+    if (contact.dateAdded && newestInboundMsg?.dateAdded) {
+      hoursSinceFirstTouch = (new Date(newestInboundMsg.dateAdded).getTime() - new Date(contact.dateAdded).getTime()) / (1000 * 60 * 60);
+    }
 
     // Regla 1: Entró por un Ad diferente al que tenía registrado.
     if (latestAdId && currentAdId && latestAdId !== currentAdId) {
       isDoubleAdEntry = true;
     } 
-    // Regla 2: Entró por el MISMO Ad, pero pasaron más de 24 horas (Nuevo cobro de Meta)
+    // Regla 2: Lead de pauta que vuelve a interactuar con un gatillo publicitario ("MUESTRA GRATIS...", etc.) tras más de 20 horas
+    else if ((latestAdId || currentAdId || isPaidAd) && hoursSinceFirstTouch >= 20 && hasTriggerKeyword) {
+      isDoubleAdEntry = true;
+    }
+    // Regla 3: Entró por el MISMO Ad, pero pasaron más de 20 horas (Nuevo cobro de Meta)
     else if (latestAdId && latestAdId === currentAdId) {
       const adClicks = fbMessages.filter(m => m.adId === latestAdId);
       if (adClicks.length >= 2) {
         const timeDiffHours = (adClicks[0].timestamp - adClicks[adClicks.length - 1].timestamp) / (1000 * 60 * 60);
-        if (timeDiffHours >= 24) {
+        if (timeDiffHours >= 20) {
           isDoubleAdEntry = true;
         }
+      } else if (hoursSinceFirstTouch >= 20) {
+        isDoubleAdEntry = true;
       }
     }
 
     if (isDoubleAdEntry) {
       newTagsSet.add('doble-ingreso-publicitario');
+      newTagsSet.add('alerta-reingreso-pauta');
     }
 
  // F. PREPARAR CUSTOM FIELDS (FULL DATA STACK)
@@ -971,7 +1022,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const hasTzUpdate = (!contact.timezone || contact.timezone === '--') && Boolean(shippingData.timezone);
 
     const hasGeoUpdate = hasCountryUpdate || hasAddressUpdate || hasCityUpdate || hasStateUpdate || hasZipUpdate || hasTzUpdate;
-    const hasChanges = !isSameAdvisor || !isSameSource || tagsChanged || hasCFChanges || hasPhoneUpdate || hasGeoUpdate;
+    const hasChanges = !isSameAdvisor || !isSameSource || tagsChanged || hasCFChanges || hasPhoneUpdate || hasGeoUpdate || isDoubleAdEntry;
 
     if (!hasChanges) {
       console.log(`[Agente 3] [SYNC] Contacto ${contactId} ya está 100% sincronizado. Omitiendo PUT para evitar parpadeos en pantalla.`);
@@ -1003,14 +1054,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
       console.log(`[Agente 3] [SUCCESS] ${contact.firstName || ''} ${contact.lastName || ''} (${contactId}) | Ad ID: ${targetAdId || 'N/A'} | Fuente: ${vtigerSource} | Estado: ${updatePayload.state || contact.state || '--'} | Actualizado OK.`);
 
- // H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA SOLO SI HUBO CAMBIO DE AD O DE TRATAMIENTO
+ // H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA ANTE NUEVO AD, CAMBIO DE TRATAMIENTO O REINGRESO DE PAUTA (>20H)
       const adChanged = Boolean(
         (latestAdId && currentAdId && latestAdId !== currentAdId) ||
         (latestAdId && !currentAdId)
       );
-      const treatmentChanged = targetTratamiento && targetTratamiento !== currentTratamiento;
+      const treatmentChanged = Boolean(targetTratamiento && targetTratamiento !== currentTratamiento);
+      const shouldSaveNote = adChanged || treatmentChanged || isDoubleAdEntry;
 
-      if (adChanged || treatmentChanged) {
+      if (shouldSaveNote) {
         let prevAdDateStr = null;
         let prevAdTimestamp = 0;
         if (currentAdId && fbMessages.length > 0) {
@@ -1043,7 +1095,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
                                  'General';
 
         await saveAdHistoryNote(contactId, {
-          newAdId: latestAdId,
+          newAdId: latestAdId || currentAdId || targetAdId,
           oldAdId: currentAdId || 'Ninguna previa (Orgánico)',
           oldAdDate: prevAdDateStr,
           previousSede: previousSede || currentSedeName || 'PALACIOS',
