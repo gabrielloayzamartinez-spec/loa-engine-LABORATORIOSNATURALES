@@ -2,7 +2,7 @@ services:
   - type: web
     name: ghl-pipeline-maestro-tool
     env: node
-    plan: free
+    plan: starter
     region: oregon
     buildCommand: npm install
     startCommand: npm start

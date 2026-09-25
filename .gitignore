@@ -19,6 +19,16 @@ last_sync_state.json
 cloudflared.exe
 *.exe
 
+# Telemetry SQLite (runtime, no versionar)
+telemetry.db
+telemetry.db-shm
+telemetry.db-wal
+
+# Windows artifacts
+NUL
+Thumbs.db
+Desktop.ini
+
 # Reports & Temporary Data
 *.csv
 scratch/

@@ -15,7 +15,7 @@ export const GHL_CONFIG = {
 export const VTIGER_CONFIG = {
   url: process.env.VTIGER_URL || 'https://ventascallcenter.com',
   username: process.env.VTIGER_USERNAME || 'GABRIEL',
-  accessKey: process.env.VTIGER_ACCESS_KEY || 'KkfUOi0vXW4951jm'
+  accessKey: process.env.VTIGER_ACCESS_KEY || ''
 };
 
 // ==========================================

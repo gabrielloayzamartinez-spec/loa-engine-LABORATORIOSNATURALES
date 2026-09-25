@@ -43,7 +43,7 @@
 ### E. Matriz de Proveedores y Pauta Conectada (Sede PALACIOS)
 - **Nueva Subcuenta Palacios (Limpia, Alto Rendimiento):**
   - Location ID: `5NqOaPYqWyIw2FPBfoRg`
-  - Token API: `pit-8148816f-fe78-4db8-9b5c-7c6713284b0e`
+  - Token API: `pit-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (en .env, NO versionado)
   - Embudo Maestro: `🚀 Embudo Comercial (Redes - Palacios)` (`YCZePq7oBz7XREDAPtsj`)
 - **Regla Oficial ULTRA:** "Todo lo que viene de pauta de ULTRA proviene de CLICK2RING".
   - Fanpage: `BioNatural - Ultra` (`111906554968800`).
@@ -56,7 +56,7 @@
   - Si el conjunto/campaña dice `IN HOUSE` (ej: `TETOSTERONA - IN HOUSE - ...`): Proveedor = `IN_HOUSE`, Origen = `PALACIOS-IN_HOUSE-FB-MSGR-[PADECIMIENTO]`.
   - Si dice `ERNESTO` o por defecto en esta fanpage: Proveedor = `ERNESTO`, Origen = `PALACIOS-ERNESTO-FB-MSGR-[PADECIMIENTO]`.
 - **Subcuenta Histórica Central Universal (400k Contactos):**
-  - Location ID: `ATPYNnsfZ1W8sd6WgWIV` (`pit-4d48784c-23cd-466d-a6b2-4850138e35d0`)
+  - Location ID: `ATPYNnsfZ1W8sd6WgWIV` (API Key en .env, NO versionado)
   - Rol: Bóveda histórica universal sin ruteo activo (`allowActiveRouting: false`). Preserva consultas y telemetría histórica sin saturar buffers ni generar colas de ruteo.
 - **Captura en Vivo de `adsetName`:** Conectado directamente desde Meta Graph API (`getMetaAdDetails`) hacia `chat_router_agent.js` para detección instantánea de padecimientos y proveedores.
 
@@ -155,7 +155,7 @@
   - Cada sede opera con su propia **Meta Developer App** (App ID, Secret, Token Permanente, Ad Account) para garantizar cuotas de Graph API completamente independientes.
   - Cada sede opera con su propia **Subcuenta de GoHighLevel** (API Key, Location ID) con sus chatters/asesores y WhatsApp/SMS dedicados.
   - Credenciales Benavides registradas: API GHL configurada en variables de entorno (.env), usuarios `REDES 1 BENAVIDES` (`GLC6pCjW4oP76hcT8QuC`) y `REDES 2 BENAVIDES` (`qicGSpBcrbYnPHpXceV2`).
-  - Meta API Token Permanente unificado/multicuenta: `EAAUbkNeyC9wBSsq...` (acceso validado a 14 fanpages y 8 ad accounts).
+  - Meta API Token Permanente unificado/multicuenta: `EAA...` (en .env, NO versionado; acceso validado a 14 fanpages y 8 ad accounts).
 - **2. Omisión de la Regla de Tiempo de Gracia:**
   - Al contar con subcuentas separadas, se eliminó el bloqueo artificial de 4 días / 30 días. Los leads que ingresan a una sede son procesados de inmediato por el equipo y origen de esa sede sin rechazo ni congelamiento.
 - **3. Sistema Consultivo Aislado en vTiger CRM:**
