@@ -1,8 +1,19 @@
 import fs from 'fs';
 import path from 'path';
+import { getStateStore } from './state/state_store.js';
+import { CANONICAL_TREATMENTS, normalizeTreatment } from '../domain/clinical_vocabulary.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const BRAIN_FILE = path.join(DATA_DIR, 'learning_brain.json');
+
+// ------------------------------------------------------------------------------
+// [STATELESS] El "learning_brain" ya no depende del disco local del contenedor.
+// Se persiste en el StateStore (PostgreSQL si DATABASE_URL existe; archivo
+// atómico como fallback). La memoria en RAM es solo caché de lectura caliente.
+// ------------------------------------------------------------------------------
+const BRAIN_NAMESPACE = 'learning_brain';
+const BRAIN_KEY = 'memory_v2';
+const brainStore = getStateStore(BRAIN_NAMESPACE);
 
 // Semilla Inicial Inteligente
 const INITIAL_SEED = {
@@ -14,15 +25,10 @@ const INITIAL_SEED = {
     falsePositivesPenalized: 0,
     lastLearnedAt: null
   },
-  treatments: [
-    'Potencia',
-    'Diabetes',
-    'Prostata',
-    'Colageno',
-    'Vision',
-    'Gastro',
-    'Artritis'
-  ],
+  // Catálogo canónico único (src/domain/clinical_vocabulary.js).
+  // Incluye Hongos y Gummies: antes sólo había 7 tratamientos y las ventas de
+  // esos dos productos NUNCA podían entrenar el cerebro.
+  treatments: [...CANONICAL_TREATMENTS],
   vocabularyWeights: {
     // Potencia
     'muestra gratis potencia': { Potencia: 25 },
@@ -133,6 +139,7 @@ class LearningBrain {
             this.memory.vocabularyWeights[phrase] = { ...weights };
           }
         }
+        this.reconcileTreatments();
       } else {
         this.memory = JSON.parse(JSON.stringify(INITIAL_SEED));
         this.save();
@@ -140,6 +147,50 @@ class LearningBrain {
     } catch (err) {
       console.error('[LearningBrain] Error inicializando memoria, usando semilla:', err.message);
       this.memory = JSON.parse(JSON.stringify(INITIAL_SEED));
+    }
+  }
+
+  /**
+   * [AUTO-REPARACIÓN DE CATÁLOGO]
+   * Una memoria persistida antes de que existieran Hongos/Gummies no los conoce, y
+   * `learnFromVtigerSale()` descartaba esas ventas. Al cargar, el catálogo se
+   * reconcilia con la fuente única de verdad sin perder vocabulario aprendido.
+   */
+  reconcileTreatments() {
+    const actuales = Array.isArray(this.memory.treatments) ? this.memory.treatments : [];
+    const faltantes = CANONICAL_TREATMENTS.filter(t => !actuales.includes(t));
+    if (faltantes.length === 0) return faltantes;
+
+    // Se conserva lo aprendido y se agregan los canónicos al final.
+    this.memory.treatments = [...actuales, ...faltantes];
+    console.log(`[LearningBrain] [REPAIR] Catálogo ampliado con: ${faltantes.join(', ')}. Total: ${this.memory.treatments.length} tratamientos.`);
+    return faltantes;
+  }
+
+  /**
+   * [STATELESS] Hidrata la memoria desde el almacén durable.
+   * Se invoca en el arranque, FUERA del camino crítico del sanity check.
+   * Fail-safe: si el almacén no responde, se conserva la semilla en memoria.
+   */
+  async hydrate() {
+    try {
+      const persisted = await brainStore.get(BRAIN_KEY, null);
+      if (!persisted || typeof persisted !== 'object' || !persisted.vocabularyWeights) {
+        console.log('[LearningBrain] [HYDRATE] Sin memoria persistida previa. Operando con semilla v2.0.0.');
+        return { hydrated: false };
+      }
+
+      // Se fusionan las semillas con la memoria aprendida (nunca se pierden reglas base).
+      for (const [phrase, weights] of Object.entries(INITIAL_SEED.vocabularyWeights)) {
+        if (!persisted.vocabularyWeights[phrase]) persisted.vocabularyWeights[phrase] = { ...weights };
+      }
+      this.memory = persisted;
+      this.reconcileTreatments();
+      console.log(`[LearningBrain] [HYDRATE] Memoria restaurada: ${Object.keys(this.memory.vocabularyWeights).length} frases, ${this.memory.stats?.learnedFromSales || 0} ventas aprendidas.`);
+      return { hydrated: true };
+    } catch (err) {
+      console.warn(`[LearningBrain] [HYDRATE-WARN] ${err.message}. Se continúa con la semilla en memoria.`);
+      return { hydrated: false, error: err.message };
     }
   }
 
@@ -163,16 +214,25 @@ class LearningBrain {
     }
 
     this._saveTimeout = setTimeout(() => {
-      try {
-        fs.writeFile(BRAIN_FILE, JSON.stringify(this.memory, null, 2), 'utf-8', (err) => {
-          if (err) console.error('[LearningBrain] Error guardando memoria en disco:', err.message);
-        });
-      } catch (err) {
-        console.error('[LearningBrain] Error asíncrono guardando memoria:', err.message);
-      } finally {
-        this._saveTimeout = null;
-      }
+      this.flush().catch(() => {}).finally(() => { this._saveTimeout = null; });
     }, 30000); // 30 segundos debounce
+  }
+
+  /**
+   * [STATELESS] Persiste la memoria en el almacén durable y, por compatibilidad
+   * operativa, deja una copia espejo en `data/learning_brain.json`.
+   * Devuelve una promesa; ningún llamante debe esperarla en el camino caliente.
+   */
+  async flush() {
+    const snapshot = JSON.parse(JSON.stringify(this.memory));
+    const persisted = await brainStore.set(BRAIN_KEY, snapshot);
+
+    // Espejo local best-effort (auditoría humana / migraciones).
+    try {
+      fs.writeFile(BRAIN_FILE, JSON.stringify(snapshot, null, 2), 'utf-8', () => {});
+    } catch (err) { /* el espejo es opcional: el estado autoritativo ya está persistido */ }
+
+    return persisted;
   }
 
   normalize(text) {
@@ -282,9 +342,23 @@ class LearningBrain {
   /**
    * Retroalimentación de Ground Truth (Venta confirmada en vTiger)
    * Confianza máxima (+10).
+   *
+   * El tratamiento entrante se normaliza al catálogo canónico: vTiger llama
+   * "Tetosterona" a lo que internamente es "Potencia", y etiquetas GHL como
+   * "producto-colageno" también son aceptadas.
    */
   learnFromVtigerSale({ treatment, chatText = '', campaignName = '' }) {
-    if (!treatment || !this.memory.treatments.includes(treatment)) return;
+    const canonical = normalizeTreatment(treatment);
+    if (!canonical) {
+      // Antes este descarte era silencioso: ahora es visible para no perder ventas.
+      console.warn(`[LearningBrain] [SKIP] Venta descartada: tratamiento no reconocido (${JSON.stringify(treatment)}). Revisa el mapeo de cf_2610 en src/domain/clinical_vocabulary.js.`);
+      return;
+    }
+    if (!this.memory.treatments.includes(canonical)) {
+      // El catálogo creció (Hongos/Gummies): se auto-repara en lugar de fallar.
+      this.memory.treatments.push(canonical);
+      console.log(`[LearningBrain] [REPAIR] Tratamiento '${canonical}' agregado al catálogo en memoria.`);
+    }
 
     this.memory.stats.learnedFromSales++;
     this.memory.stats.lastLearnedAt = new Date().toISOString();
@@ -297,8 +371,8 @@ class LearningBrain {
       if (!this.memory.vocabularyWeights[phrase]) {
         this.memory.vocabularyWeights[phrase] = {};
       }
-      const current = this.memory.vocabularyWeights[phrase][treatment] || 0;
-      this.memory.vocabularyWeights[phrase][treatment] = current + 10;
+      const current = this.memory.vocabularyWeights[phrase][canonical] || 0;
+      this.memory.vocabularyWeights[phrase][canonical] = current + 10;
     }
 
     // Aprender campaña publicitaria
@@ -308,20 +382,26 @@ class LearningBrain {
         if (!this.memory.campaignWeights[normCamp]) {
           this.memory.campaignWeights[normCamp] = {};
         }
-        const currentCamp = this.memory.campaignWeights[normCamp][treatment] || 0;
-        this.memory.campaignWeights[normCamp][treatment] = currentCamp + 15;
+        const currentCamp = this.memory.campaignWeights[normCamp][canonical] || 0;
+        this.memory.campaignWeights[normCamp][canonical] = currentCamp + 15;
       }
     }
 
     this.save();
-    console.log(`[LearningBrain] [LEARNING] Aprendido de vTiger: Venta de [${treatment}] reforzada en memoria.`);
+    console.log(`[LearningBrain] [LEARNING] Aprendido de vTiger: Venta de [${canonical}] reforzada en memoria.`);
   }
 
   /**
    * Retroalimentación de Asesor en Vivo (+2)
    */
   learnFromAdvisorChat({ treatment, chatText = '' }) {
-    if (!treatment || !this.memory.treatments.includes(treatment)) return;
+    const canonical = normalizeTreatment(treatment);
+    if (!canonical) {
+      console.warn(`[LearningBrain] [SKIP] Feedback de asesor descartado: tratamiento no reconocido (${JSON.stringify(treatment)}).`);
+      return;
+    }
+    treatment = canonical;
+    if (!this.memory.treatments.includes(treatment)) this.memory.treatments.push(treatment);
 
     this.memory.stats.learnedFromAdvisors++;
     this.memory.stats.lastLearnedAt = new Date().toISOString();

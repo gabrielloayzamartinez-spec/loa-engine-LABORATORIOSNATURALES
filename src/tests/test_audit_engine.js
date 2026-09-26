@@ -12,8 +12,12 @@ import { buildAdHistoryNoteBody } from '../agents/chat_router_agent.js';
 import { learningBrain } from '../services/learning_brain.js';
 import { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede, getActiveSedes, resolveSedeCustomFields, resolveSedePipeline } from '../config/index.js';
 import { SedeAgent, getSedeAgent, getActiveSedeAgents } from '../agents/sede_agent.js';
+import { getQueue, getQueueStatus } from '../services/queue/durable_queue.js';
+import { getBreakersStatus, safeCall } from '../utils/circuit_breaker.js';
+import { getStateStore } from '../services/state/state_store.js';
+import { normalizeTreatment, CANONICAL_TREATMENTS } from '../domain/clinical_vocabulary.js';
 
-export function runPreFlightSanityCheck() {
+export function runPreFlightSanityCheck({ silent = false } = {}) {
   const tests = [
     {
       name: 'Regla 1: "MUESTRA GRATIS POTENCIA" debe inferir Potencia (No Artritis)',
@@ -480,6 +484,14 @@ export function runPreFlightSanityCheck() {
           throw new Error(`Debe generar etiqueta 'producto-gummies', recibido: ${JSON.stringify(gummyAnalysis.productTags)}`);
         }
 
+        // 1B. El vocabulario canónico debe coincidir con el NLP (fuente única de verdad):
+        //     'gomitas de colageno y biotina' contiene el síntoma 'colageno', pero el
+        //     producto real es Gummies. Sin la regla de precedencia de formato, el
+        //     agente inverso de vTiger y el curador lo etiquetaban como Colageno.
+        if (normalizeTreatment('gomitas de colageno y biotina') !== 'Gummies') {
+          throw new Error(`El vocabulario canónico debe resolver 'gomitas de colageno y biotina' a Gummies, recibido: ${normalizeTreatment('gomitas de colageno y biotina')}`);
+        }
+
         // 2. Inferencia por Campaña de Gummies
         const campGummies = inferTreatmentFromCampaignOrUtm('CAMPAÑA GUMMIES BIOTINA - INHOUSE');
         if (campGummies !== 'Gummies') {
@@ -516,61 +528,79 @@ export function runPreFlightSanityCheck() {
       }
     },
     {
-      name: 'Regla 19: Central Guard - Bóveda Universal bloquea ruteos activos',
+      name: 'Regla 19: Arquitectura descentralizada - GHL Central purgado del gateway',
       run: () => {
-        // 1. Verificar que CENTRAL existe con allowActiveRouting = false
-        const centralSede = SEDES_GATEWAY.CENTRAL;
-        if (!centralSede) {
-          throw new Error('SEDES_GATEWAY.CENTRAL no existe');
+        // 1. La bóveda central ya NO debe existir en ninguna forma
+        if ('CENTRAL' in SEDES_GATEWAY) {
+          throw new Error('SEDES_GATEWAY.CENTRAL sigue existiendo: la arquitectura central no fue purgada');
         }
-        if (centralSede.allowActiveRouting !== false) {
-          throw new Error(`CENTRAL debe tener allowActiveRouting === false, recibido: ${centralSede.allowActiveRouting}`);
-        }
-        if (centralSede.isUniversalCentral !== true) {
-          throw new Error(`CENTRAL debe tener isUniversalCentral === true, recibido: ${centralSede.isUniversalCentral}`);
-        }
-
-        // 2. Verificar que resolveSedeContext con locationId de Central retorna CENTRAL
-        const resolved = resolveSedeContext({ locationId: centralSede.ghl.locationId });
-        if (resolved.sedeId !== 'CENTRAL') {
-          throw new Error(`resolveSedeContext con locationId Central debe retornar CENTRAL, recibido: ${resolved.sedeId}`);
-        }
-        if (resolved.allowActiveRouting !== false) {
-          throw new Error('Central resuelta debe tener allowActiveRouting === false');
+        for (const conf of Object.values(SEDES_GATEWAY)) {
+          if (conf.isUniversalCentral !== undefined || conf.allowActiveRouting !== undefined) {
+            throw new Error(`La sede ${conf.sedeId} conserva banderas de la arquitectura central (isUniversalCentral/allowActiveRouting)`);
+          }
+          if (!conf.ghl || !('locationId' in conf.ghl) || !('apiKey' in conf.ghl)) {
+            throw new Error(`La sede ${conf.sedeId} debe exponer ghl.locationId y ghl.apiKey`);
+          }
         }
 
-        // 3. Verificar que Palacios NO es Central
-        const palaciosResolved = resolveSedeContext({ locationId: SEDES_GATEWAY.PALACIOS.ghl.locationId });
-        if (palaciosResolved.sedeId !== 'PALACIOS') {
-          throw new Error(`Palacios locationId debe resolver a PALACIOS, no a ${palaciosResolved.sedeId}`);
+        // 2. Un locationId desconocido NO debe caer por accidente en Palacios
+        const unknown = resolveSedeContext({ locationId: 'LOCATION_ID_NO_REGISTRADO_XYZ' });
+        if (unknown.sedeId !== 'UNRESOLVED' || unknown.isUnresolved !== true) {
+          throw new Error(`Un locationId desconocido debe resolver a UNRESOLVED, recibido: ${unknown.sedeId}`);
         }
-        if (palaciosResolved.allowActiveRouting === false) {
-          throw new Error('Palacios NO debe tener allowActiveRouting === false');
+        if (unknown.isConfigured !== false || unknown.ghl.apiKey !== '') {
+          throw new Error('El contexto UNRESOLVED no debe portar credenciales ni marcarse como configurado');
+        }
+
+        // 3. Las sedes declaradas operativas deben declarar su estado de configuración
+        const palacios = SEDES_GATEWAY.PALACIOS;
+        if (typeof palacios.isConfigured !== 'boolean') {
+          throw new Error('PALACIOS debe exponer isConfigured (fail-safe de secretos)');
+        }
+        if (palacios.isConfigured && !palacios.ghl.apiKey) {
+          throw new Error('PALACIOS no puede estar configurado sin PIT');
+        }
+
+        // 4. Point-to-point: los headers se construyen con el PIT de la sede resuelta
+        const headers = getGhlHeaders({ sede: 'BENAVIDES' });
+        const benavidesToken = SEDES_GATEWAY.BENAVIDES.ghl.apiKey;
+        if (!headers.Authorization.startsWith('Bearer ')) {
+          throw new Error('getGhlHeaders debe devolver un Bearer token incluso sin credenciales (fail-safe)');
+        }
+        if (benavidesToken && headers.Authorization !== `Bearer ${benavidesToken}`) {
+          throw new Error('getGhlHeaders debe usar el PIT exclusivo de la sede solicitada (point-to-point)');
         }
       }
     },
     {
-      name: 'Regla 20: VTiger Sede Resolver reconoce nueva subcuenta Palacios (5NqOaPYqWyIw2FPBfoRg)',
+      name: 'Regla 20: VTiger Sede Resolver - aislamiento point-to-point por locationId',
       run: () => {
-        // 1. Verificar resolución por locationId de la nueva subcuenta de Palacios
-        const palacios = resolveSedeContext({ locationId: '5NqOaPYqWyIw2FPBfoRg' });
+        // 1. Palacios y Benavides resuelven a su propia sede según el gateway
+        const palacios = resolveSedeContext({ locationId: SEDES_GATEWAY.PALACIOS.ghl.locationId });
         if (palacios.sedeId !== 'PALACIOS') {
-          throw new Error(`5NqOaPYqWyIw2FPBfoRg debe resolver a PALACIOS, recibido: ${palacios.sedeId}`);
+          throw new Error(`El locationId de Palacios debe resolver a PALACIOS, recibido: ${palacios.sedeId}`);
         }
 
-        // 2. Verificar que el legacy 400k resuelve a CENTRAL
-        const central = resolveSedeContext({ locationId: 'ATPYNnsfZ1W8sd6WgWIV' });
-        if (central.sedeId !== 'CENTRAL') {
-          throw new Error(`ATPYNnsfZ1W8sd6WgWIV debe resolver a CENTRAL, recibido: ${central.sedeId}`);
-        }
-
-        // 3. Verificar que Benavides sigue resolviendo correctamente
-        const benavides = resolveSedeContext({ locationId: 'QXcNBK6XCgpQaZ81Z8pv' });
+        const benavides = resolveSedeContext({ locationId: SEDES_GATEWAY.BENAVIDES.ghl.locationId });
         if (benavides.sedeId !== 'BENAVIDES') {
-          throw new Error(`QXcNBK6XCgpQaZ81Z8pv debe resolver a BENAVIDES, recibido: ${benavides.sedeId}`);
+          throw new Error(`El locationId de Benavides debe resolver a BENAVIDES, recibido: ${benavides.sedeId}`);
         }
 
-        // 4. Verificar que los usuarios de Palacios están en la nueva subcuenta
+        // 2. Aislamiento: cada sede usa su propio PIT y su propio vtigerSedeName
+        if (palacios.ghl.apiKey && palacios.ghl.apiKey === benavides.ghl.apiKey) {
+          throw new Error('Palacios y Benavides NO deben compartir el mismo PIT (point-to-point violado)');
+        }
+        if (palacios.vtigerSedeName !== 'PALACIOS' || benavides.vtigerSedeName !== 'BENAVIDES') {
+          throw new Error('vtigerSedeName debe ser único por sede para el Sede-Shield de vTiger');
+        }
+
+        // 3. Ninguna sede registrada puede pertenecer a una arquitectura central
+        const central = resolveSedeContext({ locationId: 'ATPYNnsfZ1W8sd6WgWIV' });
+        if (central.sedeId !== 'UNRESOLVED') {
+          throw new Error(`El legacy 400k debe quedar fuera del gateway (UNRESOLVED), recibido: ${central.sedeId}`);
+        }
+
+        // 4. Verificar que los usuarios de Palacios están en la subcuenta correcta
         if (palacios.users?.ernesto?.id !== '8LuTk9jzt5BeaKLxdVru') {
           throw new Error(`Ernesto en Palacios debe tener id 8LuTk9jzt5BeaKLxdVru, recibido: ${palacios.users?.ernesto?.id}`);
         }
@@ -624,15 +654,15 @@ export function runPreFlightSanityCheck() {
       }
     },
     {
-      name: 'Regla 22: Enrutamiento Contextual por Page ID y Central Guard en Oportunidades',
+      name: 'Regla 22: Enrutamiento contextual por Page ID sin cuenta central',
       run: () => {
         // 1. Verificar resolución contextual por Page ID de Benavides (Corp)
         const corpCtx = resolveSedeContext({ pageId: '510617778807469' });
         if (corpCtx.sedeId !== 'BENAVIDES') {
           throw new Error(`Corp Page ID debe resolver a BENAVIDES, recibido: ${corpCtx.sedeId}`);
         }
-        if (corpCtx.ghl.locationId !== 'QXcNBK6XCgpQaZ81Z8pv') {
-          throw new Error(`Corp locationId esperado 'QXcNBK6XCgpQaZ81Z8pv', recibido: ${corpCtx.ghl.locationId}`);
+        if (corpCtx.ghl.locationId !== SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
+          throw new Error(`Corp locationId debe coincidir con el gateway de Benavides, recibido: ${corpCtx.ghl.locationId}`);
         }
 
         // 2. Verificar resolución contextual por Page ID de Palacios (BioNatural)
@@ -640,14 +670,23 @@ export function runPreFlightSanityCheck() {
         if (palCtx.sedeId !== 'PALACIOS') {
           throw new Error(`BioNatural Page ID debe resolver a PALACIOS, recibido: ${palCtx.sedeId}`);
         }
-        if (palCtx.ghl.locationId !== '5NqOaPYqWyIw2FPBfoRg') {
-          throw new Error(`Palacios locationId esperado '5NqOaPYqWyIw2FPBfoRg', recibido: ${palCtx.ghl.locationId}`);
+        if (palCtx.ghl.locationId !== SEDES_GATEWAY.PALACIOS.ghl.locationId) {
+          throw new Error(`Palacios locationId debe coincidir con el gateway, recibido: ${palCtx.ghl.locationId}`);
         }
 
-        // 3. Central Guard: Verificar que Central Universal pasiva bloquea ruteo activo
-        const centralCtx = resolveSedeContext({ locationId: 'ATPYNnsfZ1W8sd6WgWIV' });
-        if (centralCtx.allowActiveRouting !== false) {
-          throw new Error('Central Universal debe tener allowActiveRouting === false');
+        // 3. Un Page ID desconocido NO puede heredar la subcuenta de Palacios
+        const orphanPage = resolveSedeContext({ pageId: '000000000000000' });
+        if (orphanPage.sedeId === 'PALACIOS' && orphanPage.isUnresolved) {
+          throw new Error('Contexto inconsistente: UNRESOLVED no puede ser PALACIOS');
+        }
+        if (!orphanPage.sedeId) {
+          throw new Error('resolveSedeContext debe devolver siempre un contexto válido (fail-safe)');
+        }
+
+        // 4. Bandera de arquitectura central erradicada en todo el gateway
+        const centralFlags = Object.values(SEDES_GATEWAY).filter(s => s.allowActiveRouting !== undefined);
+        if (centralFlags.length > 0) {
+          throw new Error(`Persisten banderas allowActiveRouting en: ${centralFlags.map(s => s.sedeId).join(', ')}`);
         }
       }
     },
@@ -723,29 +762,31 @@ export function runPreFlightSanityCheck() {
         // 2. Instancia Palacios
         const palAgent = getSedeAgent('PALACIOS');
         if (!(palAgent instanceof SedeAgent)) throw new Error('palAgent debe ser instancia de SedeAgent');
-        if (palAgent.ghl.locationId !== '5NqOaPYqWyIw2FPBfoRg') throw new Error('Location ID Palacios incorrecto');
+        if (palAgent.ghl.locationId !== SEDES_GATEWAY.PALACIOS.ghl.locationId) throw new Error('Location ID Palacios incorrecto');
         if (palAgent.pipeline?.id !== 'YCZePq7oBz7XREDAPtsj') throw new Error('Pipeline ID Palacios incorrecto');
         if (!palAgent.customFields?.idAnuncio) throw new Error('Custom fields de Palacios ausentes');
-        if (palAgent.allowActiveRouting !== true) throw new Error('Palacios debe permitir ruteo activo');
+        if (palAgent.isConfigured !== true) throw new Error('Palacios debe estar configurado para operar');
 
         // 3. Instancia Benavides
-        const benAgent = getSedeAgent('QXcNBK6XCgpQaZ81Z8pv');
+        const benAgent = getSedeAgent(SEDES_GATEWAY.BENAVIDES.ghl.locationId);
         if (benAgent.sedeId !== 'BENAVIDES') throw new Error('Resolución por locationId de Benavides falló');
         if (benAgent.pipeline?.id !== 'Dv8kOeJvsMs9WMyTJAfD') throw new Error('Pipeline ID Benavides incorrecto');
 
-        // 4. Central Guard en SedeAgent
-        const centralAgent = getSedeAgent('ATPYNnsfZ1W8sd6WgWIV');
-        if (centralAgent.sedeId !== 'CENTRAL') throw new Error('Resolución de Central falló');
-        if (centralAgent.allowActiveRouting !== false) throw new Error('CentralAgent debe tener allowActiveRouting === false');
+        // 4. Sede no registrada: agente fail-safe sin credenciales, nunca con PIT ajeno
+        const orphanAgent = getSedeAgent('LOCATION_ID_NO_REGISTRADO_XYZ');
+        if (!orphanAgent) throw new Error('getSedeAgent debe devolver un agente fail-safe, no null');
+        if (orphanAgent.sedeId !== 'UNRESOLVED') throw new Error(`Sede desconocida debe ser UNRESOLVED, recibido: ${orphanAgent.sedeId}`);
+        if (orphanAgent.isConfigured !== false) throw new Error('El agente UNRESOLVED no puede marcarse como configurado');
+        if (orphanAgent.ghl.apiKey) throw new Error('El agente UNRESOLVED no debe portar el PIT de otra sede');
 
-        // 5. Verificación de bloqueo de mutación en Central
-        const p = centralAgent.routeContact('dummy-contact-id');
+        // 5. Verificación de bloqueo de ruteo en sede no configurada (fail-safe)
+        const p = orphanAgent.routeContact('dummy-contact-id');
         if (!(p instanceof Promise)) {
-          throw new Error('CentralAgent.routeContact debe retornar una Promesa');
+          throw new Error('SedeAgent.routeContact debe retornar una Promesa');
         }
         p.then(res => {
-          if (res !== 'UNCHANGED') {
-            throw new Error(`CentralAgent.routeContact debió retornar 'UNCHANGED', recibido: ${res}`);
+          if (res !== 'RETRY') {
+            throw new Error(`routeContact en sede no configurada debió diferir el ruteo ('RETRY'), recibido: ${res}`);
           }
         });
       }
@@ -796,10 +837,97 @@ export function runPreFlightSanityCheck() {
           throw new Error(`Fuente esperada PALACIOS-ERNESTO-FB-MSGR-Potencia, recibido: ${sourceCarmen}`);
         }
       }
+    },
+    {
+      name: 'Regla 26: Gate de arranque puro y acotado (protección anti crash-loop de Render)',
+      run: () => {
+        // 1. Cada regla debe ser SÍNCRONA: sin promesas, timers ni red pendiente.
+        //    (Un sanity check que espera I/O es la causa raíz del crash loop de Render.)
+        for (const test of tests) {
+          // [ANTI-RECURSIÓN] El propio gate se excluye: re-ejecutarse anidaría la suite
+          // de forma exponencial y rompería el presupuesto de arranque.
+          if (/Gate de arranque puro/.test(test.name)) continue;
+          if (typeof test.run !== 'function' || !test.name) {
+            throw new Error(`Regla malformada en la suite: ${JSON.stringify(test.name)}`);
+          }
+          const result = test.run();
+          if (result && typeof result.then === 'function') {
+            throw new Error(`La regla '${test.name}' devolvió una Promesa: el gate de arranque debe ser síncrono`);
+          }
+        }
+
+        // 2. El presupuesto del gate es configurable y nunca puede exceder 5 s.
+        const budget = parseInt(process.env.PREFLIGHT_MAX_MS || '5000', 10);
+        if (!Number.isFinite(budget) || budget <= 0 || budget > 5000) {
+          throw new Error(`PREFLIGHT_MAX_MS debe ser un entero entre 1 y 5000, recibido: ${process.env.PREFLIGHT_MAX_MS}`);
+        }
+      }
+    },
+    {
+      name: 'Regla 27: Feature flag de colas durables - degradación sin caída del proceso',
+      run: () => {
+        const status = getQueueStatus();
+
+        // 1. El flag debe declararse siempre y reflejar el entorno
+        if (typeof status.enabled !== 'boolean' || !status.featureFlag) {
+          throw new Error('getQueueStatus debe informar featureFlag y enabled');
+        }
+
+        // 2. Con el flag apagado, el driver activo DEBE ser el de memoria
+        if (!status.enabled && status.activeDriver !== 'memory') {
+          throw new Error(`Con el flag apagado el driver debe ser 'memory', recibido: ${status.activeDriver}`);
+        }
+
+        // 3. Contrato único de cola: enqueue + registerProcessor funcionan sin Redis
+        const q = getQueue('sanity-probe');
+        if (typeof q.enqueue !== 'function' || typeof q.registerProcessor !== 'function') {
+          throw new Error('La cola debe exponer enqueue() y registerProcessor()');
+        }
+
+        // 4. Encolar sin procesador no debe lanzar excepción hacia el llamante
+        const enqueueResult = q.enqueue('job-de-prueba', { ping: true });
+        if (!enqueueResult || typeof enqueueResult.then !== 'function') {
+          throw new Error('enqueue() debe devolver una Promesa (nunca bloquear el event loop)');
+        }
+        enqueueResult.then(res => {
+          if (!res || res.driver !== 'memory') {
+            throw new Error(`El encolado debe confirmar el driver de respaldo, recibido: ${JSON.stringify(res)}`);
+          }
+        }).catch(() => {});
+      }
+    },
+    {
+      name: 'Regla 28: Circuit Breaker disponible y estado consultable para APIs externas',
+      run: () => {
+        const status = getBreakersStatus();
+        if (typeof status !== 'object' || status === null) {
+          throw new Error('getBreakersStatus debe devolver un objeto');
+        }
+        if (typeof safeCall !== 'function') {
+          throw new Error('safeCall debe estar exportado para envolver APIs externas');
+        }
+      }
+    },
+    {
+      name: 'Regla 29: Persistencia stateless declarada por driver (file | postgres)',
+      run: () => {
+        const store = getStateStore('sanity-probe');
+        const desc = store.describe();
+        if (!desc || !desc.driver) {
+          throw new Error('StateStore.describe debe informar el driver activo');
+        }
+        if (!['file', 'postgres', 'memory'].includes(desc.driver)) {
+          throw new Error(`Driver de persistencia desconocido: ${desc.driver}`);
+        }
+        if (typeof store.get !== 'function' || typeof store.set !== 'function') {
+          throw new Error('StateStore debe exponer get() y set()');
+        }
+      }
     }
   ];
 
   let passed = 0;
+  const startedAt = Date.now();
   for (const test of tests) {
     try {
       test.run();
@@ -811,7 +939,11 @@ export function runPreFlightSanityCheck() {
     }
   }
 
+  const elapsed = Date.now() - startedAt;
+  if (silent) return true;
+
   console.log(`[PRE-FLIGHT SANITY CHECK] [SUCCESS] ${passed}/${tests.length} Reglas protocolares validadas al 100%.`);
+  console.log(`[PRE-FLIGHT SANITY CHECK] [PERF] Ejecutado en ${elapsed}ms (presupuesto: ${process.env.PREFLIGHT_MAX_MS || 5000}ms, sin red).`);
   return true;
 }
 

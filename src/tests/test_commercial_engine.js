@@ -1,9 +1,14 @@
 import { evaluateCommercialTruth, buildSanitizedCommercialFields, COMMERCIAL_FIELD_IDS } from '../domain/commercial_engine.js';
+import { SEDES_GATEWAY } from '../config/index.js';
 
 console.log('[TEST] Iniciando pruebas de CommercialStatusEngine...');
 
+// [SEDE-SHIELD] La sede se resuelve por el locationId real del gateway: una
+// prueba sin sede válida ya NO propaga datos de vTiger (criterio fail-closed).
+const PALACIOS_LOC = SEDES_GATEWAY.PALACIOS.ghl.locationId;
+
 // CASO 1: Prospecto nuevo sin compras (con fechas falsas en GHL)
-const prospectGHL = { id: 'prospect1', tags: ['lead'] };
+const prospectGHL = { id: 'prospect1', locationId: PALACIOS_LOC, tags: ['lead'] };
 const fieldsProspect = buildSanitizedCommercialFields(prospectGHL, null);
 const estadoField = fieldsProspect.find(f => f.id === COMMERCIAL_FIELD_IDS.ESTADO_COMERCIAL);
 const fechaCompraField = fieldsProspect.find(f => f.id === COMMERCIAL_FIELD_IDS.FECHA_COMPRA);
@@ -14,16 +19,17 @@ if (fechaCompraField.field_value !== '') throw new Error('Falló Purga de Fecha 
 if (!fechaAsignacionField.field_value) throw new Error('Falló Fecha Asignación en prospecto');
 console.log('[PASS] Caso 1 Pasado: Prospecto purgado a SIN VENTA y fecha de compra vacía.');
 
-// CASO 2: Cliente con venta real en vTiger
-const customerGHL = { id: 'cust1', tags: [] };
+// CASO 2: Cliente con venta real en vTiger (de la MISMA sede del contacto)
+const customerGHL = { id: 'cust1', locationId: PALACIOS_LOC, tags: [] };
 const customerVT = {
+  cf_3451: 'PALACIOS', // sede del registro en vTiger (debe coincidir con la sede activa)
   cf_994: 'Vendido',
   spl_num_compras: '2',
   spl_fecha_primera_compra: '2024-05-10',
   spl_fecha_ultima_compra: '2024-08-20',
   cf_3392: '150.00'
 };
-const fieldsCustomer = buildSanitizedCommercialFields(customerGHL, customerVT);
+const fieldsCustomer = buildSanitizedCommercialFields(customerGHL, customerVT, PALACIOS_LOC);
 const estadoCust = fieldsCustomer.find(f => f.id === COMMERCIAL_FIELD_IDS.ESTADO_COMERCIAL);
 const fCompraCust = fieldsCustomer.find(f => f.id === COMMERCIAL_FIELD_IDS.FECHA_COMPRA);
 const numCompCust = fieldsCustomer.find(f => f.id === COMMERCIAL_FIELD_IDS.NUM_COMPRAS);

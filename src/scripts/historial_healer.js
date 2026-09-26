@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG } from '../config/index.js';
-import { findVTigerContact, getSalesHistory } from '../services/vtiger_api_service.js';
+import { findVTigerContact, getSalesHistory, resolveActiveSede } from '../services/vtiger_api_service.js';
 
 const STATE_FILE = path.join(process.cwd(), 'healer_state.json');
 const BATCH_SIZE = 20; // 20 contactos por ciclo
@@ -115,25 +115,40 @@ async function healBatch() {
       let vtigerSyncPerformed = false;
       if (!existingTags.includes('historial-vtiger-sincronizado')) {
          try {
-            const vContact = await findVTigerContact(c);
+            // [SEDE-LOCK] La sede del contacto se determina ANTES de consultar vTiger.
+            // Sin sede válida no se consulta historial alguno.
+            const sedeActiva = resolveActiveSede(c);
+            const vContact = sedeActiva ? await findVTigerContact(c, sedeActiva) : null;
+            if (sedeActiva && !vContact) {
+               console.warn(`[HISTORIAL HEALER] [SEDE-LOCK] Sin contraparte en vTiger para la sede ${sedeActiva}. Sin historial que inyectar.`);
+            }
             if (vContact) {
-               const sales = await getSalesHistory(vContact.id);
-               if (sales && sales.length > 0) {
+               // [SEDE-SHIELD] El historial se pide SIEMPRE acotado a la sede activa:
+               // si el cliente compró en OTRA sede, aquí no llega ningún monto,
+               // ninguna fecha y ningún número de órdenes.
+               const historial = await getSalesHistory(vContact.id, sedeActiva);
+               const sales = historial.records || [];
+
+               if (historial.blocked) {
+                  console.warn('[HISTORIAL HEALER] [SEDE-SHIELD] Historial bloqueado: sede no determinable. No se inyecta nada en GHL.');
+               } else if (sales.length > 0) {
                   let totalValue = 0;
                   const salesList = sales.map(s => {
-                     totalValue += parseFloat(s.total || 0);
-                     return `• ${s.subject || 'Pedido'} - ${s.total} (Creado: ${s.createdtime})`;
+                     totalValue += parseFloat(s.cf_3392 ?? s.total ?? 0) || 0;
+                     return `• ${s.subject || 'Pedido'} - ${s.total ?? s.cf_3392 ?? '0'} (Creado: ${s.createdtime})`;
                   }).join('\\n');
-                  
-                  const noteBody = ` HISTORIAL DE COMPRAS VTIGER RECUPERADO:\\nTotal de Compras: ${sales.length}\\nValor Acumulado: $${totalValue.toFixed(2)}\\n\\nDetalle:\\n${salesList}`;
-                  
+
+                  const noteBody = ` HISTORIAL DE COMPRAS VTIGER RECUPERADO (SEDE ${historial.sede}):\\nTotal de Compras: ${sales.length}\\nValor Acumulado: $${totalValue.toFixed(2)}\\n\\nDetalle:\\n${salesList}`;
+
                   // Inyectar la nota en GHL
                   await fetch(`https://services.leadconnectorhq.com/contacts/${c.id}/notes`, {
                      method: 'POST',
                      headers: HEADERS,
                      body: JSON.stringify({ body: noteBody })
                   });
-                  console.log(`[HISTORIAL HEALER] [MONEY] Compras recuperadas de vTiger para ${c.firstName || c.name} (${sales.length} compras)`);
+                  console.log(`[HISTORIAL HEALER] [MONEY] Compras recuperadas de vTiger para ${c.firstName || c.name} (${sales.length} compras de la sede ${historial.sede})`);
+               } else {
+                  console.log(`[HISTORIAL HEALER] [SEDE-SHIELD] Sin compras en la sede ${sedeActiva}: el lead queda como SIN VENTA. Cero rastro de ventas ajenas.`);
                }
             }
             // Etiquetar para no volver a buscar (ahorro de API)

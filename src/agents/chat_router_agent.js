@@ -1,4 +1,5 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
+import { toProductTag, PRODUCT_TAGS, normalizeTreatment } from '../domain/clinical_vocabulary.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
@@ -192,11 +193,19 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let activeLocationId = options.locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId;
     let activeHeaders = options.headers || getGhlHeaders({ locationId: activeLocationId, sede: options.sede });
 
- // CENTRAL GUARD: La cuenta Central Universal se mantiene conectada para referencia/bóveda pero SIN ruteos activos
+    // [SEDE GATEWAY] Resolución del contexto de subcuenta y bloqueo de sedes no registradas.
+    // ARQUITECTURA DESCENTRALIZADA: no existe cuenta central; una ubicación desconocida
+    // se rechaza en lugar de enrutarse contra la subcuenta de Palacios.
     const activeContext = resolveSedeContext({ locationId: activeLocationId });
-    if (activeContext && activeContext.allowActiveRouting === false) {
-      console.log(`[Agente 3] [CENTRAL GUARD] Ubicación ${activeLocationId} (${activeContext.name}) es Central Universal pasiva. Omitiendo ruteos activos.`);
+    if (activeContext?.isUnresolved) {
+      console.warn(`[Agente 3] [SEDE-UNRESOLVED] Ubicación ${activeLocationId} no pertenece a ninguna sede registrada. Ruteo abortado (fail-safe).`);
       return 'UNCHANGED';
+    }
+
+    // [CONFIG GUARD] Sede sin PIT/locationId cargado: no se emite tráfico externo.
+    if (activeContext && activeContext.isConfigured === false) {
+      console.warn(`[Agente 3] [SEDE-NO-CONFIGURADA] La sede ${activeContext.sedeId} no tiene credenciales cargadas. Ruteo diferido.`);
+      return 'RETRY';
     }
 
     // 1. Cargar contacto de GHL UNA SOLA VEZ con detección y fallback de subcuenta (Palacios <-> Benavides)
@@ -700,12 +709,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // 1. Definir la ÚNICA etiqueta de producto permitida (El Tratamiento Principal)
-    const ALL_PRODUCT_TAGS = [
-      'producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 
-      'producto-tetosterona', 'producto-colageno', 'producto-vision', 'producto-gastro', 
-      'producto-hongos', 'producto-gummies'
-    ];
-    const activeProductTag = targetTratamiento ? `producto-${targetTratamiento.toLowerCase()}` : null;
+    // [VOCABULARIO CANÓNICO] La lista incluye la etiqueta legada
+    // `producto-tetosterona`, que aún existe en contactos reales: así la limpieza
+    // quirúrgica la purga en cuanto se detecta el tratamiento canónico Potencia.
+    const activeProductTag = toProductTag(targetTratamiento);
     
     // 2. Solo añadimos LA etiqueta principal, ignorando detecciones secundarias de NLP para evitar que se disparen múltiples bots
     if (activeProductTag) {
@@ -714,7 +721,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
  // 3. Limpieza Quirúrgica ESTRICTA de etiquetas huérfanas
     if (activeProductTag) {
-      for (const pTag of ALL_PRODUCT_TAGS) {
+      for (const pTag of PRODUCT_TAGS) {
         if (pTag !== activeProductTag) {
           newTagsSet.delete(pTag);
           // Si el contacto ya tenía esta etiqueta falsa/antigua en GHL, la preparamos para el borrado forzoso
@@ -851,7 +858,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let finalCustomerWon = isCustomerWon;
     let finalMonetaryValue = 0;
     try {
-      const truth = evaluateCommercialTruth(contact, vContact);
+      // [SEDE-SHIELD] El veredicto comercial hereda la sede activa del enrutamiento:
+      // una sola puerta de aislamiento para veredicto y saneado de campos.
+      const truth = evaluateCommercialTruth(contact, vContact, activeContext?.sedeId || '');
       finalCustomerWon = truth.isWon;
       finalMonetaryValue = truth.totalSpent;
       const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact, activeLocationId);

@@ -1,5 +1,6 @@
 import { queryVTiger } from '../services/vtiger_api_service.js';
 import { GHL_CONFIG, SEDES_GATEWAY, getGhlHeaders, resolveSedeContext } from '../config/index.js';
+import { normalizeTreatment, toProductTag, isProductTag, PRODUCT_TAGS } from '../domain/clinical_vocabulary.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { acquireContactLock, releaseContactLock } from './chat_router_agent.js';
 import { buildSanitizedCommercialFields, evaluateCommercialTruth } from '../domain/commercial_engine.js';
@@ -47,9 +48,9 @@ async function findGhlContact(vContact) {
     return null;
   }
 
-  // [CENTRAL GUARD]: Nunca sincronizar hacia la bóveda Central Universal pasiva
+  // [SEDE GUARD]: nunca sincronizar hacia una subcuenta no registrada o sin credenciales.
   const sedeContext = resolveSedeContext({ locationId: targetLocId, sede: vSede });
-  if (sedeContext && sedeContext.allowActiveRouting === false) {
+  if (!sedeContext || sedeContext.isUnresolved || sedeContext.isConfigured === false) {
     return null;
   }
 
@@ -112,26 +113,22 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       if (!ghlContact) continue; // Si no existe en GHL, lo ignoramos
 
       // 2. Extraer "Ground Truth" para alimentar el Cerebro (Opcional, si cambió condición)
+      // [VOCABULARIO CANÓNICO] Un único normalizador reemplaza la cadena de
+      // `includes()` que antes devolvía 'Tetosterona' (nombre que el cerebro NO
+      // reconoce) y omitía por completo Hongos y Gummies.
       const vCond = vContact.cf_2610 || '';
-      let treatment = null;
-      const lower = vCond.toLowerCase();
-      if (lower.includes('tetosterona') || lower.includes('testosterona') || lower.includes('potencia')) treatment = 'Tetosterona';
-      else if (lower.includes('diabet')) treatment = 'Diabetes';
-      else if (lower.includes('artrit')) treatment = 'Artritis';
-      else if (lower.includes('hongo')) treatment = 'Hongos';
-      else if (lower.includes('gastro') || lower.includes('gastrit')) treatment = 'Gastro';
-      else if (lower.includes('gumm') || lower.includes('gomit')) treatment = 'Gummies';
-      else if (lower.includes('prostat')) treatment = 'Prostata';
-      else if (lower.includes('colagen')) treatment = 'Colageno';
-      else if (lower.includes('vision')) treatment = 'Vision';
+      const treatment = normalizeTreatment(vCond);
 
       if (treatment && ghlContact.tags && !ghlContact.tags.includes(`producto-${treatment.toLowerCase()}`)) {
          learningBrain.learnFromVtigerSale({ treatment, chatText: `Manual vTiger Sync: ${vCond}`, campaignName: 'vTiger Direct' });
       }
 
       // 3. Evaluar y Sanear Campos Comerciales (Regla de Oro: vTiger manda)
+      // [SEDE-SHIELD] La sede activa se pasa a AMBAS funciones: el veredicto debe
+      // usar exactamente la misma puerta de aislamiento que el saneado de campos.
       const targetLocId = ghlContact.locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId;
-      const truth = evaluateCommercialTruth(ghlContact, vContact);
+      const sedeActivaSync = String(SEDES_GATEWAY[vSede]?.vtigerSedeName || vSede || '').toUpperCase();
+      const truth = evaluateCommercialTruth(ghlContact, vContact, sedeActivaSync);
       const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact, targetLocId);
 
       const sedeContext = resolveSedeContext({ locationId: targetLocId });
@@ -206,20 +203,16 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       // 4.2 Refuerzo de Etiquetas de Producto:
       // Si el contacto ya tiene una etiqueta activa de pauta Meta Ads ('meta-ads' o producto detectado recientemente),
       // no sobreescribir con una dolencia antigua de vTiger.
-      const ALL_PRODUCT_TAGS = [
-        'producto-artritis', 'producto-diabetes', 'producto-prostata', 'producto-potencia', 
-        'producto-tetosterona', 'producto-colageno', 'producto-vision', 'producto-gastro', 
-        'producto-hongos', 'producto-gummies'
-      ];
       const hasActiveMetaAds = (ghlContact.tags || []).includes('meta-ads');
-      const hasExistingProductTag = (ghlContact.tags || []).some(t => ALL_PRODUCT_TAGS.includes(t));
+      const hasExistingProductTag = (ghlContact.tags || []).some(t => isProductTag(t));
 
       if (treatment && (!hasActiveMetaAds || !hasExistingProductTag)) {
-        const activeProductTag = `producto-${treatment.toLowerCase()}`;
+        const activeProductTag = toProductTag(treatment);
         newTagsSet.add(activeProductTag);
-        
-        // Purgar etiquetas falsas/obsoletas de otros productos
-        for (const pTag of ALL_PRODUCT_TAGS) {
+
+        // Purgar etiquetas falsas/obsoletas de otros productos (incluye la legada
+        // `producto-tetosterona`, que se normaliza a `producto-potencia`).
+        for (const pTag of PRODUCT_TAGS) {
           if (pTag !== activeProductTag) {
             newTagsSet.delete(pTag);
           }

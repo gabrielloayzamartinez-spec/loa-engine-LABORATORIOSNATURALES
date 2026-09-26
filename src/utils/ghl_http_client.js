@@ -38,20 +38,48 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Resuelve el nombre de la subcuenta a partir del Location ID (URL) o, en su
+ * defecto, del PIT presente en los headers.
+ *
+ * ARQUITECTURA DESCENTRALIZADA: la resolución es estrictamente por locationId
+ * contra el gateway de sedes. Ya NO existen huellas de token hardcodeadas
+ * (ej. '4d48784c' / cuenta central) ni una subcuenta "CENTRAL" pasiva.
+ */
 export function getSubaccountName(options = {}, url = '') {
   const headers = options.headers || {};
-  const auth = String(headers.Authorization || headers.authorization || headers['Authorization'] || '');
+  const auth = String(headers.Authorization || headers.authorization || '');
   const urlStr = String(url);
 
-  if (auth.includes('8148816f') || urlStr.includes('5NqOaPYqWyIw2FPBfoRg')) return 'PALACIOS';
-  if (auth.includes('c898e002') || urlStr.includes('QXcNBK6XCgpQaZ81Z8pv')) return 'BENAVIDES';
-  if (auth.includes('4d48784c') || urlStr.includes('ATPYNnsfZ1W8sd6WgWIV')) return 'CENTRAL';
-  
-  return auth ? `TOKEN:${auth.substring(0, 12)}...` : 'GENERAL';
+  // 1. Resolución primaria: Location ID presente en la URL de la petición.
+  for (const sede of Object.values(SEDES_GATEWAY)) {
+    const locId = sede?.ghl?.locationId;
+    if (locId && urlStr.includes(locId)) return sede.sedeId;
+  }
+
+  // 2. Resolución secundaria: PIT exacto de la sede en el header Authorization.
+  if (auth) {
+    for (const sede of Object.values(SEDES_GATEWAY)) {
+      const key = sede?.ghl?.apiKey;
+      if (key && auth.includes(key)) return sede.sedeId;
+    }
+  }
+
+  // 3. Sin coincidencia: identificador efímero y no reversible para logs.
+  return auth ? `SUBCUENTA_NO_REGISTRADA:${auth.substring(0, 12)}...` : 'GENERAL';
 }
 
 function getLimiterKey(options = {}, url = '') {
   return getSubaccountName(options, url);
+}
+
+/**
+ * Indica si la subcuenta resuelta está pausada preventivamente por rate limit.
+ * Fail-safe: una subcuenta desconocida nunca se considera pausada.
+ */
+function isSubaccountPaused(subaccount) {
+  const sede = SEDES_GATEWAY?.[subaccount];
+  return Boolean(sede?.isPaused);
 }
 
 /**
@@ -67,15 +95,15 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
   const subaccount = getSubaccountName(options, url);
 
   // [BLINDAJE 429]: Si la subcuenta está pausada preventivamente, omitir peticiones externas a GHL
-  if (subaccount === 'BENAVIDES' && SEDES_GATEWAY?.BENAVIDES?.isPaused) {
-    console.log(`[${caller}] [SUBACCOUNT-PAUSED] Subcuenta [BENAVIDES] pausada preventivamente por rate limit 429 activo en GHL. Petición omitida.`);
+  if (isSubaccountPaused(subaccount)) {
+    console.log(`[${caller}] [SUBACCOUNT-PAUSED] Subcuenta [${subaccount}] pausada preventivamente por rate limit 429 activo en GHL. Petición omitida.`);
     return {
       status: 429,
       ok: false,
       paused: true,
       headers: new Headers({ 'retry-after': '3600' }),
-      json: async () => ({ message: 'Subcuenta BENAVIDES pausada preventivamente por rate limit 429 activo en GHL.' }),
-      text: async () => 'Subcuenta BENAVIDES pausada preventivamente por rate limit 429 activo en GHL.'
+      json: async () => ({ message: `Subcuenta ${subaccount} pausada preventivamente por rate limit 429 activo en GHL.` }),
+      text: async () => `Subcuenta ${subaccount} pausada preventivamente por rate limit 429 activo en GHL.`
     };
   }
   const limiterKey = subaccount;

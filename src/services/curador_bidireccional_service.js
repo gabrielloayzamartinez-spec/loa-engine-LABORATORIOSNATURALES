@@ -4,37 +4,92 @@ import { SEDES_GATEWAY, getGhlHeaders } from '../config/index.js';
 import { routeChatByContact } from '../agents/chat_router_agent.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { findVTigerContact } from './vtiger_api_service.js';
+import { getStateStore } from './state/state_store.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+// ------------------------------------------------------------------------------
+// [STATELESS] Cursores del curador persistidos en el almacén durable.
+// Un redeploy de Render ya NO reinicia el barrido histórico desde cero.
+// Lectura síncrona desde caché hidratada + escritura write-through asíncrona.
+// ------------------------------------------------------------------------------
+const curatorStore = getStateStore('curator_cursors');
+const cursorCache = new Map();
+
+function cursorKey(sedeName) {
+  return `cursor_${String(sedeName).toLowerCase()}`;
+}
+
 function getCursorPath(sedeName) {
   return path.join(DATA_DIR, `cursor_curador_${sedeName.toLowerCase()}.json`);
 }
 
+const EMPTY_CURSOR = {
+  nextPageUrl: null,
+  totalScanned: 0,
+  totalHealed: 0,
+  totalCycles: 0,
+  isCompleted: false,
+  lastRunAt: null
+};
+
+/**
+ * [STATELESS] Precarga los cursores desde el almacén durable. Invocar una vez
+ * en el arranque (fuera del camino crítico del sanity check).
+ */
+export async function hydrateCursorStates(sedeNames = ['PALACIOS', 'BENAVIDES']) {
+  const results = {};
+  for (const sede of sedeNames) {
+    const persisted = await curatorStore.get(cursorKey(sede), null);
+    if (persisted && typeof persisted === 'object') {
+      cursorCache.set(sede.toUpperCase(), persisted);
+      results[sede] = { hydrated: true, totalScanned: persisted.totalScanned || 0 };
+    } else {
+      results[sede] = { hydrated: false };
+    }
+  }
+  const restored = Object.values(results).filter(r => r.hydrated).length;
+  console.log(`[Curador] [HYDRATE] Cursores restaurados: ${restored}/${sedeNames.length} sedes.`);
+  return results;
+}
+
 export function loadCursorState(sedeName) {
+  const key = String(sedeName).toUpperCase();
+
+  // 1. Caché hidratada (fuente rápida y consistente en proceso).
+  if (cursorCache.has(key)) {
+    return { ...EMPTY_CURSOR, ...cursorCache.get(key) };
+  }
+
+  // 2. Migración transparente desde el archivo legado si aún no se hidrató.
   const filePath = getCursorPath(sedeName);
   if (fs.existsSync(filePath)) {
     try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    } catch (e) {}
+      const legacy = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      cursorCache.set(key, legacy);
+      return { ...EMPTY_CURSOR, ...legacy };
+    } catch (e) { /* archivo corrupto: se ignora sin romper el ciclo */ }
   }
-  return {
-    nextPageUrl: null,
-    totalScanned: 0,
-    totalHealed: 0,
-    totalCycles: 0,
-    isCompleted: false,
-    lastRunAt: null
-  };
+
+  return { ...EMPTY_CURSOR };
 }
 
 export function saveCursorState(sedeName, state) {
+  const key = String(sedeName).toUpperCase();
+  cursorCache.set(key, state);
+
+  // Escritura write-through hacia el almacén durable (no bloquea el ciclo de curación).
+  curatorStore.set(cursorKey(sedeName), state).catch(err => {
+    console.warn(`[Curador] [CURSOR-WARN] No se pudo persistir el cursor de ${sedeName}: ${err.message}`);
+  });
+
+  // Espejo local best-effort para inspección manual.
   try {
     fs.writeFileSync(getCursorPath(sedeName), JSON.stringify(state, null, 2), 'utf8');
-  } catch (e) {}
+  } catch (e) { /* opcional */ }
 }
 
 async function sleep(ms) {

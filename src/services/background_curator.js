@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { GHL_CONFIG } from '../config/index.js';
+import { GHL_CONFIG, resolveSedeContext } from '../config/index.js';
 import { analyzeSymptoms, extractShippingData, inferTreatmentFromCampaignOrUtm, buildVtigerSource } from '../agents/nlp_symptom_engine.js';
 import { tokenBucketQueue } from './token_bucket_queue.js';
 import { findVTigerContact } from './vtiger_api_service.js';
@@ -16,17 +16,14 @@ const HEADERS = {
   'Content-Type': 'application/json'
 };
 
+import { PRODUCT_TAGS, isProductTag as isKnownProductTag, toProductTag } from '../domain/clinical_vocabulary.js';
+
 const STATE_FILE = path.join(process.cwd(), 'curator_state.json');
 const TRATAMIENTO_FIELD = 'WcrrCIL4A2203kIbeFsJ';
-const ALL_PRODUCT_TAGS = [
-  'producto-artritis',
-  'producto-diabetes',
-  'producto-prostata',
-  'producto-potencia',
-  'producto-colageno',
-  'producto-vision',
-  'producto-gastro'
-];
+// [VOCABULARIO CANÓNICO] La lista local omitía Hongos y Gummies, por lo que el
+// curador nunca purgaba esas etiquetas huérfanas.
+const ALL_PRODUCT_TAGS = PRODUCT_TAGS;
+const isProductTag = isKnownProductTag;
 
 let isCuratorRunning = false;
 let curatorStats = {
@@ -122,7 +119,9 @@ export async function auditAndCureContact(contact) {
     vContact = await findVTigerContact(contact);
   } catch (e) {}
 
-  const commercialTruth = evaluateCommercialTruth(contact, vContact);
+  // [SEDE-SHIELD] El veredicto recibe la sede resuelta del contacto.
+  const sedeActivaCurator = resolveSedeContext({ locationId: contact?.locationId || '' })?.sedeId || '';
+  const commercialTruth = evaluateCommercialTruth(contact, vContact, sedeActivaCurator);
   const isCustomerWon = commercialTruth.isWon;
   const monetaryValue = commercialTruth.totalSpent;
 
@@ -182,9 +181,9 @@ export async function auditAndCureContact(contact) {
   // Tags corregidos
   let newTags = [...currentTags];
   if (treatmentMismatched) {
-    newTags = newTags.filter(t => t !== 'producto-artritis');
-    const correctTag = `producto-${realTreatment.toLowerCase()}`;
-    if (!newTags.includes(correctTag)) newTags.push(correctTag);
+    newTags = newTags.filter(t => !isProductTag(t));
+    const correctTag = toProductTag(realTreatment);
+    if (correctTag && !newTags.includes(correctTag)) newTags.push(correctTag);
   }
 
   const updatePayload = {

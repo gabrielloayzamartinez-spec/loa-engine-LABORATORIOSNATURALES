@@ -65,7 +65,7 @@ flowchart LR
 Cada sub-usuario (asesor) o supervisor de edificio tendrá su propia pestaña filtrada en tiempo real:
 
 ### Mapeo de Sub-Cuentas y Vistas por Edificio:
-1. **Sede Central Palacios:**
+1. **Sede Palacios (sede primaria):**
    * *Filtro:* `Propietario = REDES PALACIOS ERNESTO` o `Sede = Palacios`.
    * *Pestaña:* `🏢 CALL CENTER - SEDE PALACIOS`.
 2. **Sede Ultra:**
