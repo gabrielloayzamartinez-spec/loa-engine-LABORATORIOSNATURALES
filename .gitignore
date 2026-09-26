@@ -43,3 +43,7 @@ vtiger_bridge/logs/
 vtiger_bridge/data/
 vtiger_bridge/output/
 vtiger_bridge/checkpoint.db
+
+# Render deploy hook (secreto local, nunca versionar)
+.deploy_hook
+

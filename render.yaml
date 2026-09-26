@@ -6,16 +6,22 @@ services:
     region: oregon
     buildCommand: npm install
     startCommand: npm start
-    healthCheckPath: /health
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: 20
       - key: PORT
         value: 3000
+      - key: NODE_ENV
+        value: production
       - key: LOA_LICENSE_KEY
-        value: LOA-GHL-2026-PROD
+        sync: false
+      - key: STRICT_CONFIG
+        value: "false"
+      - key: PREFLIGHT_MAX_MS
+        value: "5000"
 
-      # GHL Multi-Sede
+      # GHL Multi-Sede (arquitectura descentralizada point-to-point; sin cuenta central)
       - key: GHL_API_KEY
         sync: false
       - key: GHL_LOCATION_ID
@@ -23,10 +29,6 @@ services:
       - key: GHL_API_KEY_PALACIOS
         sync: false
       - key: GHL_LOCATION_ID_PALACIOS
-        sync: false
-      - key: GHL_API_KEY_CENTRAL
-        sync: false
-      - key: GHL_LOCATION_ID_CENTRAL
         sync: false
       - key: GHL_API_KEY_BENAVIDES
         sync: false
@@ -41,6 +43,16 @@ services:
       - key: GHL_LOCATION_ID_PIURA
         sync: false
 
+      # Colas durables y estado distribuido (feature flag)
+      - key: QUEUE_DRIVER
+        value: memory
+      - key: REDIS_URL
+        sync: false
+      - key: PERSISTENCE_DRIVER
+        value: file
+      - key: DATABASE_URL
+        sync: false
+
       # vTiger CRM Connection
       - key: VTIGER_URL
         value: https://ventascallcenter.com
@@ -53,7 +65,7 @@ services:
       - key: META_API_VERSION
         value: v20.0
       - key: META_WEBHOOK_VERIFY_TOKEN
-        value: ghl_meta_secure_token_2026
+        sync: false
       - key: META_BACKUP_TOKENS
         sync: false
 

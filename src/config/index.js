@@ -1,35 +1,64 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { readSecret, hasSecret, IS_PRODUCTION, STRICT_CONFIG, redact, sanitizeForLog } from './secrets.js';
+import { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede, getActiveSedes, getOperationalSedes, getDegradedSedes, resolveSedeCustomFields, resolveSedePipeline } from './sedes_gateway.js';
+import { SEDE_PIPELINES, SEDE_CUSTOM_FIELDS } from './routing_tables.js';
+
+/**
+ * ==============================================================================
+ * LOA ENGINE - CONFIGURACIÓN CENTRAL (ZERO HARDCODING / FAIL-SAFE)
+ * ==============================================================================
+ * Toda credencial proviene de `process.env` vía `readSecret()`.
+ * Sin secretos hardcodeados, sin fallbacks de tokens, sin valores por defecto
+ * peligrosos. Si un secreto falta, el motor degrada la sede afectada y sigue vivo.
+ * ==============================================================================
+ */
+
 // ==========================================
 // 1. CONFIGURACIÓN DE GOHIGHLEVEL (GHL)
 // ==========================================
+// Arquitectura descentralizada: ya NO existe una cuenta central única.
+// `GHL_CONFIG` es el alias de la subcuenta PRIMARIA (Palacios) que consumen los
+// scripts legacy y los workers de una sola sede. Todo enrutamiento nuevo debe
+// usar `resolveSedeContext()` / `getGhlHeaders({ locationId })`.
 export const GHL_CONFIG = {
-  apiKey: process.env.GHL_API_KEY,
-  locationId: process.env.GHL_LOCATION_ID
+  apiKey: SEDES_GATEWAY.PALACIOS.ghl.apiKey,
+  locationId: SEDES_GATEWAY.PALACIOS.ghl.locationId
 };
 
 // ==========================================
-// 1.5 CONFIGURACIÓN DE VTIGER CRM
+// 1.5 CONFIGURACIÓN DE VTIGER CRM (GROUND TRUTH - SOLO LECTURA)
 // ==========================================
+// ACCESO CENTRALIZADO: UNA (1) cuenta de Administrador con acceso global.
+// El aislamiento multi-sede NO se hace con credenciales distintas, sino
+// condicionando cada consulta por el campo nativo de sede (`cf_3451`) desde
+// `src/services/vtigerClient.js`. Un solo token maestro = un solo punto que
+// proteger, rotar y auditar.
 export const VTIGER_CONFIG = {
-  url: process.env.VTIGER_URL || 'https://ventascallcenter.com',
-  username: process.env.VTIGER_USERNAME || 'GABRIEL',
-  accessKey: process.env.VTIGER_ACCESS_KEY || ''
+  // URL y usuario no son secretos: se admiten como configuración declarativa.
+  url: readSecret('VTIGER_URL'),
+  username: readSecret('VTIGER_USERNAME'),
+  // El access key NUNCA tiene fallback: si falta, queda vacío y la capa de
+  // servicio reporta "vTiger no configurado" sin tumbar el proceso.
+  accessKey: readSecret('VTIGER_ACCESS_KEY')
 };
 
 // ==========================================
 // 2. CONFIGURACIÓN DE META DEVELOPER API (MAPI / CAPI)
 // ==========================================
 export const META_CONFIG = {
-  graphApiVersion: process.env.META_API_VERSION || 'v20.0',
-  appId: process.env.META_APP_ID || '',
-  appSecret: process.env.META_APP_SECRET || '',
-  accessToken: process.env.META_ACCESS_TOKEN || '',
-  adAccountId: process.env.META_AD_ACCOUNT_ID || '',
-  pixelId: process.env.META_PIXEL_ID || '',
-  exclusionAudienceId: process.env.META_EXCLUSION_AUDIENCE_ID || '',
-  webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || 'ghl_meta_secure_token_2026'
+  graphApiVersion: readSecret('META_API_VERSION'),
+  // Configuración legacy mono-app (compatibilidad con scripts antiguos)
+  appId: readSecret('META_APP_ID'),
+  appSecret: readSecret('META_APP_SECRET'),
+  accessToken: readSecret('META_ACCESS_TOKEN'),
+  adAccountId: readSecret('META_AD_ACCOUNT_ID'),
+  pixelId: readSecret('META_PIXEL_ID'),
+  exclusionAudienceId: readSecret('META_EXCLUSION_AUDIENCE_ID'),
+  // Sin fallback hardcodeado: si el token no está definido, la verificación
+  // del webhook falla cerrada (403) en lugar de aceptar un token público.
+  webhookVerifyToken: readSecret('META_WEBHOOK_VERIFY_TOKEN')
 };
 
 // ==========================================
@@ -58,18 +87,31 @@ export const AUDIT_PIPELINE_DEF = {
 };
 
 // ==========================================
-// 3.5. DEFINICIONES DEL PIPELINE UNIFICADO
+// 3.5. DEFINICIONES DEL PIPELINE UNIFICADO (POR SEDE, POINT-TO-POINT)
 // ==========================================
-export const UNIFIED_PIPELINE_DEF = {
-  name: "Embudo Comercial (Redes)",
-  stages: [
-    { name: "Prospecto Inicial (Sin Teléfono)", position: 1 },
-    { name: "Contacto Capturado", position: 2 },
-    { name: "Seguimiento / Negociación", position: 3 },
-    { name: "Ganado (Compró)", position: 4 },
-    { name: "Perdido / Sin Respuesta", position: 5 }
-  ]
-};
+/**
+ * Construye el descriptor del embudo comercial de una sede a partir de la
+ * tabla oficial de enrutamiento (src/config/routing_tables.js).
+ * @param {'PALACIOS'|'BENAVIDES'} sedeId
+ */
+export function buildUnifiedPipelineDef(sedeId = 'PALACIOS') {
+  const conf = SEDE_PIPELINES[String(sedeId).toUpperCase()];
+  if (!conf) return null;
+  return {
+    name: conf.name,
+    pipelineId: conf.id,
+    stages: [
+      { key: 'prospectoInicial', name: "Prospecto Inicial (Sin Teléfono)", id: conf.stages.prospectoInicial, position: 1 },
+      { key: 'contactoCapturado', name: "Contacto Capturado", id: conf.stages.contactoCapturado, position: 2 },
+      { key: 'seguimiento', name: "Seguimiento / Negociación", id: conf.stages.seguimiento, position: 3 },
+      { key: 'ganado', name: "Ganado (Compró)", id: conf.stages.ganado, position: 4 },
+      { key: 'perdido', name: "Perdido / Sin Respuesta", id: conf.stages.perdido, position: 5 }
+    ]
+  };
+}
+
+// Alias retrocompatible: descriptor de la sede primaria (Palacios).
+export const UNIFIED_PIPELINE_DEF = buildUnifiedPipelineDef('PALACIOS');
 
 // ==========================================
 // 3.6. CAMPOS PERSONALIZADOS (CUSTOM FIELDS) GHL
@@ -120,7 +162,7 @@ export const FB_PAGE_ID_MAP = {
   // PALACIOS ERNESTO
   "566501466542620": "Naturales BioNatural",
   "718150351371765": "Laboratorios Naturales BIO",
-  // PALACIOS ULTRA  
+  // PALACIOS ULTRA
   "111906554968800": "BioNatural - Ultra",
   // BENAVIDES 1
   "510617778807469": "Naturales Bio Corp",
@@ -196,5 +238,21 @@ Object.defineProperty(PALACIOS_USERS, 'ultra', {
 // ==========================================
 // 6. GATEWAY MULTI-SEDE ORCHESTRATOR
 // ==========================================
-export { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede, getActiveSedes, getOperationalSedes, resolveSedeCustomFields, resolveSedePipeline } from './sedes_gateway.js';
-
+export {
+  SEDES_GATEWAY,
+  resolveSedeContext,
+  getGhlHeaders,
+  getMetaConfigBySede,
+  getActiveSedes,
+  getOperationalSedes,
+  getDegradedSedes,
+  resolveSedeCustomFields,
+  resolveSedePipeline,
+  SEDE_PIPELINES,
+  SEDE_CUSTOM_FIELDS,
+  IS_PRODUCTION,
+  STRICT_CONFIG,
+  hasSecret,
+  redact,
+  sanitizeForLog
+};

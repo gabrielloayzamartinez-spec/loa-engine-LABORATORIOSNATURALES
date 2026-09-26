@@ -1,7 +1,18 @@
 import { resolveSedeCustomFields, resolveSedeContext } from '../config/index.js';
 
+/**
+ * Resuelve la sede a partir del locationId usando el gateway (point-to-point).
+ * Sustituye las comparaciones con IDs hardcodeados: si se rota una subcuenta,
+ * basta con actualizar la variable de entorno.
+ */
+function resolveSedeIdFromLocation(locationId = '') {
+  const ctx = resolveSedeContext({ locationId });
+  return ctx && !ctx.isUnresolved ? ctx.sedeId : null;
+}
+
 export function getCommercialFieldIdsForSede({ locationId = '', sede = '' } = {}) {
   const cf = resolveSedeCustomFields({ locationId, sede });
+  const sedeId = sede ? String(sede).toUpperCase() : resolveSedeIdFromLocation(locationId);
   return {
     ESTADO_COMERCIAL: cf.estadoComercial,
     STATUS_CONTACTO: cf.statusContacto,
@@ -17,7 +28,7 @@ export function getCommercialFieldIdsForSede({ locationId = '', sede = '' } = {}
     ANOTACIONES_REDES: cf.anotacionesRedes,
     CANAL_CAPTACION: cf.canalCaptacion,
     CONTACT_NO: cf.contactNo,
-    FECHA_CREACION_VT: (sede === 'BENAVIDES' || (locationId && locationId.includes('QXcNBK6XCgpQaZ81Z8pv'))) ? cf.ultimaInteraccion : cf.fechaAsignacion,
+    FECHA_CREACION_VT: sedeId === 'BENAVIDES' ? cf.ultimaInteraccion : cf.fechaAsignacion,
     ID_CLIENTE_VT: cf.idCliente,
     TIENE_TELEFONO: cf.tieneTelefono,
     SEDE_ASIGNADA: cf.sedeAsignada,
@@ -31,16 +42,39 @@ export const COMMERCIAL_FIELD_IDS_BENAVIDES = getCommercialFieldIdsForSede({ sed
 
 /**
  * Evalúa la verdad comercial de un contacto contrastando vTiger CRM y GoHighLevel.
- * @param {Object} ghlContact - Objeto de contacto de GHL
- * @param {Object|null} vContact - Objeto de contacto de vTiger (si existe)
+ *
+ * [SEDE-SHIELD — OBLIGATORIO] `sedeActiva` es la sede que está recibiendo al lead.
+ * Si el registro de vTiger pertenece a OTRA sede (o la sede no es determinable),
+ * el historial se considera INEXISTENTE: cero monto, cero fechas, cero órdenes y
+ * veredicto SIN VENTA. Antes esta función no validaba la sede y se apoyaba sólo
+ * en `buildSanitizedCommercialFields()`: cualquier llamada directa propagaba el
+ * historial ajeno (confidencialidad financiera rota).
+ *
+ * @param {Object} ghlContact - Contacto de GHL
+ * @param {Object|null} vContact - Contacto de vTiger (si existe)
+ * @param {string} sedeActiva - 'PALACIOS' | 'BENAVIDES' (obligatoria para datos de vTiger)
  * @returns {Object} Veredicto comercial unificado
  */
-export function evaluateCommercialTruth(ghlContact = {}, vContact = null) {
+export function evaluateCommercialTruth(ghlContact = {}, vContact = null, sedeActiva = '') {
+  // ==========================================================================
+  // [SEDE-SHIELD] Puerta única: un registro de otra sede se trata como inexistente.
+  // ==========================================================================
+  const vContactSede = String(vContact?.cf_3451 || '').toUpperCase().trim();
+  const sedeEsperada = String(sedeActiva || '').toUpperCase().replace(/[^A-Z]/g, '');
+
+  let validVContact = vContact;
+  if (validVContact) {
+    if (!sedeEsperada || !vContactSede || vContactSede !== sedeEsperada) {
+      console.warn(`[CommercialEngine] [SEDE-SHIELD] Historial de vTiger descartado: registro ${vContactSede || '(sin sede)'} vs sede activa ${sedeEsperada || '(indeterminada)'}. Cero rastro financiero.`);
+      validVContact = null;
+    }
+  }
+
   // 1. Verdad de Facturación en vTiger CRM
-  const vSalesCount = parseInt(vContact?.spl_num_compras || '0', 10);
-  const totalSpent = parseFloat(vContact?.cf_3392 || vContact?.cf_3238 || '0');
+  const vSalesCount = parseInt(validVContact?.spl_num_compras || '0', 10);
+  const totalSpent = parseFloat(validVContact?.cf_3392 || validVContact?.cf_3238 || '0');
   
-  const vStatus = String(vContact?.cf_994 || '').trim();
+  const vStatus = String(validVContact?.cf_994 || '').trim();
   const vStatusWon = ['vendido', 'cliente', 'cobrado'].some(s => vStatus.toLowerCase().includes(s));
   
   // [REGLA ESTRICTA]: Una compra real DEBE tener monto mayor a 0 o estatus cobrado
@@ -52,22 +86,26 @@ export function evaluateCommercialTruth(ghlContact = {}, vContact = null) {
 
   // 3. Veredicto Final: AUTORIDAD DE VTIGER
   let isWon = false;
-  if (vContact) {
-    // Si existe en vTiger, vTiger TIENE LA ÚLTIMA PALABRA. Cura las ventas falsas de $0 de GHL.
+  if (validVContact) {
+    // Si existe en vTiger Y es de la sede activa, vTiger TIENE LA ÚLTIMA PALABRA.
     isWon = isVtigerWon;
   } else {
-    // Si aún no está en vTiger, confiamos temporalmente en GHL.
-    isWon = isGhlWon;
+    // Sin historial válido en esta sede, el lead se cataloga como NO COMPRADOR.
+    // No se confía en tags de GHL que puedan venir contaminados de otra sede.
+    isWon = vContact ? false : isGhlWon;
   }
 
   return {
     isWon,
     commercialStatus: isWon ? 'CONVERTIDO' : 'SIN VENTA',
-    contactStatus: vStatus || (isWon ? 'VENDIDO' : 'SIN TRABAJAR'),
-    realFirstPurchaseDate: isWon ? (vContact?.spl_fecha_primera_compra || null) : null,
-    realLastPurchaseDate: isWon ? (vContact?.spl_fecha_ultima_compra || null) : null,
+    contactStatus: isWon ? (vStatus || 'VENDIDO') : 'SIN TRABAJAR',
+    realFirstPurchaseDate: isWon ? (validVContact?.spl_fecha_primera_compra || null) : null,
+    realLastPurchaseDate: isWon ? (validVContact?.spl_fecha_ultima_compra || null) : null,
     salesCount: isWon ? vSalesCount : 0,
-    totalSpent: isWon ? totalSpent : 0
+    totalSpent: isWon ? totalSpent : 0,
+    // Trazabilidad para auditoría: nunca se expone el detalle ajeno.
+    sedeEvaluada: sedeEsperada || null,
+    historialAjenoBloqueado: Boolean(vContact && !validVContact)
   };
 }
 
@@ -75,31 +113,46 @@ export function evaluateCommercialTruth(ghlContact = {}, vContact = null) {
  * Genera el conjunto de customFields sanitizados para actualizar en GHL.
  * Si es SIN VENTA: purga fechas y precios falsos.
  * Si es CONVERTIDO: preserva los datos de compra reales.
- * @param {Object} ghlContact 
- * @param {Object|null} vContact 
+ *
+ * [SEDE-SHIELD] La sede se resuelve por gateway. Si NO es determinable, se aplica
+ * el criterio fail-closed: el historial de vTiger se descarta por completo en
+ * lugar de asumir 'PALACIOS' (que era el comportamiento anterior y permitía que
+ * un historial ajeno se colara en una subcuenta no resuelta).
+ *
+ * @param {Object} ghlContact
+ * @param {Object|null} vContact
+ * @param {string|null} locationId
  * @returns {Array<Object>} Lista de campos con { id, key, field_value }
  */
 export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null, locationId = null) {
   const targetLoc = locationId || ghlContact?.locationId || '';
-  const isBenavides = Boolean(
-    (targetLoc && targetLoc.includes('QXcNBK6XCgpQaZ81Z8pv')) ||
-    (ghlContact?.locationId && ghlContact.locationId.includes('QXcNBK6XCgpQaZ81Z8pv'))
-  );
-  const expectedSede = isBenavides ? 'BENAVIDES' : 'PALACIOS';
+  const sedeActiva = resolveSedeIdFromLocation(targetLoc)
+    || resolveSedeIdFromLocation(ghlContact?.locationId || '')
+    || null;
 
-  // [SEDE-SHIELD]: Validar que el vContact pertenezca a la misma sede de la subcuenta GHL
+  // [SEDE-SHIELD — FAIL-CLOSED]: sin sede determinable no se propaga NINGÚN dato
+  // financiero de vTiger. El llamante ya recibió un WARN de resolución.
   let validVContact = vContact;
-  if (validVContact && validVContact.cf_3451) {
-    const vSede = String(validVContact.cf_3451).trim().toUpperCase();
-    if (vSede && vSede !== expectedSede) {
-      console.warn(`[CommercialEngine] [SEDE-SHIELD] Bloqueado vContact ${validVContact.id} (${vSede}) para subcuenta de ${expectedSede}.`);
+  if (validVContact) {
+    const vSede = String(validVContact.cf_3451 || '').toUpperCase().trim();
+    const pertenece = Boolean(sedeActiva) && vSede === sedeActiva;
+
+    if (!pertenece) {
+      console.warn(`[CommercialEngine] [SEDE-SHIELD] Historial bloqueado: registro ${vSede || '(sin sede)'} vs sede activa ${sedeActiva || '(indeterminada)'}. Se purga todo rastro financiero.`);
       validVContact = null;
     }
   }
 
-  const truth = evaluateCommercialTruth(ghlContact, validVContact);
+  // La verdad comercial hereda la MISMA sede validada (una sola puerta de decisión).
+  const truth = evaluateCommercialTruth(ghlContact, validVContact, sedeActiva || '');
   const fields = [];
-  const fieldIds = getCommercialFieldIdsForSede({ locationId: targetLoc, sede: expectedSede });
+  const fieldIds = getCommercialFieldIdsForSede({ locationId: targetLoc, sede: sedeActiva || '' });
+
+  // Si la sede no se pudo resolver, se devuelven los campos de estado en modo
+  // SIN VENTA y sin datos financieros (nunca se omiten silenciosamente).
+  if (!sedeActiva) {
+    console.warn('[CommercialEngine] [SEDE-LOCK] Sede no resoluble: se emite veredicto SIN VENTA sin datos de vTiger.');
+  }
 
   // Estado comercial y estatus del contacto
   if (fieldIds.ESTADO_COMERCIAL) {
@@ -198,7 +251,9 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
     const existingIdVT = existingCFs.find(f => f.id === fieldIds.ID_CLIENTE_VT)?.value;
     const existingContactNo = existingCFs.find(f => f.id === fieldIds.CONTACT_NO)?.value;
 
-    if (existingSede && String(existingSede).toUpperCase().trim() !== expectedSede) {
+    // [SEDE-SHIELD] Si la sede no es resoluble, `sedeActiva` es null: toda sede
+    // heredada se considera ajena y se purga (fail-closed, nunca se conserva).
+    if (existingSede && String(existingSede).toUpperCase().trim() !== sedeActiva) {
       if (fieldIds.SEDE_TIENDA_COMPRA) fields.push({ id: fieldIds.SEDE_TIENDA_COMPRA, key: 'contact.vtiger_sede__tienda_compra', field_value: '' });
       if (existingContactNo && fieldIds.CONTACT_NO) fields.push({ id: fieldIds.CONTACT_NO, key: 'contact.vtiger_contact_no', field_value: '' });
       if (existingIdVT && fieldIds.ID_CLIENTE_VT) fields.push({ id: fieldIds.ID_CLIENTE_VT, key: 'contact.vtiger_id_cliente', field_value: '' });

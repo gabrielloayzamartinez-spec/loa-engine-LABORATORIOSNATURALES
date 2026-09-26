@@ -1,19 +1,55 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { readSecret, hasSecret, envList } from './secrets.js';
+import { SEDE_PIPELINES, SEDE_CUSTOM_FIELDS } from './routing_tables.js';
+
 /**
  * ==============================================================================
- * LOA ENGINE - MASTER MULTI-SEDE GATEWAY (ORCHESTRATOR)
+ * LOA ENGINE - MASTER MULTI-SEDE GATEWAY (ORQUESTADOR POINT-TO-POINT)
  * ==============================================================================
- * Centraliza la configuración multi-tenant para las 4 sedes de Laboratorios Naturales:
+ * Configuración multi-tenant para las sedes de Laboratorios Naturales:
  * - PALACIOS
  * - BENAVIDES
- * - ROOSEVELT
- * - PIURA
+ * - ROOSEVELT (standby)
+ * - PIURA     (standby)
  *
- * Permite enrutamiento dinámico de APIs de GoHighLevel, Fanpages de Meta y
- * aislamiento estricto en vTiger CRM.
+ * ARQUITECTURA DESCENTRALIZADA (vigente):
+ * Cada sede es un tentáculo hermético e independiente con su propio PIT,
+ * Location ID, pipeline y custom fields. NO existe cuenta "central" ni bóveda
+ * universal: el enrutamiento es estrictamente punto a punto.
+ *
+ * SEGURIDAD: ningún token tiene valor por defecto en el código. Si un PIT falta,
+ * el valor es '' y el gateway marca la sede como `isConfigured: false`
+ * (fail-safe: el proceso NO muere, la sede simplemente queda inoperativa).
  */
+
+function buildSedeGhl(prefix) {
+  return {
+    apiKey: readSecret(`GHL_API_KEY_${prefix}`),
+    locationId: readSecret(`GHL_LOCATION_ID_${prefix}`)
+  };
+}
+
+function buildSedeMeta(prefix) {
+  const adAccountIds = envList(`META_AD_ACCOUNT_IDS_${prefix}`);
+  return {
+    appId: readSecret(`META_APP_ID_${prefix}`),
+    appSecret: readSecret(`META_APP_SECRET_${prefix}`),
+    accessToken: readSecret(`META_ACCESS_TOKEN_${prefix}`),
+    adAccountIds,
+    adAccountId: adAccountIds[0] || readSecret(`META_AD_ACCOUNT_ID_${prefix}`)
+  };
+}
+
+function isSedeConfigured(ghl) {
+  return Boolean(ghl.apiKey && ghl.locationId);
+}
+
+const PALACIOS_GHL = buildSedeGhl('PALACIOS');
+const BENAVIDES_GHL = buildSedeGhl('BENAVIDES');
+const ROOSEVELT_GHL = buildSedeGhl('ROOSEVELT');
+const PIURA_GHL = buildSedeGhl('PIURA');
 
 export const SEDES_GATEWAY = {
   PALACIOS: {
@@ -22,64 +58,16 @@ export const SEDES_GATEWAY = {
     vtigerSedeName: 'PALACIOS',
     isActive: true,
     isPaused: false,
-    ghl: {
-      apiKey: process.env.GHL_API_KEY_PALACIOS || '',
-      locationId: process.env.GHL_LOCATION_ID_PALACIOS || '5NqOaPYqWyIw2FPBfoRg'
-    },
-    meta: {
-      appId: process.env.META_APP_ID_PALACIOS || '',
-      appSecret: process.env.META_APP_SECRET_PALACIOS || '',
-      accessToken: process.env.META_ACCESS_TOKEN_PALACIOS || '',
-      adAccountIds: (process.env.META_AD_ACCOUNT_IDS_PALACIOS || process.env.META_AD_ACCOUNT_ID_PALACIOS || '')
-        .split(',').map(s => s.trim()).filter(Boolean),
-      adAccountId: process.env.META_AD_ACCOUNT_ID_PALACIOS || (process.env.META_AD_ACCOUNT_IDS_PALACIOS || '').split(',')[0]?.trim() || ''
-    },
+    isConfigured: isSedeConfigured(PALACIOS_GHL),
+    ghl: PALACIOS_GHL,
+    meta: buildSedeMeta('PALACIOS'),
     pageIds: [
       '566501466542620', // Naturales BioNatural
       '718150351371765', // Laboratorios Naturales BIO
       '111906554968800'  // BioNatural - Ultra
     ],
-    pipeline: {
-      id: 'YCZePq7oBz7XREDAPtsj', // Embudo Comercial (Redes - Palacios)
-      stages: {
-        prospectoInicial: '46b85935-c0cc-454c-9c09-9740d8c8f30a',
-        contactoCapturado: '43b410a2-cb31-492c-bbe7-9e40c9251884',
-        seguimiento: 'e574b419-25cb-40fc-9a93-75b3f4502d52',
-        ganado: '5b0ca386-1c01-45ec-a531-6e235c0d8305',
-        perdido: 'c19ea2ef-2c74-4779-941b-6405ba21ff48'
-      }
-    },
-    customFields: {
-      idAnuncio: 'NR0eI8a2EvugkHhpRJ1w',
-      adIdAlt: 'PUUykPTCijq7rZoLYwAD',
-      tratamientoComprado: '5Sci2WhOpJq9kZWsLTrp',
-      utmCampaign: '0VEvRUhcoN8o5YiaLAkG',
-      utmSource: '7BnlWDntf3bYBBRJNszD',
-      utmMedium: 'G7Mxwp38qS1pKcE80iOY',
-      utmContent: 'RV3opVc8o1I7rCnQZnhS',
-      utmTerm: 'Mwi6muWBiOMnM6m9FMdZ',
-      adsetId: 'jmH0CYynvNBMOxKfBbsN',
-      sedeAsignada: 'AXACVLFNsTOEzanAHCdf',
-      origenLead: '4mOsSGfHcGMJkoWUWlyX',
-      tieneTelefono: 'SMAiwKnSvPHWguEbOQxX',
-      ultimaInteraccion: 'qX4hJ8L9ul3tXFsBdp6m',
-      estadoComercial: 'NQGDs2mWeIjH3iGhSK9u',
-      statusContacto: 'G0E9a8RExcUgFbqJO2gF',
-      fechaAsignacion: '0FZcDJLkOPhcpqHAsEdF',
-      fechaCompra: 'sil3rY9lmRVfCHdQ3tGP',
-      fechaPrimeraCompra: 'RqSVtgzyVBZPUB2cXrJk',
-      fechaUltimaCompra: 'zfamE9R79cBBBN1G5Skq',
-      fechaUltimaFactura: 'heHOec7RMVJ9MRFJ1Z9H',
-      precioVenta: 'FJvzBM7KriNIBgA8zvqS',
-      numCompras: 'fy6i5hdHG21jYFlUVWtL',
-      estadoCompraLista: 'mX7qu8FLS7Qv1BuLKlhb',
-      sedeTiendaCompra: 'aE5sCUO8LH7TZD961J17',
-      anotacionesRedes: 'rmr5DruA5Jxh7ENERilB',
-      canalCaptacion: 'vl6ca0ODB0VILwMnfPqn',
-      contactNo: 'FjldqW9y3ZVbZU02D6Yb',
-      idCliente: 'M734HXzYwihdi01GhBwO',
-      historialCompleto: 'T3jzpe1j65tDGXLfQNrM'
-    },
+    pipeline: SEDE_PIPELINES.PALACIOS,
+    customFields: SEDE_CUSTOM_FIELDS.PALACIOS,
     users: {
       ernesto: {
         id: '8LuTk9jzt5BeaKLxdVru',
@@ -108,64 +96,16 @@ export const SEDES_GATEWAY = {
     vtigerSedeName: 'BENAVIDES',
     isActive: true,
     isPaused: process.env.PAUSE_BENAVIDES !== 'false',
-    ghl: {
-      apiKey: process.env.GHL_API_KEY_BENAVIDES || '',
-      locationId: process.env.GHL_LOCATION_ID_BENAVIDES || 'QXcNBK6XCgpQaZ81Z8pv'
-    },
-    meta: {
-      appId: process.env.META_APP_ID_BENAVIDES || '',
-      appSecret: process.env.META_APP_SECRET_BENAVIDES || '',
-      accessToken: process.env.META_ACCESS_TOKEN_BENAVIDES || '',
-      adAccountIds: (process.env.META_AD_ACCOUNT_IDS_BENAVIDES || process.env.META_AD_ACCOUNT_ID_BENAVIDES || '')
-        .split(',').map(s => s.trim()).filter(Boolean),
-      adAccountId: process.env.META_AD_ACCOUNT_ID_BENAVIDES || (process.env.META_AD_ACCOUNT_IDS_BENAVIDES || '').split(',')[0]?.trim() || ''
-    },
+    isConfigured: isSedeConfigured(BENAVIDES_GHL),
+    ghl: BENAVIDES_GHL,
+    meta: buildSedeMeta('BENAVIDES'),
     pageIds: [
       '126154270581792',  // Bio Natural (Click2Ring)
       '510617778807469',  // Naturales Bio Corp (Ernesto)
       '1147742788423762'  // BioNatural Fuerza (InHouse)
     ],
-    pipeline: {
-      id: 'Dv8kOeJvsMs9WMyTJAfD', // Embudo Comercial (Redes - Benavides)
-      stages: {
-        prospectoInicial: 'e93516ad-bbac-48cf-9f31-6d4aa0715e1e',
-        contactoCapturado: 'c5dfcdf8-3ab3-43d2-8c33-6f5396bbd223',
-        seguimiento: '0fc0152e-3a68-4fb4-9434-eb2d279c709e',
-        ganado: 'baf424a2-0a06-4b6f-affb-216ee1d27786',
-        perdido: '686c258d-4b5d-4b5d-ba11-e4456c995c7a'
-      }
-    },
-    customFields: {
-      idAnuncio: 'bjIdaPk0dzyuNw0RCMwn',
-      adIdAlt: 'xYgC0RFCZZ1GagK2aaXu',
-      tratamientoComprado: 'xqDD056VzkFTOxHniDkw',
-      utmCampaign: 'o5AQRN1o7qkhSomgYiaG',
-      utmSource: 'yAi98DhTmnBuHppg9Taj',
-      utmMedium: 'XwjFGpmds9nvS3e45P5c',
-      utmContent: 'a8zymCz1usSfr8kxiNYq',
-      utmTerm: 'tWGsiDXWU8EXNHGNT1po',
-      adsetId: 'PS7wvoCZg8bslRRjoZCr',
-      sedeAsignada: 'HJLN7LVvZHVX2Rr7eJma',
-      origenLead: 'Vw6usJnpwuBScBm4yiSY',
-      tieneTelefono: '0PvAaqJs7aERycth9mKW',
-      ultimaInteraccion: 'V9bkHHckMsmeC698i1kr',
-      estadoComercial: 'FZTDnqeUyPaRHORQtpEc',
-      statusContacto: 'BcIQ4ABU1Z98P4QNqWuA',
-      fechaAsignacion: 'tODtNHiDxM2bhGHMUfwI',
-      fechaCompra: 'DBu8OOmAavc1LXWtyAx2',
-      fechaPrimeraCompra: 'bZIdwWfU8WKD7Hz3pnqn',
-      fechaUltimaCompra: 'gTpgIitRchybSigsJtwv',
-      fechaUltimaFactura: 'YjxZgQh97PoX8vrud6l3',
-      precioVenta: 'rfxEsUUqXIbq3i0vki3q',
-      numCompras: '43IIRmrsIAyvrXOCvJwe',
-      estadoCompraLista: 'aG6nDjQKvXob6apsWaB2',
-      sedeTiendaCompra: 'W12pi3cD5ZbY8R2NqlwL',
-      anotacionesRedes: 'Jun1LzYK7Y11yhCD6Ift',
-      canalCaptacion: 'vsq2yFqYfKgcqaHu5bwi',
-      contactNo: 'qwtO252zF8ZPnsfuyrE9',
-      idCliente: 'wbI32mOZbUg2Mmd9RihL',
-      historialCompleto: 'cZZF2iWCedZpfD8kqR16'
-    },
+    pipeline: SEDE_PIPELINES.BENAVIDES,
+    customFields: SEDE_CUSTOM_FIELDS.BENAVIDES,
     users: {
       redes1: {
         id: 'GLC6pCjW4oP76hcT9QuC',
@@ -187,20 +127,11 @@ export const SEDES_GATEWAY = {
     name: 'Laboratorios Naturales - Sede Roosevelt',
     vtigerSedeName: 'ROOSEVELT',
     isActive: false,
-    pipeline: null,
-    customFields: null,
-    ghl: {
-      apiKey: process.env.GHL_API_KEY_ROOSEVELT || '',
-      locationId: process.env.GHL_LOCATION_ID_ROOSEVELT || ''
-    },
-    meta: {
-      appId: process.env.META_APP_ID_ROOSEVELT || '',
-      appSecret: process.env.META_APP_SECRET_ROOSEVELT || '',
-      accessToken: process.env.META_ACCESS_TOKEN_ROOSEVELT || '',
-      adAccountIds: (process.env.META_AD_ACCOUNT_IDS_ROOSEVELT || process.env.META_AD_ACCOUNT_ID_ROOSEVELT || '')
-        .split(',').map(s => s.trim()).filter(Boolean),
-      adAccountId: process.env.META_AD_ACCOUNT_ID_ROOSEVELT || (process.env.META_AD_ACCOUNT_IDS_ROOSEVELT || '').split(',')[0]?.trim() || ''
-    },
+    isConfigured: isSedeConfigured(ROOSEVELT_GHL),
+    pipeline: SEDE_PIPELINES.ROOSEVELT,
+    customFields: SEDE_CUSTOM_FIELDS.ROOSEVELT,
+    ghl: ROOSEVELT_GHL,
+    meta: buildSedeMeta('ROOSEVELT'),
     pageIds: [
       '568453466348355',  // Bio Naturales
       '1075001465705985'  // BioNatural Plus
@@ -213,71 +144,59 @@ export const SEDES_GATEWAY = {
     name: 'Laboratorios Naturales - Sede Piura',
     vtigerSedeName: 'PIURA',
     isActive: false,
-    pipeline: null,
-    customFields: null,
-    ghl: {
-      apiKey: process.env.GHL_API_KEY_PIURA || '',
-      locationId: process.env.GHL_LOCATION_ID_PIURA || ''
-    },
-    meta: {
-      appId: process.env.META_APP_ID_PIURA || '',
-      appSecret: process.env.META_APP_SECRET_PIURA || '',
-      accessToken: process.env.META_ACCESS_TOKEN_PIURA || '',
-      adAccountIds: (process.env.META_AD_ACCOUNT_IDS_PIURA || process.env.META_AD_ACCOUNT_ID_PIURA || '')
-        .split(',').map(s => s.trim()).filter(Boolean),
-      adAccountId: process.env.META_AD_ACCOUNT_ID_PIURA || (process.env.META_AD_ACCOUNT_IDS_PIURA || '').split(',')[0]?.trim() || ''
-    },
+    isConfigured: isSedeConfigured(PIURA_GHL),
+    pipeline: SEDE_PIPELINES.PIURA,
+    customFields: SEDE_CUSTOM_FIELDS.PIURA,
+    ghl: PIURA_GHL,
+    meta: buildSedeMeta('PIURA'),
     pageIds: [
       '1147257965133802', // Natural Bio
       '1057863707412893'  // BioNatural
     ],
-    users: {}
-  },
-
-  CENTRAL: {
-    sedeId: 'CENTRAL',
-    name: 'Laboratorios Naturales - Cuenta Central Universal (Bóveda)',
-    vtigerSedeName: 'CENTRAL',
-    isUniversalCentral: true,
-    allowActiveRouting: false,
-    isActive: false,
-    pipeline: null,
-    customFields: null,
-    ghl: {
-      apiKey: process.env.GHL_API_KEY_CENTRAL || process.env.GHL_API_KEY || '',
-      locationId: process.env.GHL_LOCATION_ID_CENTRAL || process.env.GHL_LOCATION_ID || 'ATPYNnsfZ1W8sd6WgWIV'
-    },
-    meta: {
-      appId: process.env.META_APP_ID_PALACIOS || '',
-      appSecret: process.env.META_APP_SECRET_PALACIOS || '',
-      accessToken: process.env.META_ACCESS_TOKEN_PALACIOS || '',
-      adAccountIds: [],
-      adAccountId: ''
-    },
-    pageIds: [],
     users: {}
   }
 };
 
 /**
  * Resuelve la configuración de sede adecuada según:
- * 1. locationId recibido en webhook o payload
+ * 1. locationId recibido en webhook o payload (coincidencia exacta)
  * 2. pageId de Facebook
  * 3. Nombre de sede explícito ('PALACIOS', 'BENAVIDES', etc.)
+ *
+ * MODO ESTRICTO: si el locationId NO pertenece a ninguna sede registrada,
+ * se devuelve un contexto marcado con `isUnresolved: true` (fail-safe).
+ * Esto evita enrutar por accidente datos de una subcuenta desconocida hacia
+ * la subcuenta de Palacios.
  */
-export function resolveSedeContext({ locationId = '', pageId = '', sede = '' } = {}) {
+export function resolveSedeContext({ locationId = '', pageId = '', sede = '' } = {}, { strict = true } = {}) {
   // 1. Por Location ID de GHL
   if (locationId) {
-    for (const [key, conf] of Object.entries(SEDES_GATEWAY)) {
+    for (const conf of Object.values(SEDES_GATEWAY)) {
       if (conf.ghl.locationId && conf.ghl.locationId === locationId) {
         return conf;
       }
+    }
+    if (strict) {
+      return {
+        sedeId: 'UNRESOLVED',
+        name: `Subcuenta no registrada (${locationId})`,
+        isUnresolved: true,
+        isActive: false,
+        isPaused: false,
+        isConfigured: false,
+        ghl: { apiKey: '', locationId },
+        meta: { appId: '', appSecret: '', accessToken: '', adAccountIds: [], adAccountId: '' },
+        pageIds: [],
+        pipeline: null,
+        customFields: null,
+        users: {}
+      };
     }
   }
 
   // 2. Por Page ID de Facebook
   if (pageId) {
-    for (const [key, conf] of Object.entries(SEDES_GATEWAY)) {
+    for (const conf of Object.values(SEDES_GATEWAY)) {
       if (conf.pageIds.includes(String(pageId))) {
         return conf;
       }
@@ -289,58 +208,94 @@ export function resolveSedeContext({ locationId = '', pageId = '', sede = '' } =
   if (cleanSede && SEDES_GATEWAY[cleanSede]) {
     return SEDES_GATEWAY[cleanSede];
   }
+  if (cleanSede && strict) {
+    return {
+      sedeId: 'UNRESOLVED',
+      name: `Sede no registrada (${sede})`,
+      isUnresolved: true,
+      isActive: false,
+      isPaused: false,
+      isConfigured: false,
+      ghl: { apiKey: '', locationId: '' },
+      meta: { appId: '', appSecret: '', accessToken: '', adAccountIds: [], adAccountId: '' },
+      pageIds: [],
+      pipeline: null,
+      customFields: null,
+      users: {}
+    };
+  }
 
-  // Fallback seguro: PALACIOS (subcuenta principal)
+  // Fallback explícito y auditado: PALACIOS es la sede primaria operativa.
   return SEDES_GATEWAY.PALACIOS;
 }
 
 /**
- * Obtiene los headers de autorización para la API de GHL según la sede o locationId
+ * Obtiene los headers de autorización para la API de GHL según la sede o locationId.
+ * REGLA FAIL-SAFE: si la sede no tiene PIT configurado, se devuelve un header con
+ * token vacío en lugar de propagar `undefined` (que rompería el parseo del cliente).
  */
 export function getGhlHeaders({ locationId = '', sede = '' } = {}) {
   const conf = resolveSedeContext({ locationId, sede });
+  const token = conf?.ghl?.apiKey || '';
   return {
-    'Authorization': `Bearer ${conf.ghl.apiKey}`,
+    'Authorization': `Bearer ${token}`,
     'Version': '2021-07-28',
     'Content-Type': 'application/json'
   };
 }
 
 /**
- * Obtiene la configuración de Meta App para la sede correspondiente
+ * Obtiene la configuración de Meta App para la sede correspondiente.
  */
 export function getMetaConfigBySede({ locationId = '', pageId = '', sede = '' } = {}) {
   const conf = resolveSedeContext({ locationId, pageId, sede });
-  return conf.meta;
+  return conf?.meta || { appId: '', appSecret: '', accessToken: '', adAccountIds: [], adAccountId: '' };
 }
 
 /**
- * Obtiene todas las sedes activas para procesamiento de pipelines y curación
+ * Sedes activas para procesamiento de pipelines y curación.
+ * Solo se consideran las que tienen credenciales cargadas (isConfigured).
  */
 export function getActiveSedes() {
-  return Object.values(SEDES_GATEWAY).filter(s => s.isActive && !s.isUniversalCentral);
+  return Object.values(SEDES_GATEWAY).filter(s => s.isActive && !s.isPaused);
 }
 
 /**
- * Obtiene todas las sedes operativas (activas y no pausadas) para procesamiento de background
+ * Sedes operativas: activas, no pausadas y con PIT + Location ID presentes.
  */
 export function getOperationalSedes() {
-  return Object.values(SEDES_GATEWAY).filter(s => s.isActive && !s.isUniversalCentral && !s.isPaused);
+  return Object.values(SEDES_GATEWAY).filter(s => s.isActive && !s.isPaused && s.isConfigured);
 }
 
 /**
- * Resuelve el mapa de Custom Field IDs oficiales de la sede
+ * Sedes que están encendidas por diseño pero sin credenciales cargadas.
+ * Se usan para emitir WARN en el arranque sin detener el proceso.
+ */
+export function getDegradedSedes() {
+  return Object.values(SEDES_GATEWAY).filter(s => s.isActive && !s.isConfigured);
+}
+
+/**
+ * Resuelve el mapa de Custom Field IDs oficiales de la sede.
  */
 export function resolveSedeCustomFields({ locationId = '', pageId = '', sede = '' } = {}) {
   const conf = resolveSedeContext({ locationId, pageId, sede });
-  return conf?.customFields || SEDES_GATEWAY.PALACIOS.customFields;
+  return conf?.customFields || SEDE_CUSTOM_FIELDS.PALACIOS;
 }
 
 /**
- * Resuelve el descriptor del pipeline y stages oficiales de la sede
+ * Resuelve el descriptor del pipeline y stages oficiales de la sede.
  */
 export function resolveSedePipeline({ locationId = '', pageId = '', sede = '' } = {}) {
   const conf = resolveSedeContext({ locationId, pageId, sede });
-  return conf?.pipeline || SEDES_GATEWAY.PALACIOS.pipeline;
+  return conf?.pipeline || SEDE_PIPELINES.PALACIOS;
 }
 
+/**
+ * Sedes declaradas como encendidas en el diseño (para auditoría de secretos).
+ */
+export function getOperationalSedeIds() {
+  return Object.values(SEDES_GATEWAY).filter(s => s.isActive).map(s => s.sedeId);
+}
+
+export { hasSecret };

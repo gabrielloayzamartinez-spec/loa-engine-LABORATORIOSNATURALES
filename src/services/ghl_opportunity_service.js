@@ -75,10 +75,10 @@ export async function findContactOpportunities(contactId, options = {}) {
 export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0, assignedTo = null, options = {}) {
   const targetLocId = options.locationId || locationId;
 
-  // [CENTRAL GUARD]: La Bóveda Central Universal no admite creación ni alteración de oportunidades
+  // [CONFIG GUARD]: sin credenciales de sede no se crea ni altera ninguna oportunidad.
   const sedeContext = resolveSedeContext({ locationId: targetLocId, sede: options.sede });
-  if (sedeContext && sedeContext.allowActiveRouting === false) {
-    console.log(`[Pipeline] [CENTRAL GUARD] Ubicación ${targetLocId} (${sedeContext.name}) es Central Universal pasiva. Omitiendo oportunidad.`);
+  if (!sedeContext || sedeContext.isUnresolved || sedeContext.isConfigured === false) {
+    console.warn(`[Pipeline] [SEDE-NO-CONFIGURADA] Ubicación ${targetLocId} sin sede resoluble/configurada. Oportunidad omitida.`);
     return;
   }
 
@@ -86,7 +86,8 @@ export async function syncUnifiedPipelineOpportunity(contactId, contactName, isW
   const sedePipeline = resolveSedePipeline({ locationId: targetLocId, sede: options.sede });
 
   const cache = loadPipelineCache();
-  const isBenavides = targetLocId === 'QXcNBK6XCgpQaZ81Z8pv' || options.sede?.toUpperCase() === 'BENAVIDES';
+  // [POINT-TO-POINT] La sede se resuelve por gateway, sin locationId hardcodeado.
+  const isBenavides = sedeContext?.sedeId === 'BENAVIDES' || options.sede?.toUpperCase() === 'BENAVIDES';
   const pipeConf = (isBenavides && cache?.benavides) ? cache.benavides : (cache?.unified || {});
 
   const unifiedPipelineId = sedePipeline?.id || pipeConf.pipelineId;

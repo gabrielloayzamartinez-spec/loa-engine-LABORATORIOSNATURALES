@@ -23,8 +23,7 @@ export class SedeAgent {
     this.vtigerSedeName = sedeDescriptor.vtigerSedeName;
     this.isActive = Boolean(sedeDescriptor.isActive);
     this.isPaused = Boolean(sedeDescriptor.isPaused);
-    this.isUniversalCentral = Boolean(sedeDescriptor.isUniversalCentral);
-    this.allowActiveRouting = sedeDescriptor.allowActiveRouting !== false;
+    this.isConfigured = sedeDescriptor.isConfigured !== false;
     this.ghl = sedeDescriptor.ghl;
     this.meta = sedeDescriptor.meta;
     this.pageIds = sedeDescriptor.pageIds || [];
@@ -41,9 +40,9 @@ export class SedeAgent {
       console.log(`[SedeAgent:${this.sedeId}] [PAUSED] Sede pausada preventivamente por rate limit 429 activo en GHL.`);
       return 'PAUSED';
     }
-    if (!this.allowActiveRouting) {
-      console.log(`[SedeAgent:${this.sedeId}] [CENTRAL GUARD] Ruteo bloqueado para cuenta pasiva.`);
-      return 'UNCHANGED';
+    if (this.isConfigured === false) {
+      console.warn(`[SedeAgent:${this.sedeId}] [NO-CONFIGURADA] Secreto/PIT ausente o inválido. Ruteo diferido (fail-safe).`);
+      return 'RETRY';
     }
     return routeChatByContact(contactId, isLive, isDryRun, {
       locationId: this.ghl.locationId,
@@ -79,13 +78,20 @@ export class SedeAgent {
 const agentRegistry = new Map();
 
 /**
- * Obtiene o crea la instancia de SedeAgent para una sede o locationId dado
+ * Obtiene o crea la instancia de SedeAgent para una sede o locationId dado.
+ *
+ * IMPORTANTE: un nombre de sede ('PALACIOS') NO debe pasarse como locationId,
+ * porque el gateway lo trataría como una subcuenta no registrada. Se decide
+ * explícitamente qué campo usar según lo recibido.
  */
 export function getSedeAgent(sedeIdOrLocationId = '') {
-  const conf = resolveSedeContext({
-    locationId: sedeIdOrLocationId,
-    sede: sedeIdOrLocationId
-  });
+  const raw = String(sedeIdOrLocationId || '').trim();
+  const isKnownSedeName = Boolean(SEDES_GATEWAY[raw.toUpperCase()]);
+
+  const conf = isKnownSedeName
+    ? resolveSedeContext({ sede: raw })
+    : resolveSedeContext({ locationId: raw, sede: raw });
+
   if (!conf) return null;
 
   if (!agentRegistry.has(conf.sedeId)) {

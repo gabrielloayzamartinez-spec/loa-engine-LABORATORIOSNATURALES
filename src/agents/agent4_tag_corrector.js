@@ -1,4 +1,5 @@
 import { GHL_CONFIG, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders } from '../config/index.js';
+import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -82,10 +83,10 @@ export async function processAdIdCorrection(event, pageId = '') {
     const adId = referral.ad_id;
     const refParam = referral.ref;
 
-    // [RESOLUCIÓN MULTI-SEDE Y CENTRAL GUARD]
+    // [RESOLUCIÓN MULTI-SEDE PUNTO A PUNTO]
     const sedeConf = resolveSedeContext({ pageId });
-    if (sedeConf && sedeConf.allowActiveRouting === false) {
-      console.log(`[Agente 4] [CENTRAL GUARD] Sede ${sedeConf.sedeId} es pasiva. Omitiendo corrección.`);
+    if (!sedeConf || sedeConf.isUnresolved || sedeConf.isConfigured === false) {
+      console.warn(`[Agente 4] [SEDE-NO-CONFIGURADA] Sede no resoluble o sin credenciales (pageId: ${pageId}). Corrección omitida.`);
       return;
     }
 
@@ -123,15 +124,11 @@ export async function processAdIdCorrection(event, pageId = '') {
     }
     
     if (refParam) {
-      const campLower = refParam.toLowerCase();
-      let tratamiento = '';
-      if (campLower.includes('artritis')) tratamiento = 'Artritis';
-      else if (campLower.includes('diabetes') || campLower.includes('azucar') || campLower.includes('glucosa')) tratamiento = 'Diabetes';
-      else if (campLower.includes('prostata')) tratamiento = 'Prostata';
-      else if (campLower.includes('colageno') || campLower.includes('rodilla') || campLower.includes('articulaciones')) tratamiento = 'Colageno';
-      else if (campLower.includes('potencia') || campLower.includes('sexual')) tratamiento = 'Potencia';
-      else if (campLower.includes('vision') || campLower.includes('vista')) tratamiento = 'Vision';
-      
+      // [VOCABULARIO CANÓNICO] Se elimina el mapeo manual, que además tenía un
+      // error: 'rodilla'/'articulaciones' (síntomas de Artritis) se etiquetaban
+      // como 'Colageno'.
+      const tratamiento = normalizeTreatment(refParam);
+
       if (tratamiento) {
         customFieldsToUpdate.push({ id: TRATAMIENTO_FIELD, field_value: tratamiento });
       }
