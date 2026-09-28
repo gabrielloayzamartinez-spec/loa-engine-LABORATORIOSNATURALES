@@ -1,4 +1,5 @@
 import { learningBrain } from '../services/learning_brain.js';
+import { resolveChannelFromEvent } from '../utils/system_message_filter.js';
 
 /**
  * NLP Symptom Engine & Entity Extractor (Laboratorios Naturales)
@@ -378,17 +379,17 @@ export function resolveLeadSede({ pageId = '', pageName = '', campaignName = '' 
 }
 
 /**
- * Resuelve el Canal de Captación: FB-MSGR (Messenger), FORM (Formulario de Clientes Potenciales) o WHATSAPP
+ * Resuelve el Canal de Captación a partir de los metadatos del evento.
+ *
+ * CORRECCIÓN (ticket - falso positivo del radar de entrada): antes esta función
+ * devolvía `'FB-MSGR'` por defecto, así que un SMS nativo de Twilio/GHL se
+ * etiquetaba como Messenger y contaminaba la atribución publicitaria.
+ * Ahora el canal por defecto es `'DESCONOCIDO'` y el transporte real del evento
+ * tiene prioridad. La lógica vive en `src/utils/system_message_filter.js` para
+ * tener UNA sola fuente de verdad.
  */
-export function resolveLeadChannel({ campaignName = '', formId = null, isForm = false } = {}) {
-  const cUpper = (campaignName || '').toUpperCase();
-  if (isForm || formId || /FORMULARIO|\bFORM\b/i.test(cUpper)) {
-    return 'FORM';
-  }
-  if (/WHATSAPP|\bWSP\b/i.test(cUpper)) {
-    return 'WHATSAPP';
-  }
-  return 'FB-MSGR';
+export function resolveLeadChannel({ campaignName = '', formId = null, isForm = false, type = '', source = '', hasMetaPage = false } = {}) {
+  return resolveChannelFromEvent({ type, source, campaignName, isForm, formId, hasMetaPage });
 }
 
 /**

@@ -1,5 +1,7 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
-import { toProductTag, PRODUCT_TAGS, normalizeTreatment } from '../domain/clinical_vocabulary.js';
+import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
+import { resolveChannelFromEvent, detectSystemMessage } from '../utils/system_message_filter.js';
+import { recordAuditEvent } from '../services/audit_logger.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
@@ -242,6 +244,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     
     let allMessages = [];
     let fbMessages = [];
+    // [CANAL REAL] Tipo del transporte del mensaje mas reciente, segun GHL.
+    // Necesario para no asumir 'FB-MSGR' cuando el mensaje llego por SMS/Twilio.
+    let latestMessageTransport = '';
 
     if (convRes.status === 200) {
       const convData = await convRes.json();
@@ -273,12 +278,45 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             }
           }
           fbMessages.sort((a, b) => b.timestamp - a.timestamp);
+          // El transporte del mensaje mas reciente dicta el canal real.
+          const newestAny = allMessages[0];
+          latestMessageTransport = String(newestAny?.messageType || newestAny?.type || '').trim();
         }
       } else {
         console.log(`[Agente 3] [FAST-PATH] Sin conversaciones indexadas aún para ${contactId}. Procesando y asignando directamente por subcuenta (${activeLocationId}).`);
       }
     } else {
       console.log(`[Agente 3] [FAST-PATH] Conversaciones no disponibles (Status ${convRes.status}). Ruteando directamente por subcuenta.`);
+    }
+
+    // ==========================================================================
+    // [EARLY DROP] FILTRO DE MENSAJES DE SISTEMA / TRANSACCIONALES
+    // ==========================================================================
+    // INCIDENTE QUE ORIGINA ESTE FILTRO: un SMS con un código OTP de WhatsApp
+    // ("Your WhatsApp code: 825-319") disparó todo el pipeline y creó un contacto
+    // fantasma, una Oportunidad y una Tarjeta Forense con atribución FALSA.
+    //
+    // Los mensajes automatizados NO son leads. Se descartan AQUÍ, antes de
+    // cualquier escritura en GHL, y el contacto queda intacto. Este es el punto
+    // único por el que pasa todo ruteo (radar en vivo, webhooks y curación), por
+    // lo que la defensa cubre todos los caminos de entrada.
+    const ultimoEntrante = Array.isArray(allMessages)
+      ? allMessages.find(m => m.direction === 'inbound' && m.body)
+      : null;
+    if (ultimoEntrante) {
+      const sys = detectSystemMessage(ultimoEntrante.body);
+      if (sys.isSystem) {
+        console.log(`[Agente 3] [EARLY-DROP] Mensaje de sistema descartado (${sys.matched}). El contacto ${contactId} NO se procesa: cero mutaciones en GHL.`);
+        recordAuditEvent({
+          type: 'SYSTEM_MESSAGE_DROPPED',
+          severity: 'info',
+          contactId,
+          locationId: activeLocationId,
+          matched: sys.matched,
+          bodyPreview: String(ultimoEntrante.body).slice(0, 60)
+        });
+        return 'SKIPPED_SYSTEM_MESSAGE';
+      }
     }
 
     let targetPageId = null;
@@ -302,6 +340,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
+    // [PROCEDENCIA REAL vs CONTEXTO DE SUBCUENTA]
+    // ANTES: si no había evidencia de Meta, el router FABRICABA una fanpage
+    // ("Naturales BioNatural" / "Naturales Bio Corp"). Esa invención alimentaba
+    // al resolvedor de proveedor, así que un lead por SMS/Twilio quedaba
+    // atribuido a una fanpage de Facebook que nunca lo trajo (incidente del OTP).
+    // Ahora se distingue: hasRealFanpage = hay evidencia REAL (mensaje Meta o tag).
+    let hasRealFanpage = Boolean(targetPageId || targetPageName);
+
     if (!targetPageName) {
       if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
         targetPageName = "Naturales Bio Corp";
@@ -310,13 +356,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
- // Resolver Sede Actual de la Fanpage / Mensaje
+ // Resolver Sede Actual: la subcuenta define la sede operativa (sedes herméticas)
     let currentSedeName = resolveLeadSede({
       pageId: targetPageId,
-      pageName: targetPageName
+      pageName: hasRealFanpage ? targetPageName : ''
     });
     if (!currentSedeName) {
       currentSedeName = (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) ? 'BENAVIDES' : 'PALACIOS';
+    }
+    if (!hasRealFanpage) {
+      console.log(`[Agente 3] [PROCEDENCIA] Sin evidencia de fanpage de Meta (transporte: ${latestMessageTransport || 'desconocido'}). Sede operativa: ${currentSedeName}. No se atribuye proveedor de pauta.`);
     }
 
     // Determinar a qué asesor le corresponde esta página (por Sede, Page ID o por Nombre de Fanpage)
@@ -516,9 +565,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         vtigerTreatment = inferTreatmentFromCampaignOrUtm(vCond) || (vCond.length > 2 ? vCond : null);
         if (vtigerTreatment) {
           console.log(`[Agente 3] [VTIGER] Ground Truth vTiger para ${contact.id}: [${vtigerTreatment}]`);
+          // [ANTI-CONTAMINACION DEL CEREBRO]
+          // ANTES se pasaba `chatText: combinedText` (el transcript CRUDO de toda
+          // la conversación). Eso enseñó asociaciones como `your -> Potencia` a
+          // partir de un SMS transaccional en inglés, y luego TODO texto en
+          // inglés se clasificaba como Potencia (atribución falsa).
+          // El Cerebro aprende del GROUND TRUTH verificable (padecimiento de
+          // vTiger + campaña), NO de texto libre de chat.
           learningBrain.learnFromVtigerSale({
             treatment: vtigerTreatment,
-            chatText: combinedText,
+            chatText: '',
             campaignName: latestCampaign
           });
         }
@@ -581,8 +637,23 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       targetTratamiento = nlpAnalysis.primaryTreatment;
     }
     if (!targetTratamiento) {
-      targetTratamiento = utmInferredTreatment || vtigerTreatment || currentTratamiento || 'General';
+      targetTratamiento = utmInferredTreatment || vtigerTreatment || currentTratamiento;
     }
+
+    // [TRIAGE - SIN CLASIFICAR]
+    // REGLA DE NEGOCIO: si el lead entra SIN Ad ID y SIN palabras clave de
+    // dolencia identificables, NO se le atribuye producto ni proveedor. Antes
+    // caía en 'General' y ese valor se usaba igual para armar el origen,
+    // atribuyendo métricas falsas a proveedores de pauta.
+    if (!targetTratamiento) {
+      const sinEvidenciaDePauta = !isPaidAd && !targetAdId;
+      targetTratamiento = UNKNOWN_TREATMENT;
+      if (sinEvidenciaDePauta) {
+        console.log(`[Agente 3] [TRIAGE] Lead sin Ad ID y sin dolencia identificable. Clasificado como ${UNKNOWN_TREATMENT} (sin atribución de producto).`);
+      }
+    }
+    // Normalización final al vocabulario canónico (incluye el estado de triage).
+    targetTratamiento = normalizeTreatmentOrUnknown(targetTratamiento);
     let targetVtigerNota = currentVtigerNota || null;
     let duplicateCount = 1;
 
@@ -642,7 +713,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     const targetProvider = resolveLeadProvider({
       pageId: targetPageId,
-      pageName: targetPageName,
+      // [ATRIBUCION LIMPIA] Si no hay evidencia real de fanpage, NO se pasa el
+      // nombre fabricado: así el proveedor sale por la vía legítima (pauta
+      // explícita o IN_HOUSE) y nunca por una página inventada.
+      pageName: hasRealFanpage ? targetPageName : '',
       campaignName: latestCampaign,
       adsetName: latestAdSetName,
       adName: targetAdName,
@@ -671,8 +745,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    const targetChannel = resolveLeadChannel({
-      campaignName: latestCampaign || targetAdName
+    // [CANAL REAL] Se resuelve desde el transporte del evento, no por defecto.
+    // ANTES: resolveLeadChannel() devolvía 'FB-MSGR' siempre, así que un SMS de
+    // Twilio se etiquetaba como Messenger y contaminaba la atribución.
+    const targetChannel = resolveChannelFromEvent({
+      type: latestMessageTransport,
+      source: contact.attributionSource?.sessionSource || '',
+      campaignName: latestCampaign || targetAdName,
+      hasMetaPage: hasRealFanpage
     });
 
     const vtigerSource = buildVtigerSource({

@@ -26,6 +26,8 @@ import { learningBrain } from '../services/learning_brain.js';
 import { getVtigerConfigStatus, assertTenantIsolation, assertReadOnlyStatement, assertReadOnlyHttpMethod, assertAllowedOperation } from '../services/vtigerClient.js';
 import { sanitizeForVtigerQuery, sanitizeContactPayload, escapeHtml } from '../utils/sanitize.js';
 import { evaluateCommercialTruth } from '../domain/commercial_engine.js';
+import { detectSystemMessage, resolveChannelFromEvent } from '../utils/system_message_filter.js';
+import { normalizeTreatmentOrUnknown } from '../domain/clinical_vocabulary.js';
 
 const BUDGET_MS = parseInt(process.env.PREFLIGHT_MAX_MS || '5000', 10);
 const startedAt = Date.now();
@@ -39,7 +41,7 @@ let failures = 0;
 // ------------------------------------------------------------------------------
 // 1. ARQUITECTURA: la cuenta central no debe existir en ninguna forma
 // ------------------------------------------------------------------------------
-console.log('\n[1/7] Arquitectura descentralizada (point-to-point)');
+console.log('\n[1/8] Arquitectura descentralizada (point-to-point)');
 if ('CENTRAL' in SEDES_GATEWAY) {
   console.error('  [FAIL] SEDES_GATEWAY.CENTRAL sigue presente: purga incompleta del GHL Central.');
   failures++;
@@ -57,7 +59,7 @@ if (centralFlags.length > 0) {
 // ------------------------------------------------------------------------------
 // 2. SECRETOS: fail-safe, sin fallbacks hardcodeados
 // ------------------------------------------------------------------------------
-console.log('\n[2/7] Auditoría de secretos (fail-safe)');
+console.log('\n[2/8] Auditoría de secretos (fail-safe)');
 const secretReport = auditSecrets({ operationalSedes: getOperationalSedeIds() });
 for (const w of secretReport.warnings) console.warn(`  [WARN] ${w}`);
 if (secretReport.fatal.length > 0) {
@@ -73,7 +75,7 @@ if (failures === 0) console.log('  [PASS] Ningún secreto crítico ausente.');
 // ------------------------------------------------------------------------------
 // 3. SANITY CHECK PROTOCOLAR
 // ------------------------------------------------------------------------------
-console.log('\n[3/7] Pre-Flight Sanity Check protocolar');
+console.log('\n[3/8] Pre-Flight Sanity Check protocolar');
 const sanityOk = runPreFlightSanityCheck();
 if (!sanityOk) {
   console.error('  [FAIL] El motor no superó el sanity check protocolar.');
@@ -84,7 +86,7 @@ const elapsed = Date.now() - startedAt;
 // ------------------------------------------------------------------------------
 // 4. VOCABULARIO CLÍNICO: cada padecimiento del manual debe ser aprendible
 // ------------------------------------------------------------------------------
-console.log('\n[4/7] Vocabulario clínico canónico (vTiger -> Cerebro)');
+console.log('\n[4/8] Vocabulario clínico canónico (vTiger -> Cerebro)');
 const VTIGER_LABELS_DEL_MANUAL = ['Artritis', 'Tetosterona', 'Diabetes', 'Hongos', 'Gastro', 'Gummies', 'Prostata', 'Colageno', 'Vision'];
 const noReconocidos = VTIGER_LABELS_DEL_MANUAL.filter(l => normalizeTreatment(l) === null);
 if (noReconocidos.length > 0) {
@@ -108,9 +110,59 @@ if (normalizeTreatment('Tetosterona') !== 'Potencia') {
 }
 
 // ------------------------------------------------------------------------------
-// 5. PROTOCOLO DE GOBERNANZA DE SEDES (SEDE-LOCK & SEDE-SHIELD)
+// 5. FILTRO DE ENTRADA Y ATRIBUCIÓN HONESTA (ticket del falso positivo OTP)
 // ------------------------------------------------------------------------------
-console.log('\n[5/7] Protocolo de gobernanza de sedes (Sede-Lock & Sede-Shield)');
+console.log('\n[5/8] Filtro de entrada y atribución honesta');
+
+// 5.1 El mensaje del incidente debe descartarse sin tocar el CRM.
+if (!detectSystemMessage('Your WhatsApp code: 825-319').isSystem) {
+  console.error('  [FAIL] El filtro NO descarta el SMS con código OTP (incidente del radar de entrada).');
+  failures++;
+} else {
+  console.log('  [PASS] Early drop activo: un SMS con OTP se descarta sin crear contacto ni oportunidad.');
+}
+
+// 5.2 Un lead real NO debe descartarse (anti falso positivo del propio filtro).
+let leadsDescartados = 0;
+for (const t of ['Hola me interesan las gomitas de colageno', 'MUESTRA GRATIS POTENCIA', 'cuanto cuesta?']) {
+  if (detectSystemMessage(t).isSystem) leadsDescartados++;
+}
+if (leadsDescartados > 0) {
+  console.error(`  [FAIL] El filtro descarta ${leadsDescartados} lead(s) real(es): perder un lead es peor que procesar ruido.`);
+  failures++;
+} else {
+  console.log('  [PASS] El filtro no descarta leads reales (sin falsos positivos).');
+}
+
+// 5.3 El canal no se inventa.
+if (resolveChannelFromEvent({ type: 'SMS' }) !== 'SMS' || resolveChannelFromEvent({}) !== 'DESCONOCIDO') {
+  console.error('  [FAIL] El canal no deriva del transporte real (SMS debe ser SMS; sin evidencia, DESCONOCIDO).');
+  failures++;
+} else {
+  console.log('  [PASS] Canal derivado del transporte: SMS != FB-MSGR y sin evidencia es DESCONOCIDO.');
+}
+
+// 5.4 Sin evidencia, el tratamiento queda en triage (no se atribuye producto).
+if (normalizeTreatmentOrUnknown('') !== 'Desconocido') {
+  console.error('  [FAIL] Un lead sin dolencia identificable no queda en triage.');
+  failures++;
+} else {
+  console.log('  [PASS] Triage: sin dolencia identificable el estado es "Desconocido" (sin atribución falsa).');
+}
+
+// 5.5 Anti-contaminación del Cerebro (causa raíz del falso Potencia).
+const vocabCheck = learningBrain?.memory?.vocabularyWeights || {};
+if ('your' in vocabCheck || 'opportunity' in vocabCheck) {
+  console.error('  [FAIL] El vocabulario del Cerebro contiene palabras funcionales/ruido: reaparecerá el falso "Potencia".');
+  failures++;
+} else {
+  console.log('  [PASS] Vocabulario del Cerebro sin ruido: no aprende palabras funcionales en inglés.');
+}
+
+// ------------------------------------------------------------------------------
+// 6. PROTOCOLO DE GOBERNANZA DE SEDES (SEDE-LOCK & SEDE-SHIELD)
+// ------------------------------------------------------------------------------
+console.log('\n[6/8] Protocolo de gobernanza de sedes (Sede-Lock & Sede-Shield)');
 
 // 5.0 CANDADO DE SOLO LECTURA: LOA Engine NO escribe en vTiger.
 const SENTENCIAS_PROHIBIDAS = [
@@ -188,7 +240,7 @@ if (verdictoPropio.isWon !== true || verdictoPropio.totalSpent !== 300) {
 // ------------------------------------------------------------------------------
 // 6. SEGURIDAD: credenciales, sanitización
 // ------------------------------------------------------------------------------
-console.log('\n[6/7] Seguridad (auth centralizada y saneado)');
+console.log('\n[7/8] Seguridad (auth centralizada y saneado)');
 const vtigerStatus = getVtigerConfigStatus();
 if (!vtigerStatus.configured) {
   // FAIL-SAFE: en Render esto es WARN (el motor arranca degradado), nunca exit 1.
@@ -234,7 +286,7 @@ if (escapeHtml('<img src=x onerror=alert(1)>').includes('<')) {
 // ------------------------------------------------------------------------------
 // 6. PRESUPUESTO DE ARRANQUE (ANTI CRASH-LOOP DE RENDER)
 // ------------------------------------------------------------------------------
-console.log('\n[7/7] Presupuesto de arranque');
+console.log('\n[8/8] Presupuesto de arranque');
 if (elapsed > BUDGET_MS) {
   console.error(`  [FAIL] El gate tardó ${elapsed}ms (presupuesto ${BUDGET_MS}ms). Algo está haciendo I/O en el camino crítico.`);
   failures++;
