@@ -51,7 +51,7 @@ import { recordAuditEvent } from './audit_logger.js';
  */
 
 // ------------------------------------------------------------------------------
-// 1. DICCIONARIO NATIVO DE VTIGER (m�dulos y campos reales del CRM)
+// 1. DICCIONARIO NATIVO DE VTIGER (modulos y campos reales del CRM)
 // ------------------------------------------------------------------------------
 
 /** Operaciones de vTiger PERMITIDAS (allow-list, no deny-list). */

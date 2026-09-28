@@ -3,6 +3,48 @@ import path from 'path';
 import { getStateStore } from './state/state_store.js';
 import { CANONICAL_TREATMENTS, normalizeTreatment } from '../domain/clinical_vocabulary.js';
 
+// ==============================================================================
+// FILTRO DE RUIDO PARA EL APRENDIZAJE
+// ==============================================================================
+// El Cerebro NO debe aprender de palabras funcionales ni de ruido de plataforma.
+// Sin este filtro, un OTP en inglés enseñó `your -> Potencia` y todo texto en
+// inglés pasó a clasificarse como Potencia (atribución publicitaria falsa).
+const NOISE_TERMS = new Set([
+  // Funcionales en inglés (las que contaminaron el cerebro)
+  'your', 'you', 'the', 'and', 'for', 'with', 'this', 'that', 'have', 'has', 'was',
+  'are', 'our', 'from', 'not', 'but', 'his', 'her', 'she', 'him', 'they', 'them',
+  'will', 'would', 'can', 'could', 'should', 'does', 'did', 'done', 'been', 'were',
+  'what', 'when', 'where', 'which', 'while', 'about', 'into', 'than', 'then',
+  'code', 'message', 'messages', 'reply', 'stop', 'send', 'sent', 'please',
+  'thanks', 'thank', 'hello', 'dear', 'regards', 'info', 'information',
+  // Ruido de plataforma (GHL / Meta / vTiger)
+  'opportunity', 'created', 'updated', 'moved', 'stage', 'pipeline', 'contact',
+  'appointment', 'notification', 'template', 'automated', 'verification',
+  'whatsapp', 'messenger', 'facebook', 'instagram', 'status', 'error', 'failed',
+  // Funcionales en español
+  'hola', 'buenas', 'gracias', 'para', 'pero', 'como', 'este', 'esta', 'esto',
+  'muy', 'mas', 'los', 'las', 'del', 'una', 'uno', 'con', 'por', 'que', 'sus',
+  'favor', 'dia', 'dias', 'aqui'
+]);
+
+/** ¿El término es ruido (funcional / de plataforma) y no vocabulario clínico? */
+function isNoiseTerm(phrase) {
+  if (!phrase || typeof phrase !== 'string') return true;
+  const words = phrase.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  // Unigramo de ruido, o n-grama cuyas palabras son TODAS ruido.
+  return words.every(w => NOISE_TERMS.has(w));
+}
+
+/** ¿Un n-grama merece entrar al vocabulario clínico? */
+function isLearnablePhrase(phrase) {
+  if (!phrase || typeof phrase !== 'string') return false;
+  const clean = phrase.trim().toLowerCase();
+  if (clean.length < 4) return false;          // descarta 'tu', 'el', 'a', 'x'
+  if (isNoiseTerm(clean)) return false;        // descarta palabras funcionales
+  return true;
+}
+
 const DATA_DIR = path.join(process.cwd(), 'data');
 const BRAIN_FILE = path.join(DATA_DIR, 'learning_brain.json');
 
@@ -140,6 +182,8 @@ class LearningBrain {
           }
         }
         this.reconcileTreatments();
+        // [PURGA DE VOCABULARIO CONTAMINADO] Ver pruneNoiseVocabulary().
+        this.pruneNoiseVocabulary();
       } else {
         this.memory = JSON.parse(JSON.stringify(INITIAL_SEED));
         this.save();
@@ -148,6 +192,41 @@ class LearningBrain {
       console.error('[LearningBrain] Error inicializando memoria, usando semilla:', err.message);
       this.memory = JSON.parse(JSON.stringify(INITIAL_SEED));
     }
+  }
+
+  /**
+   * [PURGA DE VOCABULARIO CONTAMINADO]
+   * ==========================================================================
+   * INCIDENTE QUE ORIGINA ESTA FUNCIÓN:
+   * El Cerebro se entrenaba con el TRANSCRIPT CRUDO de la conversación
+   * (`chatText: combinedText` en chat_router_agent.js). Un SMS transaccional en
+   * inglés ("Your WhatsApp code: 825-319") perteneciente a un cliente con venta
+   * confirmada de Potencia enseñó la asociación `your -> Potencia (peso 50)`.
+   * Resultado: TODO texto en inglés (OTPs, avisos de Meta, "Your order shipped")
+   * se clasificaba como Potencia, generando atribución publicitaria falsa.
+   *
+   * La purga elimina del vocabulario persistido cualquier término que sea una
+   * palabra funcional del inglés/español o ruido de plataforma, sin tocar las
+   * semillas clínicas legítimas.
+   */
+  pruneNoiseVocabulary() {
+    if (!this.memory?.vocabularyWeights) return 0;
+    const SEED_KEYS = new Set(Object.keys(INITIAL_SEED.vocabularyWeights));
+    let purgadas = 0;
+
+    for (const phrase of Object.keys(this.memory.vocabularyWeights)) {
+      if (SEED_KEYS.has(phrase)) continue;            // las semillas clínicas se respetan
+      if (isNoiseTerm(phrase)) {
+        delete this.memory.vocabularyWeights[phrase];
+        purgadas++;
+      }
+    }
+
+    if (purgadas > 0) {
+      console.log(`[LearningBrain] [PURGE] Vocabulario contaminado eliminado: ${purgadas} términos de ruido (ej. palabras funcionales en inglés).`);
+      this.save();
+    }
+    return purgadas;
   }
 
   /**
@@ -186,6 +265,8 @@ class LearningBrain {
       }
       this.memory = persisted;
       this.reconcileTreatments();
+      // [PURGA] La memoria persistida puede traer vocabulario contaminado.
+      this.pruneNoiseVocabulary();
       console.log(`[LearningBrain] [HYDRATE] Memoria restaurada: ${Object.keys(this.memory.vocabularyWeights).length} frases, ${this.memory.stats?.learnedFromSales || 0} ventas aprendidas.`);
       return { hydrated: true };
     } catch (err) {
@@ -272,7 +353,10 @@ class LearningBrain {
       }
     }
 
-    return Array.from(new Set(ngrams));
+    // [FILTRO DE RUIDO] Se descartan las palabras funcionales y el ruido de
+    // plataforma ANTES de entrar al vocabulario. Sin esto, un transcript en
+    // inglés enseña asociaciones como `your -> Potencia`.
+    return Array.from(new Set(ngrams)).filter(isLearnablePhrase);
   }
 
   /**

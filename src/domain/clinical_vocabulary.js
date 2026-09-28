@@ -35,6 +35,43 @@ export const TREATMENT_CATALOG = [
   { canonical: 'Gummies', vtigerLabel: 'Gummies', tags: ['producto-gummies'] }
 ];
 
+/**
+ * Nota de diseño: `Desconocido` NO está en el catálogo a propósito. Es el estado
+ * de TRIAGE (ausencia declarada de clasificación), no un producto comercial, y
+ * el Cerebro no debe aprenderlo. Se resuelve vía `TREATMENT_ALIASES`.
+ */
+
+/**
+ * [TRIAGE] Estado explícito para un lead SIN identificación posible.
+ *
+ * REGLA DE NEGOCIO (ticket de ingeniería - falso positivo del radar de entrada):
+ * si un lead entra SIN Ad ID y SIN palabras clave de dolencia identificables en
+ * su primer mensaje, NO se le atribuye un producto. Antes existía un fallback
+ * silencioso que lo marcaba con un producto y un proveedor que no correspondían,
+ * ensuciando las métricas de pauta y el Audit Engine.
+ *
+ * `Desconocido` NO es una dolencia comercial: es la ausencia declarada de
+ * clasificación. No participa del aprendizaje del Cerebro.
+ */
+export const UNKNOWN_TREATMENT = 'Desconocido';
+
+/** Etiqueta de triage, separada de las etiquetas de producto real. */
+export const TRIAGE_TAG = 'producto-desconocido';
+
+/** ¿El valor corresponde a un producto comercial real (excluye triage)? */
+export function isRealTreatment(value) {
+  const canonical = normalizeTreatment(value);
+  return Boolean(canonical) && canonical !== UNKNOWN_TREATMENT;
+}
+
+/**
+ * Igual que `normalizeTreatment` pero con fallback explícito de triage.
+ * Úsalo cuando el llamante necesite SIEMPRE un valor y no pueda recibir null.
+ */
+export function normalizeTreatmentOrUnknown(raw, fallback = UNKNOWN_TREATMENT) {
+  return normalizeTreatment(raw) || fallback;
+}
+
 /** Tratamientos canónicos que el LearningBrain puede aprender. */
 export const CANONICAL_TREATMENTS = TREATMENT_CATALOG.map(t => t.canonical);
 
@@ -70,7 +107,10 @@ export const TREATMENT_ALIASES = {
   'hongos': 'Hongos', 'hongo': 'Hongos', 'onicomicosis': 'Hongos', 'pie de atleta': 'Hongos',
   // Gummies
   'gummies': 'Gummies', 'gummy': 'Gummies', 'gomitas': 'Gummies', 'gomita': 'Gummies',
-  'gomas': 'Gummies', 'vitaminas': 'Gummies', 'suplemento': 'Gummies'
+  'gomas': 'Gummies', 'vitaminas': 'Gummies', 'suplemento': 'Gummies',
+  // Triage (ausencia declarada de clasificación)
+  'desconocido': 'Desconocido', 'desconocida': 'Desconocido', 'sin clasificar': 'Desconocido',
+  'unclassified': 'Desconocido', 'general': 'Desconocido'
 };
 
 /**
@@ -112,10 +152,20 @@ export function normalizeTreatment(raw) {
   // 3. Coincidencia exacta con un alias
   if (TREATMENT_ALIASES[clean]) return TREATMENT_ALIASES[clean];
 
-  // 4. Coincidencia parcial (el texto libre de vTiger puede traer ruido:
-  //    "TETOSTERONA - IN HOUSE", "ARTRITIS - ERNESTO - 2pm a 9pm", etc.)
+  // 4. Coincidencia por PALABRA COMPLETA (el texto libre de vTiger puede traer
+  //    ruido: "TETOSTERONA - IN HOUSE", "ARTRITIS - ERNESTO - 2pm a 9pm").
+  //
+  //    IMPORTANTE: antes se usaba `clean.includes(alias)` (subcadena). Eso hacía
+  //    que 'ProductoDesconocidoXYZ' coincidiera con el alias 'desconocido' y se
+  //    clasificara como dolencia válida: el mismo patrón de falso positivo por
+  //    subcadena que causó el incidente del OTP. El match ahora exige límites de
+  //    palabra y un mínimo de longitud para no capturar ruido.
   for (const [alias, canonical] of Object.entries(TREATMENT_ALIASES)) {
-    if (clean.includes(alias)) return canonical;
+    if (alias.length < 4) continue;
+    const esc = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Se admite el plural regular (-s / -es): "cataratas" debe resolver a Vision.
+    const rx = new RegExp(`(^|[^a-z0-9])${esc}(s|es)?([^a-z0-9]|$)`);
+    if (rx.test(clean)) return canonical;
   }
 
   return null;
