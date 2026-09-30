@@ -635,6 +635,36 @@ export async function syncVtigerContactDual(vContact = {}) {
     historialProtegido: resultado.operativa.tagsPreservadas
   });
 
+  // ====== PASO 3: HISTORIAL DE COMPRAS (detalle de órdenes) ======
+  // Se ejecuta DESPUÉS de crear/actualizar el contacto: el historial necesita que
+  // el contacto ya exista para poder encontrar su id por teléfono.
+  // [INTEGRACIÓN] Sin este paso, el puente de ventas creaba el contacto pero NO
+  // publicaba el detalle de sus compras: quedaba como resumen sin desglose.
+  // Import dinámico para evitar dependencia circular (el módulo de historial
+  // importa utilidades de este servicio).
+  if (resultado.operativa.ok) {
+    try {
+      const { syncContactOrderHistory } = await import('./vtiger_order_history_service.js');
+      // Se pasan los ids que devolvió el upsert: evita depender del índice de
+      // búsqueda de GHL, que tarda en reflejar un contacto recién creado.
+      const historial = await syncContactOrderHistory({
+        vContact,
+        contactIdSede: resultado.operativa.contactId,
+        contactIdMacro: resultado.macro?.contactId || null
+      });
+      resultado.historial = {
+        ok: Boolean(historial?.operativa?.nota?.ok),
+        ordenes: historial?.ordenes || 0,
+        motivo: historial?.skipped ? historial.reason : null
+      };
+    } catch (err) {
+      // El historial es un enriquecimiento: su fallo NO debe invalidar el alta
+      // del contacto, que es el dato crítico.
+      console.warn(`[Dual Sync] [HISTORIAL-WARN] No se pudo publicar el historial de ${vContact.id}: ${err.message}`);
+      resultado.historial = { ok: false, error: err.message };
+    }
+  }
+
   return resultado;
 }
 

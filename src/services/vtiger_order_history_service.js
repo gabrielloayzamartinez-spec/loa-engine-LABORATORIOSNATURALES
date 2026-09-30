@@ -468,7 +468,7 @@ export async function resetOrderHistoryBackfill() {
  * @param {Map<string,Array>} [params.ordenesPorContacto] órdenes ya traídas en lote
  * @returns {Promise<object>} resultado
  */
-export async function syncContactOrderHistory({ vContact, ordenesPorContacto = null }) {
+export async function syncContactOrderHistory({ vContact, ordenesPorContacto = null, contactIdSede = null, contactIdMacro = null }) {
   const sedeId = String(vContact.cf_3451 || '').toUpperCase().trim();
   const sedeConf = SEDES_GATEWAY[sedeId];
   if (!sedeConf) return { ok: false, skipped: true, reason: 'sede no reconocida' };
@@ -488,7 +488,12 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
 
   // ===== SUBCUENTA DE LA SEDE: solo sus propias órdenes =====
   const sedeHeaders = getGhlHeaders({ locationId: sedeConf.ghl.locationId });
-  const contactoId = await findContactIdByPhone(sedeConf.ghl.locationId, phone, sedeHeaders);
+  // [CRÍTICO] Se prefiere el id que devolvió el upsert. La BÚSQUEDA por teléfono
+  // de GHL tiene retraso de indexación: consultarla justo después de crear el
+  // contacto devuelve 0 resultados, y el historial se perdía. Con el id directo
+  // no hay dependencia del índice.
+  const contactoId = contactIdSede || await findContactIdByPhone(sedeConf.ghl.locationId, phone, sedeHeaders);
+  if (contactIdSede) console.log(`[Order History] [ID-DIRECTO] Se usa el id del upsert en la sede (${contactIdSede}) en lugar de buscar.`);
 
   if (contactoId) {
     const cuerpo = buildOrderHistoryNote(nombre, normalizadas, sedeId);
@@ -524,7 +529,7 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
       'Content-Type': 'application/json',
       Accept: 'application/json'
     };
-    const centralContactId = await findContactIdByPhone(CENTRAL_LOCATION_ID, phone, centralHeaders);
+    const centralContactId = contactIdMacro || await findContactIdByPhone(CENTRAL_LOCATION_ID, phone, centralHeaders);
     if (centralContactId) {
       // Historial global: se piden TODAS las órdenes del contacto, sin filtro de sede.
       const todas = [];
