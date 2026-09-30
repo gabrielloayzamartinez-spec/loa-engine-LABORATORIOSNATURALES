@@ -9,6 +9,7 @@
  */
 
 import { GHL_CONFIG, SEDES_GATEWAY } from '../config/index.js';
+import { readSecret } from '../config/secrets.js';
 import { tokenBucketQueue } from '../services/token_bucket_queue.js';
 import { logApiTelemetry } from './telemetry.js';
 
@@ -51,6 +52,14 @@ export function getSubaccountName(options = {}, url = '') {
   const auth = String(headers.Authorization || headers.authorization || '');
   const urlStr = String(url);
 
+  // 0. CUENTA EMPRESA: su location NO vive en SEDES_GATEWAY (el gateway es de
+  // sedes operativas), asi que antes caia en el caso "sin coincidencia" y cada
+  // peticion generaba una clave EFIMERA distinta. Efecto: el rate limiter y el
+  // contador de 429 de la Empresa nunca se acumulaban, de modo que un 429 de esa
+  // cuenta no activaba su pausa preventiva. Se resuelve explicitamente AQUI.
+  const centralLoc = readSecret('GHL_LOCATION_ID_CENTRAL');
+  if (centralLoc && urlStr.includes(centralLoc)) return 'EMPRESA';
+
   // 1. Resolución primaria: Location ID presente en la URL de la petición.
   for (const sede of Object.values(SEDES_GATEWAY)) {
     const locId = sede?.ghl?.locationId;
@@ -59,6 +68,9 @@ export function getSubaccountName(options = {}, url = '') {
 
   // 2. Resolución secundaria: PIT exacto de la sede en el header Authorization.
   if (auth) {
+    const centralKey = readSecret('GHL_API_KEY_CENTRAL');
+    if (centralKey && auth.includes(centralKey)) return 'EMPRESA';
+
     for (const sede of Object.values(SEDES_GATEWAY)) {
       const key = sede?.ghl?.apiKey;
       if (key && auth.includes(key)) return sede.sedeId;

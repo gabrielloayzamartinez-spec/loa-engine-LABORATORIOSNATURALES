@@ -1424,34 +1424,60 @@ export function registerBackgroundSchedulers() {
   // Cada 10 min busca ventas nuevas en vTiger POR SEDE y las publica en GHL,
   // creando el contacto si no existía. Cierra el hueco por el que una venta de
   // vTiger no aparecía nunca en GHL (el reverse sync sólo actualizaba existentes).
+  //
+  // [GUARDA DE SOLAPAMIENTO] Si un ciclo tarda más que su intervalo, el
+  // `setInterval` dispara otro igual y ambos compiten por la MISMA cola global de
+  // GHL: eso multiplica las llamadas y puede provocar un 429 evitable. La guarda
+  // descarta el disparo si el anterior sigue vivo, en lugar de acumular ciclos.
+  let salesBridgeCorriendo = false;
   timers.push(setInterval(() => {
+    if (salesBridgeCorriendo) {
+      console.warn('[Sales Bridge] [SKIP] El ciclo anterior sigue en curso: se omite este disparo para no saturar la API.');
+      return;
+    }
+    salesBridgeCorriendo = true;
     runVtigerSalesBridge({ horasAtras: 6, soloCompradores: true, limitePorSede: 25 })
-      .catch(err => console.error('[Sales Bridge] Error en ciclo programado:', err.message));
+      .catch(err => console.error('[Sales Bridge] Error en ciclo programado:', err.message))
+      .finally(() => { salesBridgeCorriendo = false; });
   }, 10 * 60 * 1000));
 
   // [TICKET 1] Backfill del DETALLE de órdenes vTiger -> GHL.
   // Avanza lotes pequeños cada 30 min hasta completar el historial de todas las
   // sedes. El cursor persiste en el StateStore: un redeploy no reinicia el trabajo.
+  let orderHistoryCorriendo = false;
   timers.push(setInterval(() => {
+    if (orderHistoryCorriendo) {
+      console.warn('[Order Backfill] [SKIP] El ciclo anterior sigue en curso: se omite este disparo.');
+      return;
+    }
+    orderHistoryCorriendo = true;
     getBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // nada pendiente
         return runOrderHistoryBackfill({ tamanoLote: 25, maxLotes: 2, pausaMs: 400 });
       })
-      .catch(err => console.error('[Order Backfill] Error en ciclo programado:', err.message));
+      .catch(err => console.error('[Order Backfill] Error en ciclo programado:', err.message))
+      .finally(() => { orderHistoryCorriendo = false; });
   }, 30 * 60 * 1000));
 
   // [BACKFILL DE COMPRADORES] Cierra la brecha historica de la cartera.
   // Cada 15 min avanza 2 lotes de 20 contactos por sede (40 por ciclo). El cursor
   // persiste en el StateStore, asi que el avance sobrevive a un redeploy y cada
   // ciclo AVANZA en lugar de reprocesar los mismos contactos recientes.
+  let buyersBackfillCorriendo = false;
   timers.push(setInterval(() => {
+    if (buyersBackfillCorriendo) {
+      console.warn('[Buyers Backfill] [SKIP] El ciclo anterior sigue en curso: se omite este disparo.');
+      return;
+    }
+    buyersBackfillCorriendo = true;
     getBuyersBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // cartera ya recorrida por completo
         return runBuyersBackfill({ tamanoLote: 20, maxLotes: 2, pausaMs: 300 });
       })
-      .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message));
+      .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
+      .finally(() => { buyersBackfillCorriendo = false; });
   }, 15 * 60 * 1000));
 
   console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s, order-history 1800s, buyers-backfill 900s).`);
