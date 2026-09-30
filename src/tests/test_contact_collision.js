@@ -200,6 +200,65 @@ assert((await findContactsByPhoneInSede('3055551234', 'SEDE_INVENTADA')).length 
 assert(Array.isArray(VTIGER_SEDES_VALIDAS) && VTIGER_SEDES_VALIDAS.length > 0, 'Existe una lista blanca de sedes para el Sede-Lock');
 assert(VTIGER_SEDES_VALIDAS.includes('PALACIOS'), 'PALACIOS está en la lista blanca');
 
+// ------------------------------------------------------------------------------
+// 8. EL SEXO SOBREVIVE AL MERGE (mudanza / duplicado)
+// ------------------------------------------------------------------------------
+// Al fusionar dos registros del mismo cliente, un dato presente NUNCA debe
+// perderse. Si el registro conservado no trae sexo pero el descartado sí, se
+// rescata el del descartado.
+console.log('\n[TEST 8] El sexo sobrevive al merge');
+
+const informeSexo = {
+  telefono: '+13055551234', sedeActiva: 'PALACIOS', tipo: TIPO_COLISION.INTERNA,
+  interna: {
+    sede: 'PALACIOS', total: 2,
+    contactos: [
+      { vTigerId: 'V1', nombre: 'MIGUEL REVILLA', compras: 5, monto: 800, tratamiento: 'Potencia', sexo: 'Hombre', campana: 'PALACIOS-CLICK2RING-FB-MSGR-Potencia', modificado: '2024-03-01', etiquetas: ['vip'] },
+      { vTigerId: 'V2', nombre: 'MIGUEL REVILLA SANCHEZ', compras: 0, monto: 0, tratamiento: '', sexo: '', campana: '', modificado: '2026-09-20', etiquetas: [] }
+    ]
+  }
+};
+
+const rSexo = resolveCollision(informeSexo, informeSexo.interna.contactos[0]);
+assert(rSexo.elegido.vTigerId === 'V2', 'Se conserva el registro más reciente (que no trae sexo)');
+assert(rSexo.datosRescatados.sexo === 'Hombre', 'SEXO RESCATADO del registro descartado ("Hombre")');
+assert(rSexo.datosRescatados.fuenteSexo === 'V1', 'Se registra de qué registro vino el sexo (trazabilidad)');
+assert(rSexo.datosRescatados.campana.includes('CLICK2RING'), 'La campaña también se rescata');
+assert(rSexo.datosRescatados.compras === 5, 'Las compras se siguen rescatando');
+
+const informeSexoInv = {
+  telefono: '+13055559999', sedeActiva: 'PALACIOS', tipo: TIPO_COLISION.INTERNA,
+  interna: { sede: 'PALACIOS', total: 2, contactos: [
+    { vTigerId: 'V3', nombre: 'ANA LOPEZ', compras: 1, monto: 100, tratamiento: '', sexo: 'Hombre', campana: '', modificado: '2024-01-01', etiquetas: [] },
+    { vTigerId: 'V4', nombre: 'ANA LOPEZ GARCIA', compras: 0, monto: 0, tratamiento: '', sexo: 'Mujer', campana: '', modificado: '2026-09-20', etiquetas: [] }
+  ] }
+};
+const rSexoInv = resolveCollision(informeSexoInv, informeSexoInv.interna.contactos[0]);
+assert(rSexoInv.elegido.vTigerId === 'V4', 'Se conserva el más reciente');
+assert(rSexoInv.datosRescatados.sexo === 'Mujer', 'Se prefiere el sexo del registro CONSERVADO cuando lo tiene');
+assert(rSexoInv.datosRescatados.fuenteSexo === 'V4', 'La fuente del sexo es el registro conservado');
+
+const informeSinSexo = {
+  telefono: '+13055550000', sedeActiva: 'PALACIOS', tipo: TIPO_COLISION.INTERNA,
+  interna: { sede: 'PALACIOS', total: 2, contactos: [
+    { vTigerId: 'V5', nombre: 'PEDRO DIAZ', compras: 1, monto: 50, tratamiento: '', sexo: '', campana: '', modificado: '2024-01-01', etiquetas: [] },
+    { vTigerId: 'V6', nombre: 'PEDRO DIAZ LUNA', compras: 0, monto: 0, tratamiento: '', sexo: '', campana: '', modificado: '2026-09-20', etiquetas: [] }
+  ] }
+};
+const rSinSexo = resolveCollision(informeSinSexo, informeSinSexo.interna.contactos[0]);
+assert(rSinSexo.datosRescatados.sexo === '', 'Sin sexo en ningún registro el campo queda vacío (no se inventa)');
+assert(rSinSexo.datosRescatados.fuenteSexo === null, 'Sin sexo no se declara fuente');
+
+const informeTercer = {
+  telefono: '+13055551111', sedeActiva: 'PALACIOS', tipo: TIPO_COLISION.INTERNA,
+  interna: { sede: 'PALACIOS', total: 2, contactos: [
+    { vTigerId: 'V7', nombre: 'LUZ PEREA', compras: 2, monto: 200, tratamiento: '', sexo: 'TERCER', campana: '', modificado: '2024-01-01', etiquetas: [] },
+    { vTigerId: 'V8', nombre: 'LUZ PEREA GOMEZ', compras: 0, monto: 0, tratamiento: '', sexo: '', campana: '', modificado: '2026-09-20', etiquetas: [] }
+  ] }
+};
+const rTercer = resolveCollision(informeTercer, informeTercer.interna.contactos[0]);
+assert(rTercer.datosRescatados.sexo === 'TERCER', 'El valor "TERCER" se rescata sin alterar');
+
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
 console.log('==========================================================\n');

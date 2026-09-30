@@ -35,7 +35,7 @@
 
 import { SEDES_GATEWAY, resolveSedeContext } from '../config/index.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
-import { normalizeToE164, buildSanitizedGeoFields, splitCityAndState } from '../utils/geo_phone_sanitizer.js';
+import { normalizeToE164, buildSanitizedGeoFields, splitCityAndState, isUsStateCode, isUsStateName, normalizeUsState } from '../utils/geo_phone_sanitizer.js';
 import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { readSecret } from '../config/secrets.js';
@@ -67,13 +67,32 @@ const CAMPOS_REQUERIDOS = {
   oficinaOrigen: ['oficina_origen', 'oficina origen', 'sede origen', 'v tiger sede tienda compra', 'sede asignada'],
   totalCompras: ['v tiger total compras', 'total compras', 'numero de compras', 'num compras'],
   fechaUltimaCompra: ['v tiger fecha ultima compra', 'fecha ultima compra', 'ultima compra'],
+  fechaPrimeraCompra: ['v tiger fecha primera compra', 'fecha primera compra'],
   precioVenta: ['precio venta', 'v tiger precio venta', 'monto invertido'],
   // La Cuenta Empresa expone campos comerciales mas ricos que las sedes
   // (verificado en vivo): el gasto historico acumulado del cliente.
   totalHistorico: ['v tiger total historico gastado usd', 'total historico gastado', 'total historico'],
   ultimaInteraccion: ['ultima interaccion'],
-  campanaOrigen: ['utm campaign', 'campana origen', 'origen lead'],
+  campanaOrigen: ['v tiger campana origen', 'utm campaign', 'campana origen', 'origen lead'],
   idClienteVt: ['v tiger id cliente', 'id cliente', 'v tiger contact no'],
+  // RELACION DE ORIGEN: vTiger ya la trae armada en `cf_3472` con el formato
+  // SEDE-PROVEEDOR-CANAL-PADECIMIENTO (verificado identico en 20/20 contactos
+  // de Palacios y en todos los de Benavides). Se lee directo, no se compone.
+  origenLead: ['origen lead', 'origen del lead'],
+  // SEXO: vTiger lo guarda en cf_2821 con valores "Mujer" / "Hombre" / "TERCER".
+  // Se publica TAL CUAL viene para no alterar el dato. Cuando no exista el campo
+  // en GHL, el descubrimiento no lo resuelve y simplemente no se envía.
+  sexo: ['sexo', 'ssexo', 'genero', 'g nero'],
+  // --- Campos de negocio que el comprador debe llevar completo ---
+  proveedor: ['proveedor', 'v tiger proveedor'],
+  canalCaptacion: ['v tiger canal captacion', 'canal captacion', 'canal'],
+  tratamientoComprado: ['tratamiento comprado', 'v tiger tratamiento comprado', 'tratamiento'],
+  estadoComercial: ['v tiger estado comercial', 'estado comercial'],
+  estadoVenta: ['v tiger estado de compra', 'estado de compra', 'v tiger estado venta'],
+  contactoNo: ['v tiger contact no', 'contact no', 'numero de contacto'],
+  asesorAsignado: ['v tiger asesor asignado', 'asesor asignado'],
+  fechaCreacion: ['v tiger fecha creacion', 'fecha creacion'],
+  anotacionesRedes: ['v tiger anotaciones redes', 'anotaciones redes'],
   // Campo LARGE_TEXT que aloja el detalle de órdenes.
   historialCompleto: ['v tiger historial completo', 'historial completo']
 };
@@ -202,6 +221,43 @@ export const TAGS_ESTATUS_PROTEGIDAS = [
 
 /** Etiquetas que el middleware está autorizado a gestionar (campaña/interacción). */
 const TAGS_GESTIONADAS = ['vtiger', 'vtiger-sincronizado', 'campaña-nueva', 'campana-nueva', 'reingreso'];
+
+/**
+ * Limpia un componente del nombre.
+ *
+ * En vTiger el campo `salutationtype` vale `"."` y a veces ese punto termina en
+ * el nombre, produciendo tarjetas como ". PEREZ". También hay valores con
+ * espacios sobrantes que generan "ANA     LOPEZ". Se sanea para que la tarjeta
+ * del contacto se lea correctamente.
+ *
+ * @param {string} valor
+ * @returns {string} el valor limpio, o '' si no aporta nada
+ */
+export function limpiarNombre(valor = '') {
+  // [DEFECTO CORREGIDO] Sin esta comprobación, `String(null)` produce "null" y
+  // `String(0)` produce "0": la tarjeta habría mostrado el literal "null" como
+  // nombre. Sólo se aceptan cadenas y números como texto válido.
+  if (valor === null || valor === undefined) return '';
+  if (typeof valor === 'boolean') return '';
+  const limpio = String(valor)
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Marcadores vacíos que no son nombres reales
+  if (!limpio) return '';
+  if (/^[.\-_*]+$/.test(limpio)) return '';
+  return limpio;
+}
+
+/**
+ * Construye los tres campos de nombre que GHL usa, ya saneados.
+ * @returns {{firstName: string, lastName: string, name: string|undefined}}
+ */
+export function buildNombreFields(vContact = {}) {
+  const firstName = limpiarNombre(vContact.firstname);
+  const lastName = limpiarNombre(vContact.lastname);
+  const nombre = [firstName, lastName].filter(Boolean).join(' ').trim();
+  return { firstName, lastName, name: nombre || undefined };
+}
 
 /**
  * [REGLA DE NEGOCIO - INNEGOCIABLE] Sólo se sincronizan COMPRADORES.
@@ -333,8 +389,62 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   const tratamiento = normalizeTreatment(vContact.cf_2610) || '';
 
   const nombre = [vContact.firstname, vContact.lastname].filter(Boolean).join(' ').trim();
+  // Nombre saneado: vTiger trae basura como salutationtype "." o espacios dobles.
+  const nombreLimpio = buildNombreFields(vContact);
   const compras = parseInt(vContact.spl_num_compras || '0', 10) || 0;
   const esComprador = compras > 0;
+
+  // ==========================================================================
+  // MAPEO COMPLETO vTiger -> GHL (solo se publica en campos que EXISTEN)
+  // ==========================================================================
+  // Inventario verificado en vivo. vTiger expone 93 campos del contacto (40 con
+  // valor). La Cuenta Empresa tiene 41 personalizados y las sedes 29. Se mapea
+  // todo lo que tiene destino real; lo que no lo tiene se OMITE en vez de
+  // inventar campos o escribir datos en el lugar equivocado.
+  //
+  // | vTiger                       | GHL                                    |
+  // |------------------------------|----------------------------------------|
+  // | firstname / lastname         | firstName / lastName (nativos)         |
+  // | email                        | email (nativo)                         |
+  // | homephone (prioritario)      | phone (nativo)                         |
+  // | cf_2572 proveedor            | Proveedor (pendiente de crear)         |
+  // | cf_2610 padecimiento         | Tratamiento comprado                   |
+  // | cf_3507 canal                | vTiger Canal Captacion                 |
+  // | cf_3472 campana              | vTiger Campana Origen / UTM Campaign   |
+  // | splareacodes_state(_code)    | state (nativo, saneado)                |
+  // | cf_1157 ciudad               | city (nativo)                          |
+  // | spl_fecha_ultima_compra      | vTiger Fecha Ultima Compra             |
+  // | spl_fecha_primera_compra     | vTiger Fecha Primera Compra            |
+  // | spl_num_compras              | vTiger Total Compras                   |
+  // | cf_3392 gasto ACUMULADO      | vTiger Total Historico Gastado USD     |
+  // | cf_994 estado de venta       | Estado de Compra                       |
+  // | cf_1876 estado del embudo    | vTiger Estado Comercial                |
+  // | contact_no                   | vTiger Contact No                      |
+  // | wcf_acf_atf_3390 asesor      | vTiger Asesor Asignado (solo Empresa)  |
+  // | createdtime                  | vTiger Fecha Creacion (solo Empresa)   |
+  // | Splash: sin campo destino    | cf_3561 (valor "49", no es anotacion)  |
+  // |                              | se DESCARTA: no aporta informacion     |
+  // ==========================================================================
+
+  /** Valores comerciales ya normalizados, compartidos por ambas cargas. */
+  // [ANTI-ALUCINACION] El estado SÓLO se publica si es un estado real de EE.UU.,
+  // validado contra la lista oficial. Antes existía un fallback que escribía el
+  // valor crudo sin validar y colaba códigos inválidos (se detectó "VI", que
+  // además ni es Virginia: es VA). Es preferible dejar el campo vacío que
+  // escribir un valor que no corresponde.
+  const estadoResuelto = (() => {
+    const codigo = String(vContact.splareacodes_state_code || '').trim().toUpperCase();
+    const nombre = String(vContact.splareacodes_state || '').trim();
+    if (isUsStateCode(codigo)) return codigo;
+    if (isUsStateName(nombre)) return normalizeUsState(nombre);
+    if (isUsStateName(codigo)) return normalizeUsState(codigo);
+    if (isUsStateCode(nombre)) return nombre.toUpperCase();
+    // Nada válido: se OMITE el estado (nunca se escribe un valor sin validar).
+    return '';
+  })();
+  // La zona horaria de vTiger viene como "ESTE"/"PACIFICO"/"CENTRO"/"MONTAÑA" y
+  // NO se publica en ningún campo: GHL gestiona su propio `timezone` y escribir
+  // una zona inventada es precisamente lo que no debe hacerse.
 
   // --- Carga MACRO (Cuenta Empresa / Data Warehouse) ---
   const camposMacro = [];
@@ -344,32 +454,47 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     }
   };
 
+  // Identificación y origen (siempre, para que el contacto quede completo)
   push(fieldIdsCentral, 'oficinaOrigen', sedeId || vContact.cf_3451 || '');
   push(fieldIdsCentral, 'campanaOrigen', vContact.cf_3472 || '');
+  // RELACION DE ORIGEN en el campo "Origen Lead": se publica EXACTAMENTE el valor
+  // de vTiger (`cf_3472`), sin recomponerlo ni reformatearlo. Verificado identico
+  // a la construccion SEDE-PROVEEDOR-CANAL-PADECIMIENTO en el 100% de la muestra.
+  push(fieldIdsCentral, 'origenLead', vContact.cf_3472 || '');
+  push(fieldIdsCentral, 'canalCaptacion', vContact.cf_3507 || '');
+  push(fieldIdsCentral, 'tratamientoComprado', tratamiento || vContact.cf_2610 || '');
+  push(fieldIdsCentral, 'contactoNo', vContact.contact_no || '');
+  // SEXO: se publica EXACTAMENTE el valor de vTiger ("Mujer" / "Hombre" /
+  // "TERCER"), sin normalizar mayusculas ni traducir, para no alterar el dato.
+  push(fieldIdsCentral, 'sexo', String(vContact.cf_2821 || '').trim());
+  push(fieldIdsCentral, 'estadoVenta', vContact.cf_994 || '');
+  push(fieldIdsCentral, 'estadoComercial', vContact.cf_1876 || '');
+  push(fieldIdsCentral, 'asesorAsignado', vContact.wcf_acf_atf_3390 || '');
+  push(fieldIdsCentral, 'fechaCreacion', String(vContact.createdtime || '').slice(0, 10));
+  push(fieldIdsCentral, 'ultimaInteraccion', new Date().toISOString());
+
   if (incluirHistorial) {
     push(fieldIdsCentral, 'totalCompras', String(compras));
     push(fieldIdsCentral, 'fechaUltimaCompra', vContact.spl_fecha_ultima_compra || '');
+    push(fieldIdsCentral, 'fechaPrimeraCompra', vContact.spl_fecha_primera_compra || '');
     push(fieldIdsCentral, 'precioVenta', String(vContact.cf_3392 || ''));
     push(fieldIdsCentral, 'idClienteVt', vContact.id || '');
     // `cf_3392` fue VERIFICADO en vivo como el GASTO TOTAL ACUMULADO (la suma de
-    // todas las órdenes coincide exactamente). Se publica en el campo de gasto
-    // histórico de la Cuenta Empresa.
-    // NOTA: NO se publica "Monto Ultima Compra" porque el contacto de vTiger no
-    // expone ese dato de forma fiable; inventarlo sería peor que omitirlo.
+    // todas las órdenes coincide exactamente en 8 de 8 compradores medidos).
     if (vContact.cf_3392) push(fieldIdsCentral, 'totalHistorico', String(vContact.cf_3392));
   }
-  push(fieldIdsCentral, 'ultimaInteraccion', new Date().toISOString());
 
   const macro = {
     locationId: CENTRAL_LOCATION_ID,
     phone,
-    firstName: vContact.firstname || '',
-    lastName: vContact.lastname || '',
-    name: nombre || undefined,
+    firstName: nombreLimpio.firstName,
+    lastName: nombreLimpio.lastName,
+    name: nombreLimpio.name,
     email: vContact.email || undefined,
-    city: geo.find(g => g.key === 'city')?.field_value,
-    state: geo.find(g => g.key === 'state')?.field_value,
-    postalCode: geo.find(g => g.key === 'postalCode')?.field_value,
+    // La ciudad sale de cf_1157 (la operativa real); el estado de splareacodes_*
+    // porque mailingcity/mailingstate están restringidos por rol.
+    city: geo.find(g => g.key === 'city')?.field_value || undefined,
+    state: geo.find(g => g.key === 'state')?.field_value || estadoResuelto || undefined,
     source: 'vTiger',
     customFields: camposMacro
   };
@@ -381,12 +506,24 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
       camposSede.push({ id: fieldIdsSede[logico], nombre: logico, field_value: valor });
     }
   };
+
   pushSede('oficinaOrigen', sedeId || '');
   pushSede('campanaOrigen', vContact.cf_3472 || '');
+  // En la sede "Origen Lead" tambien recibe la relacion completa (es TEXT ahi).
+  pushSede('origenLead', vContact.cf_3472 || '');
+  pushSede('canalCaptacion', vContact.cf_3507 || '');
+  pushSede('tratamientoComprado', tratamiento || vContact.cf_2610 || '');
+  pushSede('contactoNo', vContact.contact_no || '');
+  // La sede tambien recibe el sexo (es dato de atencion al cliente).
+  pushSede('sexo', String(vContact.cf_2821 || '').trim());
+  pushSede('estadoVenta', vContact.cf_994 || '');
+  pushSede('estadoComercial', vContact.cf_1876 || '');
   pushSede('ultimaInteraccion', new Date().toISOString());
+
   if (incluirHistorial) {
     pushSede('totalCompras', String(compras));
     pushSede('fechaUltimaCompra', vContact.spl_fecha_ultima_compra || '');
+    pushSede('fechaPrimeraCompra', vContact.spl_fecha_primera_compra || '');
     pushSede('precioVenta', String(vContact.cf_3392 || ''));
     pushSede('idClienteVt', vContact.id || '');
   }
@@ -394,13 +531,12 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   const operativa = {
     locationId: sedeConf?.ghl?.locationId || null,
     phone,
-    firstName: vContact.firstname || '',
-    lastName: vContact.lastname || '',
-    name: nombre || undefined,
+    firstName: nombreLimpio.firstName,
+    lastName: nombreLimpio.lastName,
+    name: nombreLimpio.name,
     email: vContact.email || undefined,
-    city: geo.find(g => g.key === 'city')?.field_value,
-    state: geo.find(g => g.key === 'state')?.field_value,
-    postalCode: geo.find(g => g.key === 'postalCode')?.field_value,
+    city: geo.find(g => g.key === 'city')?.field_value || undefined,
+    state: geo.find(g => g.key === 'state')?.field_value || estadoResuelto || undefined,
     source: vContact.cf_3472 || 'vTiger',
     customFields: camposSede
   };

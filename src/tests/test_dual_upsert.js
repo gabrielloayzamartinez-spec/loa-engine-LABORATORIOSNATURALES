@@ -21,9 +21,10 @@ import {
   pickPhone, resolveSedeFromVtiger, buildUpsertPayloads,
   partitionFields, mergeTagsPreservingStatus, esCampoHistorialProtegido,
   CAMPOS_HISTORIAL_PROTEGIDOS, TAGS_ESTATUS_PROTEGIDAS, isCentralConfigured,
-  syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador
+  syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador,
+  limpiarNombre, buildNombreFields
 } from '../services/dual_sync_service.js';
-import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields } from '../utils/geo_phone_sanitizer.js';
+import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields, isUsStateCode } from '../utils/geo_phone_sanitizer.js';
 import { SEDES_GATEWAY } from '../config/index.js';
 
 let passed = 0;
@@ -217,6 +218,191 @@ assert(resLead.skipped === true, 'Un lead se descarta con skipped=true');
 assert(resLead.ok === false, 'Un lead no se reporta como sincronizado');
 assert(resLead.reason.includes('no es comprador'), `El motivo lo declara: "${resLead.reason}"`);
 assert(resLead.macro === undefined && resLead.operativa === undefined, 'El lead se corta ANTES de llamar a GHL (sin efectos externos)');
+
+// ------------------------------------------------------------------------------
+// 8. MAPEO COMPLETO DEL COMPRADOR (enriquecimiento total)
+// ------------------------------------------------------------------------------
+// Todo dato legible de vTiger que tenga destino real en GHL debe publicarse.
+console.log('\n[TEST 8] Mapeo completo: el comprador queda lleno, no a medias');
+
+const compradorCompleto = {
+  id: '12x35433', firstname: 'MIGUEL', lastname: 'REVILLA',
+  homephone: '6145179276', cf_3451: 'PALACIOS',
+  cf_2610: 'Artritis', cf_2572: 'CLICK2RING', cf_3507: 'FB-MSGR',
+  cf_3472: 'PALACIOS-CLICK2RING-FB-MSGR-Artritis',
+  cf_3392: '260.00000', cf_994: '1-POR ASIGNAR', cf_1876: 'CONVERTIDO',
+  spl_num_compras: '2',
+  spl_fecha_primera_compra: '2019-11-21',
+  spl_fecha_ultima_compra: '2019-12-18',
+  contact_no: 'CON6501',
+  wcf_acf_atf_3390: 'MARIBEL',
+  createdtime: '2019-11-21 19:53:22',
+  splareacodes_state: ' Ohio',
+  splareacodes_state_code: 'OH'
+};
+
+const idsMacro = { oficinaOrigen:'C1', totalCompras:'C2', fechaUltimaCompra:'C3', fechaPrimeraCompra:'C4', precioVenta:'C5', totalHistorico:'C6', ultimaInteraccion:'C7', campanaOrigen:'C8', idClienteVt:'C9', canalCaptacion:'C10', tratamientoComprado:'C11', estadoComercial:'C12', estadoVenta:'C13', contactoNo:'C14', asesorAsignado:'C15', fechaCreacion:'C16' };
+const idsSede = { oficinaOrigen:'S1', totalCompras:'S2', fechaUltimaCompra:'S3', fechaPrimeraCompra:'S4', precioVenta:'S5', ultimaInteraccion:'S6', campanaOrigen:'S7', idClienteVt:'S8', canalCaptacion:'S9', tratamientoComprado:'S10', estadoComercial:'S11', estadoVenta:'S12', contactoNo:'S13' };
+
+const p8 = buildUpsertPayloads(compradorCompleto, { incluirHistorial: true, fieldIdsCentral: idsMacro, fieldIdsSede: idsSede });
+const nombresMacro = p8.macro.customFields.map(f => f.nombre);
+const nombresSede = p8.operativa.customFields.map(f => f.nombre);
+const valor = (campos, n) => campos.find(f => f.nombre === n)?.field_value;
+
+assert(nombresMacro.length >= 16, `La carga macro llena ${nombresMacro.length} campos (antes 8)`);
+for (const campo of ['oficinaOrigen', 'campanaOrigen', 'canalCaptacion', 'tratamientoComprado', 'contactoNo', 'estadoVenta', 'estadoComercial', 'asesorAsignado', 'fechaCreacion', 'totalCompras', 'fechaUltimaCompra', 'fechaPrimeraCompra', 'precioVenta', 'idClienteVt', 'totalHistorico', 'ultimaInteraccion']) {
+  assert(nombresMacro.includes(campo), `La carga macro incluye "${campo}"`);
+}
+
+assert(valor(p8.macro.customFields, 'fechaPrimeraCompra') === '2019-11-21', 'Fecha de PRIMERA compra mapeada');
+assert(valor(p8.macro.customFields, 'fechaUltimaCompra') === '2019-12-18', 'Fecha de ÚLTIMA compra mapeada');
+assert(valor(p8.macro.customFields, 'fechaCreacion') === '2019-11-21', 'Fecha de creación (saneada a YYYY-MM-DD)');
+assert(valor(p8.macro.customFields, 'tratamientoComprado') === 'Artritis', 'Padecimiento/tratamiento mapeado');
+assert(valor(p8.macro.customFields, 'canalCaptacion') === 'FB-MSGR', 'Canal de captación mapeado');
+assert(valor(p8.macro.customFields, 'campanaOrigen').includes('CLICK2RING'), 'Campaña de origen mapeada');
+assert(valor(p8.macro.customFields, 'estadoComercial') === 'CONVERTIDO', 'Estado comercial del embudo mapeado');
+assert(valor(p8.macro.customFields, 'estadoVenta') === '1-POR ASIGNAR', 'Estado de venta mapeado');
+assert(valor(p8.macro.customFields, 'contactoNo') === 'CON6501', 'Código de cliente (contact_no) mapeado');
+assert(valor(p8.macro.customFields, 'asesorAsignado') === 'MARIBEL', 'Asesor asignado mapeado');
+assert(valor(p8.macro.customFields, 'totalHistorico') === '260.00000', 'Gasto histórico acumulado mapeado');
+
+// GEOGRAFÍA: el estado llega desde splareacodes_state_code, porque
+// mailingcity/mailingstate están restringidos por rol y salían vacíos.
+assert(p8.macro.state === 'OH', `El estado se resuelve desde splareacodes_state_code (${p8.macro.state})`);
+assert(p8.operativa.state === 'OH', 'La sede también recibe el estado');
+assert(!p8.macro.city, 'Sin ciudad real no se inventa una (cf_1157 viene vacío)');
+
+assert(nombresSede.includes('tratamientoComprado') && nombresSede.includes('canalCaptacion'), 'La sede también recibe tratamiento y canal');
+assert(!nombresSede.includes('asesorAsignado') && !nombresSede.includes('totalHistorico'), 'La sede NO recibe campos exclusivos de la Empresa');
+
+assert(!nombresMacro.includes('anotacionesRedes'), 'No se publica cf_3561: su valor ("49") no aporta información');
+
+// ------------------------------------------------------------------------------
+// 9. CALIDAD DEL NOMBRE EN LA TARJETA DEL CONTACTO
+// ------------------------------------------------------------------------------
+// vTiger trae basura en los nombres: `salutationtype` vale "." y a veces ese
+// punto llega al nombre (tarjetas tipo ". PEREZ"), o hay espacios dobles que
+// producen "ANA     LOPEZ". La tarjeta debe leerse correctamente.
+console.log('\n[TEST 9] Calidad del nombre en la tarjeta del contacto');
+
+assert(limpiarNombre('  ANA  ') === 'ANA', 'Recorta espacios sobrantes');
+assert(limpiarNombre('ANA   MARIA') === 'ANA MARIA', 'Colapsa espacios internos duplicados');
+assert(limpiarNombre('.') === '', 'Un punto (salutationtype de vTiger) no es un nombre');
+assert(limpiarNombre('...') === '', 'Varios puntos tampoco');
+assert(limpiarNombre('-') === '' && limpiarNombre('_') === '' && limpiarNombre('*') === '', 'Otros marcadores vacíos se descartan');
+assert(limpiarNombre('') === '' && limpiarNombre(null) === '' && limpiarNombre(undefined) === '', 'Vacíos y nulos devuelven vacío');
+assert(limpiarNombre('JOSÉ') === 'JOSÉ', 'Conserva acentos');
+assert(limpiarNombre('MUÑOZ') === 'MUÑOZ', 'Conserva la eñe');
+assert(limpiarNombre("O'BRIEN") === "O'BRIEN", 'Conserva apóstrofes');
+assert(limpiarNombre('DE LA CRUZ') === 'DE LA CRUZ', 'Conserva apellidos compuestos');
+
+const n1 = buildNombreFields({ firstname: 'MIGUEL', lastname: 'REVILLA' });
+assert(n1.firstName === 'MIGUEL' && n1.lastName === 'REVILLA' && n1.name === 'MIGUEL REVILLA', 'Caso normal: nombre y apellido bien separados');
+
+const n2 = buildNombreFields({ firstname: '.', lastname: 'PEREZ' });
+assert(n2.firstName === '' && n2.name === 'PEREZ', 'Un punto como nombre no contamina la tarjeta (antes: ". PEREZ")');
+
+const n3 = buildNombreFields({ firstname: 'ROSA', lastname: '' });
+assert(n3.firstName === 'ROSA' && n3.lastName === '' && n3.name === 'ROSA', 'Sin apellido el nombre queda limpio, sin espacios colgando');
+
+const n4 = buildNombreFields({ firstname: '', lastname: 'GOMEZ' });
+assert(n4.lastName === 'GOMEZ' && n4.name === 'GOMEZ', 'Sin nombre el apellido queda limpio');
+
+const n5 = buildNombreFields({ firstname: '  ANA  ', lastname: '  LOPEZ  ' });
+assert(n5.name === 'ANA LOPEZ', 'Con espacios sobrantes el nombre queda "ANA LOPEZ" (antes "ANA     LOPEZ")');
+
+const n6 = buildNombreFields({});
+assert(n6.firstName === '' && n6.lastName === '' && n6.name === undefined, 'Sin ningún nombre, name queda undefined (no se envía basura)');
+
+// El payload real debe usar los nombres saneados, no los crudos.
+const pNombre = buildUpsertPayloads(
+  { id: 'X', firstname: '.', lastname: 'PEREZ', homephone: '3055551234', cf_3451: 'PALACIOS', spl_num_compras: '1' },
+  { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} }
+);
+assert(pNombre.macro.firstName === '' && pNombre.macro.name === 'PEREZ', 'El payload macro usa el nombre saneado');
+assert(pNombre.operativa.name === 'PEREZ', 'El payload de la sede usa el nombre saneado');
+
+// ------------------------------------------------------------------------------
+// 10. ANTI-ALUCINACION: sólo datos exactos de vTiger, nada inventado
+// ------------------------------------------------------------------------------
+console.log('\n[TEST 10] Anti-alucinación: sólo valores reales y validados');
+
+const baseAnti = { id: 'A1', firstname: 'X', lastname: 'Y', homephone: '3055551234', cf_3451: 'PALACIOS', spl_num_compras: '1' };
+
+// --- a) La zona horaria NUNCA se publica ---
+// vTiger trae "ESTE"/"PACIFICO"/"CENTRO"/"MONTAÑA". GHL gestiona su propio campo
+// `timezone`: escribir una zona derivada es exactamente lo que no debe hacerse.
+const pTz = buildUpsertPayloads(
+  { ...baseAnti, splareacodes_timezone: 'PACIFICO', splareacodes_state: ' California', splareacodes_state_code: 'CA' },
+  { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} }
+);
+assert(!('timezone' in pTz.macro) && !('timezone' in pTz.operativa), 'El motor NO envía ningún campo timezone');
+assert(JSON.stringify(pTz).indexOf('PACIFICO') === -1, 'El valor de zona horaria no aparece en ningún payload');
+assert(JSON.stringify(pTz).indexOf('MONTAÑA') === -1, 'Ninguna zona horaria se cuela en el payload');
+
+// --- b) El estado SÓLO se publica si es un estado real y válido ---
+const pEstadoOk = buildUpsertPayloads({ ...baseAnti, splareacodes_state: ' Ohio', splareacodes_state_code: 'OH' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(pEstadoOk.macro.state === 'OH', 'Un estado válido se normaliza al código de 2 letras');
+
+const pEstadoNombre = buildUpsertPayloads({ ...baseAnti, splareacodes_state: 'South Carolina', splareacodes_state_code: '' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(pEstadoNombre.macro.state === 'SC', 'El nombre completo del estado se convierte a su código');
+
+// DEFECTO REAL CORREGIDO: existía un fallback que escribía el valor crudo sin
+// validar y colaba "VI" (que ni siquiera es Virginia: es VA).
+const pEstadoInvalido = buildUpsertPayloads({ ...baseAnti, splareacodes_state: '', splareacodes_state_code: 'VI' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(pEstadoInvalido.macro.state === undefined || pEstadoInvalido.macro.state === '', 'Un código de estado inválido ("VI") NO se escribe: se omite');
+assert(pEstadoInvalido.macro.state !== 'VI', 'El valor inválido jamás llega a la tarjeta');
+
+const pEstadoBasura = buildUpsertPayloads({ ...baseAnti, splareacodes_state: 'ESTE', splareacodes_state_code: 'ESTE' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(!pEstadoBasura.macro.state || isUsStateCode(pEstadoBasura.macro.state), 'Una zona horaria en el campo de estado NO se publica como estado');
+
+const pEstadoSinDatos = buildUpsertPayloads({ ...baseAnti, cf_1157: '' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(!pEstadoSinDatos.macro.city, 'Sin ciudad en vTiger NO se inventa una');
+
+// --- c) La relación de origen se publica EXACTAMENTE como viene de vTiger ---
+// vTiger ya la trae armada en cf_3472 (verificado idéntico en 20/20 contactos).
+const pOrigen = buildUpsertPayloads(
+  { ...baseAnti, cf_3451: 'PALACIOS', cf_2572: 'CLICK2RING', cf_3507: 'FB-MSGR', cf_2610: 'Artritis', cf_3472: 'PALACIOS-CLICK2RING-FB-MSGR-Artritis' },
+  { incluirHistorial: true, fieldIdsCentral: { origenLead: 'O1', campanaOrigen: 'O2' }, fieldIdsSede: { origenLead: 'O3', campanaOrigen: 'O4' } }
+);
+assert(valor(pOrigen.macro.customFields, 'origenLead') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'La relación SEDE-PROVEEDOR-CANAL-PADECIMIENTO se publica textual');
+assert(valor(pOrigen.operativa.customFields, 'origenLead') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'La sede también recibe la relación');
+assert(valor(pOrigen.macro.customFields, 'origenLead') === valor(pOrigen.macro.customFields, 'campanaOrigen'), 'Se publica el MISMO valor de vTiger, sin recomponerlo ni reformatearlo');
+
+// --- d) El sexo NO se inventa (se toma de cf_2821, ver TEST 11) ---
+// vTiger guarda el sexo en cf_2821 ("Mujer"/"Hombre"/"TERCER"). Lo que NUNCA debe
+// hacerse es DERIVARLO del nombre: con "GUADALUPE", "JOSÉ MARÍA" o "ROSARIO" eso
+// fallaría. Sin dato de origen, el campo no se publica.
+const pSexo = buildUpsertPayloads({ ...baseAnti, firstname: 'MARIA', salutationtype: '.', cf_2821: '' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: { sexo: 'SX2' } });
+assert(!pSexo.macro.customFields.some(f => f.nombre === 'sexo'), 'Sin cf_2821 el sexo NO se publica (no se deriva del nombre)');
+assert(JSON.stringify(pSexo).indexOf('Femenino') === -1 && JSON.stringify(pSexo).indexOf('Masculino') === -1, 'No se traduce el sexo a otros vocabularios (Femenino/Masculino)');
+assert(JSON.stringify(pSexo).indexOf('Mujer') === -1 && JSON.stringify(pSexo).indexOf('Hombre') === -1, 'Con el campo de vTiger vacío no aparece ningún valor de sexo');
+
+// --- e) SEXO: se publica textual desde cf_2821, sin inventar ni normalizar ---
+// Vocabulario real medido en 200 compradores: "Mujer", "Hombre", "TERCER".
+console.log('  [SEXO] cf_2821 se publica tal cual');
+
+const pSexoM = buildUpsertPayloads(
+  { ...baseAnti, cf_2821: 'Mujer' },
+  { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: { sexo: 'SX2' } }
+);
+assert(valor(pSexoM.macro.customFields, 'sexo') === 'Mujer', 'Sexo "Mujer" se publica textual');
+assert(valor(pSexoM.operativa.customFields, 'sexo') === 'Mujer', 'La sede también recibe el sexo');
+
+const pSexoH = buildUpsertPayloads({ ...baseAnti, cf_2821: 'Hombre' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: {} });
+assert(valor(pSexoH.macro.customFields, 'sexo') === 'Hombre', 'Sexo "Hombre" se publica textual');
+
+const pSexoT = buildUpsertPayloads({ ...baseAnti, cf_2821: 'TERCER' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: {} });
+assert(valor(pSexoT.macro.customFields, 'sexo') === 'TERCER', 'El valor "TERCER" se conserva, sin traducir ni cambiar de caja');
+
+const pSexoMixto = buildUpsertPayloads({ ...baseAnti, cf_2821: 'Mujer' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: {} });
+assert(valor(pSexoMixto.macro.customFields, 'sexo') !== 'MUJER', 'No se fuerza a mayúsculas: se respeta el valor de origen');
+
+const pSexoVacio = buildUpsertPayloads({ ...baseAnti, cf_2821: '' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: {} });
+assert(!pSexoVacio.macro.customFields.some(f => f.nombre === 'sexo'), 'Sin sexo en vTiger el campo no se envía');
+
+const pSexoSinCampo = buildUpsertPayloads({ ...baseAnti, cf_2821: 'Mujer' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(!pSexoSinCampo.macro.customFields.some(f => f.nombre === 'sexo'), 'Si GHL no tiene campo de sexo, se omite sin romper nada');
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
