@@ -86,6 +86,29 @@ export async function runVtigerSalesBridge(opts = {}) {
   const resumen = await syncVtigerBatchDual(registros, { pausaMs: opts.pausaMs ?? 250 });
   resumen.ms = Date.now() - inicio;
 
+  // [VISIBILIDAD] Se audita una linea por contacto sincronizado. Antes el puente
+  // solo dejaba un resumen al final, asi que en produccion no habia forma de ver
+  // QUE contactos se crearon: la unica senal era el total, y si el conteo estaba
+  // mal (bug corregido de ok/skipped) parecia que no pasaba nada.
+  if (Array.isArray(resumen.detalle)) {
+    for (const d of resumen.detalle) {
+      recordAuditEvent({
+        type: d.accion === 'creado' ? 'SALES_BRIDGE_CONTACT_CREATED'
+          : d.accion === 'actualizado' ? 'SALES_BRIDGE_CONTACT_UPDATED'
+          : d.accion === 'descartado' ? 'SALES_BRIDGE_CONTACT_SKIPPED'
+          : 'SALES_BRIDGE_CONTACT_FAILED',
+        severity: d.accion === 'fallido' ? 'error' : 'info',
+        sede: d.sede,
+        vTigerId: d.vTigerId,
+        nombre: d.nombre,
+        telefono: d.telefono,
+        macroOk: d.macroOk,
+        historialOk: d.historialOk,
+        motivo: d.motivo
+      });
+    }
+  }
+
   recordAuditEvent({
     type: 'SALES_BRIDGE_CYCLE',
     severity: resumen.fallidos > 0 ? 'warn' : 'info',

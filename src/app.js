@@ -27,6 +27,7 @@ import { isCentralConfigured } from './services/dual_sync_service.js';
 import { syncVtigerContactDual } from './services/dual_sync_service.js';
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
+import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill } from './services/vtiger_buyers_backfill.js';
 import { getActiveSedeAgents, getSedeAgent } from './agents/sede_agent.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes } from './config/sedes_gateway.js';
@@ -1182,6 +1183,46 @@ app.get('/api/vtiger/order-history/status', async (req, res) => {
   }
 });
 
+/**
+ * [BACKFILL DE COMPRADORES] Avanza UN lote del recorrido completo de la cartera.
+ * Es lo que cierra la brecha historica: el puente incremental solo mira lo
+ * reciente y esta topado, asi que sin esto el resto de los compradores nunca se
+ * alcanza. El cursor persiste: llamar repetidamente hasta `completo: true`.
+ * Query: ?lote=50&lotes=1
+ */
+app.post('/api/vtiger/buyers-backfill', async (req, res) => {
+  try {
+    const lote = Math.min(Math.max(parseInt(req.query.lote || req.body?.lote || '50', 10) || 50, 1), 150);
+    const lotes = Math.min(Math.max(parseInt(req.query.lotes || req.body?.lotes || '1', 10) || 1, 1), 20);
+    res.json({ success: true, message: `Backfill de compradores iniciado (${lotes} lote(s) de ${lote}). Consulta /api/vtiger/buyers-backfill/status.` });
+    setImmediate(() => {
+      runBuyersBackfill({ tamanoLote: lote, maxLotes: lotes })
+        .catch(err => console.error('[Buyers Backfill] Error:', err.message));
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/** Estado del backfill de compradores (progreso por sede y totales acumulados). */
+app.get('/api/vtiger/buyers-backfill/status', async (req, res) => {
+  try {
+    res.json({ success: true, estado: await getBuyersBackfillStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/** Reinicia el cursor del backfill para recorrer la cartera desde cero. */
+app.post('/api/vtiger/buyers-backfill/reset', async (req, res) => {
+  try {
+    await resetBuyersBackfill();
+    res.json({ success: true, message: 'Cursor reiniciado. El proximo ciclo recorre desde el inicio.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/webhook/vtiger', async (req, res) => {
   try {
     // [SANITIZACIÓN OBLIGATORIA] Endpoint semi-público: el payload se sanea por
@@ -1400,7 +1441,20 @@ export function registerBackgroundSchedulers() {
       .catch(err => console.error('[Order Backfill] Error en ciclo programado:', err.message));
   }, 30 * 60 * 1000));
 
-  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s, order-history 1800s).`);
+  // [BACKFILL DE COMPRADORES] Cierra la brecha historica de la cartera.
+  // Cada 15 min avanza 2 lotes de 20 contactos por sede (40 por ciclo). El cursor
+  // persiste en el StateStore, asi que el avance sobrevive a un redeploy y cada
+  // ciclo AVANZA en lugar de reprocesar los mismos contactos recientes.
+  timers.push(setInterval(() => {
+    getBuyersBackfillStatus()
+      .then(estado => {
+        if (estado.completo) return; // cartera ya recorrida por completo
+        return runBuyersBackfill({ tamanoLote: 20, maxLotes: 2, pausaMs: 300 });
+      })
+      .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message));
+  }, 15 * 60 * 1000));
+
+  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s, order-history 1800s, buyers-backfill 900s).`);
   return timers;
 }
 

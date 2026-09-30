@@ -858,6 +858,15 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
     }
   }
 
+  // [CONTRATO DE SALIDA] Se normalizan `ok` y `skipped` a nivel RAIZ.
+  // DEFECTO CORREGIDO: antes el camino de exito devolvia solo `resultado`
+  // (con ok dentro de macro/operativa), asi que `syncVtigerBatchDual` no
+  // encontraba `r.ok` y contaba TODO contacto sincronizado como FALLIDO.
+  // El criterio de exito es la SUBCUENTA DE LA SEDE (el destino comercial);
+  // la Cuenta Empresa es enriquecimiento y su fallo no invalida el alta.
+  resultado.ok = Boolean(resultado.operativa?.ok);
+  resultado.skipped = false;
+  resultado.created = Boolean(resultado.operativa?.created);
   return resultado;
 }
 
@@ -866,16 +875,38 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
  * del cliente GHL compartido) y devuelve el resumen del lote.
  */
 export async function syncVtigerBatchDual(registros = [], { pausaMs = 250 } = {}) {
-  const resumen = { total: registros.length, creados: 0, actualizados: 0, descartados: 0, fallidos: 0 };
+  const resumen = { total: registros.length, creados: 0, actualizados: 0, descartados: 0, fallidos: 0, detalle: [] };
 
   for (const vContact of registros) {
+    const nombre = `${vContact?.firstname || ''} ${vContact?.lastname || ''}`.trim();
+    const telefono = pickPhone(vContact);
+    const sede = String(vContact?.cf_3451 || '').toUpperCase().trim();
     try {
       const r = await syncVtigerContactDual(vContact);
-      if (r.skipped) resumen.descartados++;
-      else if (r.ok) (r.created ? resumen.creados++ : resumen.actualizados++);
-      else resumen.fallidos++;
+      let accion;
+      if (r.skipped) { resumen.descartados++; accion = 'descartado'; }
+      else if (r.ok) {
+        if (r.created) { resumen.creados++; accion = 'creado'; }
+        else { resumen.actualizados++; accion = 'actualizado'; }
+      } else { resumen.fallidos++; accion = 'fallido'; }
+
+      // Detalle por contacto: permite auditar QUE paso con cada uno.
+      resumen.detalle.push({
+        accion,
+        sede: sede || null,
+        vTigerId: vContact?.id || null,
+        nombre,
+        telefono: telefono || null,
+        macroOk: Boolean(r.macro?.ok),
+        historialOk: Boolean(r.historial?.ok),
+        motivo: r.reason || r.operativa?.reason || r.macro?.error || null
+      });
     } catch (err) {
       resumen.fallidos++;
+      resumen.detalle.push({
+        accion: 'fallido', sede: sede || null, vTigerId: vContact?.id || null,
+        nombre, telefono: telefono || null, motivo: err.message
+      });
       recordAuditEvent({
         type: 'DUAL_SYNC_EXCEPTION',
         severity: 'error',
@@ -886,6 +917,6 @@ export async function syncVtigerBatchDual(registros = [], { pausaMs = 250 } = {}
     if (pausaMs > 0) await new Promise(r => setTimeout(r, pausaMs));
   }
 
-  console.log(`[Dual Sync] [BATCH] ${JSON.stringify(resumen)}`);
+  console.log(`[Dual Sync] [BATCH] ${JSON.stringify({ ...resumen, detalle: resumen.detalle.length + ' contactos' })}`);
   return resumen;
 }
