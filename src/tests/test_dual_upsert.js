@@ -268,16 +268,16 @@ const compradorCompleto = {
   splareacodes_state_code: 'OH'
 };
 
-const idsMacro = { oficinaOrigen:'C1', totalCompras:'C2', fechaUltimaCompra:'C3', fechaPrimeraCompra:'C4', precioVenta:'C5', totalHistorico:'C6', ultimaInteraccion:'C7', campanaOrigen:'C8', idClienteVt:'C9', canalCaptacion:'C10', tratamientoComprado:'C11', estadoComercial:'C12', estadoVenta:'C13', contactoNo:'C14', asesorAsignado:'C15', fechaCreacion:'C16' };
-const idsSede = { oficinaOrigen:'S1', totalCompras:'S2', fechaUltimaCompra:'S3', fechaPrimeraCompra:'S4', precioVenta:'S5', ultimaInteraccion:'S6', campanaOrigen:'S7', idClienteVt:'S8', canalCaptacion:'S9', tratamientoComprado:'S10', estadoComercial:'S11', estadoVenta:'S12', contactoNo:'S13' };
+const idsMacro = { oficinaOrigen:'C1', totalCompras:'C2', fechaUltimaCompra:'C3', fechaPrimeraCompra:'C4', precioVenta:'C5', totalHistorico:'C6', ultimaInteraccion:'C7', campanaOrigen:'C8', idClienteVt:'C9', canalCaptacion:'C10', tratamientoComprado:'C11', estadoComercial:'C12', etapaComercial:'C13', contactoNo:'C14', asesorAsignado:'C15', fechaCreacion:'C16' };
+const idsSede = { oficinaOrigen:'S1', totalCompras:'S2', fechaUltimaCompra:'S3', fechaPrimeraCompra:'S4', precioVenta:'S5', ultimaInteraccion:'S6', campanaOrigen:'S7', idClienteVt:'S8', canalCaptacion:'S9', tratamientoComprado:'S10', estadoComercial:'S11', etapaComercial:'S12', contactoNo:'S13' };
 
 const p8 = buildUpsertPayloads(compradorCompleto, { incluirHistorial: true, fieldIdsCentral: idsMacro, fieldIdsSede: idsSede });
 const nombresMacro = p8.macro.customFields.map(f => f.nombre);
 const nombresSede = p8.operativa.customFields.map(f => f.nombre);
 const valor = (campos, n) => campos.find(f => f.nombre === n)?.field_value;
 
-assert(nombresMacro.length >= 16, `La carga macro llena ${nombresMacro.length} campos (antes 8)`);
-for (const campo of ['oficinaOrigen', 'campanaOrigen', 'canalCaptacion', 'tratamientoComprado', 'contactoNo', 'estadoVenta', 'estadoComercial', 'asesorAsignado', 'fechaCreacion', 'totalCompras', 'fechaUltimaCompra', 'fechaPrimeraCompra', 'precioVenta', 'idClienteVt', 'totalHistorico', 'ultimaInteraccion']) {
+assert(nombresMacro.length >= 15, `La carga macro llena ${nombresMacro.length} campos (antes 8)`);
+for (const campo of ['oficinaOrigen', 'campanaOrigen', 'canalCaptacion', 'tratamientoComprado', 'contactoNo', 'etapaComercial', 'estadoComercial', 'asesorAsignado', 'fechaCreacion', 'totalCompras', 'fechaUltimaCompra', 'fechaPrimeraCompra', 'precioVenta', 'idClienteVt', 'totalHistorico', 'ultimaInteraccion']) {
   assert(nombresMacro.includes(campo), `La carga macro incluye "${campo}"`);
 }
 
@@ -288,7 +288,7 @@ assert(valor(p8.macro.customFields, 'tratamientoComprado') === 'Artritis', 'Pade
 assert(valor(p8.macro.customFields, 'canalCaptacion') === 'FB-MSGR', 'Canal de captación mapeado');
 assert(valor(p8.macro.customFields, 'campanaOrigen').includes('CLICK2RING'), 'Campaña de origen mapeada');
 assert(valor(p8.macro.customFields, 'estadoComercial') === 'CONVERTIDO', 'Estado comercial del embudo mapeado');
-assert(valor(p8.macro.customFields, 'estadoVenta') === '1-POR ASIGNAR', 'Estado de venta mapeado');
+assert(valor(p8.macro.customFields, 'etapaComercial') === '1-POR ASIGNAR', 'La etapa comercial de vTiger se mapea a su propio campo');
 assert(valor(p8.macro.customFields, 'contactoNo') === 'CON6501', 'Código de cliente (contact_no) mapeado');
 assert(valor(p8.macro.customFields, 'asesorAsignado') === 'MARIBEL', 'Asesor asignado mapeado');
 assert(valor(p8.macro.customFields, 'totalHistorico') === '260.00000', 'Gasto histórico acumulado mapeado');
@@ -430,6 +430,43 @@ assert(!pSexoVacio.macro.customFields.some(f => f.nombre === 'sexo'), 'Sin sexo 
 
 const pSexoSinCampo = buildUpsertPayloads({ ...baseAnti, cf_2821: 'Mujer' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
 assert(!pSexoSinCampo.macro.customFields.some(f => f.nombre === 'sexo'), 'Si GHL no tiene campo de sexo, se omite sin romper nada');
+
+// ------------------------------------------------------------------------------
+// 11. SEPARACIÓN DEL CAMPO DE ESTADO (no contaminar el campo del negocio)
+// ------------------------------------------------------------------------------
+// DEFECTO REAL DETECTADO: el motor escribía la etapa de vTiger (cf_994) en el
+// campo "Estado de Compra", que es DEL NEGOCIO y usa el vocabulario
+// Comprador / No Comprador con el que ya estaban construidas sus Smart Lists.
+// Resultado medido: 68 contactos contaminados en Palacios (13,6%) y 5 en
+// Benavides. Un cliente que SÍ compró pero figuraba como "EN LLAMADA" NO
+// aparecía al filtrar por "Comprador": las Smart Lists estaban incompletas.
+console.log('\n[TEST 11] El motor NO escribe en el campo "Estado de Compra" del negocio');
+
+const idsEstado = {
+  estadoVenta: 'CAMPO_NEGOCIO_NO_USAR',   // destino viejo (prohibido)
+  etapaComercial: 'CAMPO_ETAPA_NUEVO',    // destino correcto
+  estadoComercial: 'CAMPO_COMERCIAL'
+};
+
+const pEstado = buildUpsertPayloads(
+  { ...baseAnti, cf_994: 'EN LLAMADA', cf_1876: 'CONVERTIDO' },
+  { incluirHistorial: true, fieldIdsCentral: idsEstado, fieldIdsSede: idsEstado }
+);
+const idsSedeUsados = pEstado.operativa.customFields.map(f => f.id);
+const idsMacroUsados = pEstado.macro.customFields.map(f => f.id);
+
+assert(!idsSedeUsados.includes('CAMPO_NEGOCIO_NO_USAR'), 'La sede NO escribe en "Estado de Compra" (campo del negocio)');
+assert(!idsMacroUsados.includes('CAMPO_NEGOCIO_NO_USAR'), 'La Empresa TAMPOCO escribe en "Estado de Compra"');
+assert(valor(pEstado.operativa.customFields, 'etapaComercial') === 'EN LLAMADA', 'La etapa de vTiger va a su propio campo');
+assert(valor(pEstado.macro.customFields, 'etapaComercial') === 'EN LLAMADA', 'La Empresa recibe la etapa en su propio campo');
+assert(valor(pEstado.operativa.customFields, 'estadoComercial') === 'CONVERTIDO', 'El estado del embudo sigue en "vTiger Estado Comercial"');
+assert(valor(pEstado.operativa.customFields, 'estadoVenta') === undefined, 'No hay envío bajo el nombre antiguo estadoVenta');
+
+// Todas las etapas reales de vTiger se publican textuales, sin traducir
+for (const etapa of ['1-POR ASIGNAR', '2-POR ASIGNAR', 'SIN TRABAJAR', 'EN LLAMADA', 'NO LLAMAR', 'NUNCA CONTESTO', 'AGENDADO']) {
+  const p = buildUpsertPayloads({ ...baseAnti, cf_994: etapa }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: idsEstado });
+  assert(valor(p.operativa.customFields, 'etapaComercial') === etapa, `La etapa "${etapa}" se publica textual (etiquetable para Smart Lists)`);
+}
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
