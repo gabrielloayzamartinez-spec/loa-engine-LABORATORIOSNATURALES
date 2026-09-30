@@ -116,7 +116,16 @@ export async function findContactsByPhoneInSede(telefono, sedeActiva) {
   if (ultimos10.length < 10) return [];
 
   // Los campos comerciales son imprescindibles: el resolvedor decide con ellos.
-  const campos = 'id, firstname, lastname, email, homephone, mobile, phone, cf_3451, spl_num_compras, cf_3392, cf_2610, modifiedtime';
+  // SEXO (cf_2821) incluido: debe SOBREVIVIR al merge, y para eso el resolvedor
+  // necesita verlo en los candidatos. Antes se consultaba una lista fija que no
+  // lo traía, así que el sexo se perdía al resolver un enfrentamiento.
+  const campos = [
+    'id', 'firstname', 'lastname', 'email',
+    'homephone', 'mobile', 'phone',
+    'cf_3451', 'spl_num_compras', 'cf_3392', 'cf_2610', 'cf_3472',
+    'cf_2821',            // SEXO
+    'modifiedtime', 'createdtime'
+  ].join(', ');
   const condicionTelefono = `homephone = '${ultimos10}' OR mobile = '${ultimos10}' OR phone = '${ultimos10}'`;
   const q = `SELECT ${campos} FROM Contacts WHERE ${condicionTelefono}${sedeClause(sedeActiva)}`;
 
@@ -189,7 +198,11 @@ export async function detectCollision(vContact = {}, { sedeActiva = '', candidat
         compras: parseInt(c.spl_num_compras || '0', 10) || 0,
         monto: parseFloat(c.cf_3392 || '0') || 0,
         tratamiento: c.cf_2610 || '',
+        // SEXO: se arrastra al candidato para que sobreviva a la fusión.
+        sexo: String(c.cf_2821 || '').trim(),
+        campana: c.cf_3472 || '',
         modificado: String(c.modifiedtime || '').slice(0, 10),
+        creado: String(c.createdtime || '').slice(0, 10),
         etiquetas: Array.isArray(c.tags) ? c.tags : [],
         similitudConBase: Number(similitudNombre(vContact, c).toFixed(2))
       }))
@@ -300,17 +313,26 @@ export function resolveCollision(informe = {}, vContactBase = {}) {
     res.descartados = candidatos.filter(c => c.vTigerId !== reciente.vTigerId);
 
     // [RESCATE] Se combinan los datos relevantes de TODOS los registros, para que
-    // la fusión no pierda nada: compras, monto y tratamiento del que más tenga.
+    // la fusión no pierda nada: compras, monto, tratamiento y SEXO. Si el
+    // registro reciente no trae sexo pero el antiguo sí, se rescata el del
+    // antiguo: un dato presente nunca debe perderse al unificar.
     const totalCompras = Math.max(...candidatos.map(c => c.compras || 0));
     const conMasCompras = [...candidatos].sort((a, b) => (b.compras || 0) - (a.compras || 0))[0];
     const monto = conMasCompras?.monto || Math.max(...candidatos.map(c => c.monto || 0));
     const tratamiento = conMasCompras?.tratamiento || candidatos.find(c => c.tratamiento)?.tratamiento || '';
+    // Sexo: se prefiere el del contacto conservado; si viene vacío, se toma de
+    // cualquier otro candidato que sí lo tenga.
+    const sexo = reciente.sexo || candidatos.find(c => c.sexo)?.sexo || '';
+    const campana = reciente.campana || candidatos.find(c => c.campana)?.campana || '';
 
     res.datosRescatados = {
       compras: totalCompras,
       monto,
       tratamiento,
+      sexo,
+      campana,
       fuenteCompras: conMasCompras?.vTigerId || null,
+      fuenteSexo: reciente.sexo ? reciente.vTigerId : (candidatos.find(c => c.sexo)?.vTigerId || null),
       etiquetas: [...new Set(candidatos.flatMap(c => c.etiquetas || []))]
     };
     res.confianza = similitudMinima >= 0.9 ? CONFIANZA.ALTA : CONFIANZA.MEDIA;
