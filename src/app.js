@@ -22,6 +22,8 @@ import { envInt } from './config/secrets.js';
 import { sanitizeContactPayload, sanitizeObject, sanitizeString, sanitizePhone, sanitizeEmail, sanitizeId, detectInjectionPatterns } from './utils/sanitize.js';
 import { recordAuditEvent, getAuditMetrics, readAuditEvents } from './services/audit_logger.js';
 import { getVtigerConfigStatus } from './services/vtigerClient.js';
+import { readSecret } from './config/secrets.js';
+import { isCentralConfigured } from './services/dual_sync_service.js';
 import { syncVtigerContactDual } from './services/dual_sync_service.js';
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
@@ -345,6 +347,15 @@ app.get('/api/health', (req, res) => {
     ),
     vtiger: vtigerConnectionStatus,
     vtigerConfig: getVtigerConfigStatus(),
+    // [DIAGNOSTICO] Estado de la Cuenta Empresa. Expone SOLO presencia de
+    // credenciales, nunca su valor: permite saber si la carga macro esta activa
+    // y detectar una credencial ausente o revocada sin esperar a un fallo de sync.
+    cuentaEmpresa: {
+      configurada: isCentralConfigured(),
+      locationIdPresente: Boolean(readSecret('GHL_LOCATION_ID_CENTRAL')),
+      apiKeyPresente: Boolean(readSecret('GHL_API_KEY_CENTRAL')),
+      rol: 'analitica macro (sin ruteo ni chats)'
+    },
     meta: metaConnectionStatus,
     infrastructure: {
       queue: queueStatus,
