@@ -1,11 +1,15 @@
 import { queryVTiger } from '../services/vtiger_api_service.js';
-import { GHL_CONFIG, SEDES_GATEWAY, getGhlHeaders, resolveSedeContext } from '../config/index.js';
+import { GHL_CONFIG, SEDES_GATEWAY, getGhlHeaders, resolveSedeContext, getActiveSedes } from '../config/index.js';
 import { normalizeTreatment, toProductTag, isProductTag, PRODUCT_TAGS } from '../domain/clinical_vocabulary.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { acquireContactLock, releaseContactLock } from './chat_router_agent.js';
 import { buildSanitizedCommercialFields, evaluateCommercialTruth } from '../domain/commercial_engine.js';
 import { syncUnifiedPipelineOpportunity } from '../services/ghl_opportunity_service.js';
 import { learningBrain } from '../services/learning_brain.js';
+import { sedeClause, VTIGER_SEDES_VALIDAS } from '../services/vtigerClient.js';
+import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
+import { recordAuditEvent } from '../services/audit_logger.js';
+import { normalizeToE164, buildSanitizedGeoFields } from '../utils/geo_phone_sanitizer.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -54,20 +58,25 @@ async function findGhlContact(vContact) {
     return null;
   }
 
+  // [ENDPOINT CORREGIDO] `/contacts/search` responde HTTP 400 en esta cuenta y
+  // hacía que el Reverse Sync no encontrara NUNCA el par en GHL. El correcto es
+  // `/contacts/?locationId=...&query=...` (verificado en vivo).
   const headers = getGhlHeaders({ locationId: targetLocId });
 
   if (cleanPhone.length >= 7) {
-    const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${targetLocId}&query=${cleanPhone}`;
+    const searchUrl = `https://services.leadconnectorhq.com/contacts/?locationId=${targetLocId}&query=${cleanPhone}`;
     const res = await fetchWithRetry(searchUrl, { headers });
     if (res.status === 200) {
       const data = await res.json();
       const contacts = data.contacts || [];
       if (contacts.length > 0) return { ...contacts[0], locationId: targetLocId };
+    } else {
+      console.warn(`[Reverse Sync] [SEARCH-WARN] Búsqueda por teléfono devolvió HTTP ${res.status}.`);
     }
   }
 
   if (email.includes('@')) {
-    const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${targetLocId}&query=${encodeURIComponent(email)}`;
+    const searchUrl = `https://services.leadconnectorhq.com/contacts/?locationId=${targetLocId}&query=${encodeURIComponent(email)}`;
     const res = await fetchWithRetry(searchUrl, { headers });
     if (res.status === 200) {
       const data = await res.json();
@@ -80,8 +89,50 @@ async function findGhlContact(vContact) {
 }
 
 /**
+ * Contactos de vTiger modificados desde `modifiedTimeStr`, **por sede**.
+ *
+ * [SEDE-LOCK — CORRECCIÓN DE INCIDENTE]
+ * ANTES esta consulta era `SELECT * FROM Contacts WHERE modifiedtime >= '...'`
+ * SIN cláusula de sede. Al imponer el gate de aislamiento en el borde de la API
+ * (`assertTenantIsolation`), el gate la empezó a RECHAZAR con
+ * `SEDE_LOCK_VIOLATION`: el Reverse Sync llevaba ~871 ciclos fallando, es decir
+ * ~44 h sin sincronizar vTiger -> GHL. Los cambios de vTiger (incluidas ventas
+ * nuevas) no llegaban a GHL, y el contacto no aparecía en el chat.
+ *
+ * La consulta correcta es UNA por sede, cada una con su filtro `cf_3451`.
+ */
+async function fetchModifiedContactsBySede(modifiedTimeStr, limitPerSede = 50, sedes = null) {
+  const sedesObjetivo = (sedes && sedes.length ? sedes : getActiveSedes().map(s => s.sedeId))
+    .map(s => String(s).toUpperCase())
+    .filter(s => VTIGER_SEDES_VALIDAS.includes(s));
+
+  const acumulado = [];
+  for (const sede of sedesObjetivo) {
+    const safeTime = sanitizeForVtigerQuery(modifiedTimeStr, 25);
+    const q = `SELECT * FROM Contacts WHERE modifiedtime >= '${safeTime}'${sedeClause(sede)} LIMIT ${Math.min(Math.max(parseInt(limitPerSede, 10) || 50, 1), 200)};`;
+    try {
+      const filas = await queryVTiger(q, sede);
+      // [TRAZABILIDAD] El origen de cada registro queda marcado para el sync.
+      for (const f of (filas || [])) acumulado.push({ ...f, __sedeOrigen: sede });
+    } catch (err) {
+      // El error ya quedó auditado dentro de `query()`. Aquí no se silencia:
+      // se registra para que un fallo de sincronización sea VISIBLE.
+      console.error(`[Reverse Sync] [ERROR] Consulta de modificados falló para la sede ${sede}: ${err.message}`);
+      recordAuditEvent({
+        type: 'REVERSE_SYNC_QUERY_FAILED',
+        severity: 'error',
+        sede,
+        message: err.message
+      });
+    }
+  }
+  return acumulado;
+}
+
+/**
  * Demonio de Sincronización Inversa (Reverse Poller) 24/7.
  * Busca cambios en vTiger en los últimos X minutos y los refleja en GHL.
+ * Aplica el DROP RULE: sin teléfono válido no se sincroniza y se audita.
  */
 export async function runVTigerToGHLPoller(minutesLookback = 4) {
   try {
@@ -92,25 +143,43 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
     const pad = n => n.toString().padStart(2, '0');
     const modifiedTimeStr = `${date.getUTCFullYear()}-${pad(date.getUTCMonth()+1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
 
-    // Consultamos los contactos modificados recientemente
-    const q = `SELECT * FROM Contacts WHERE modifiedtime >= '${modifiedTimeStr}' LIMIT 50;`;
-    let modifiedContacts = [];
-    try {
-       modifiedContacts = await queryVTiger(q);
-    } catch(err) {
-       // Si vtiger falla o no soporta modifiedtime en esta version WS, salir silenciosamente
-       return;
-    }
+    // Consulta POR SEDE (Sede-Lock). Un fallo por sede no afecta a las demás.
+    const modifiedContacts = await fetchModifiedContactsBySede(modifiedTimeStr, 50);
 
     if (!modifiedContacts || modifiedContacts.length === 0) return;
     
     console.log(`[Reverse Sync] [SYNC] ${modifiedContacts.length} contactos modificados en vTiger detectados en los últimos ${minutesLookback} mins. Sincronizando a GHL...`);
 
     let syncCount = 0;
+    let descartadosSinTelefono = 0;
+    let sinSede = 0;
+
     for (const vContact of modifiedContacts) {
+      // [DROP RULE] El teléfono es el identificador único de sincronización.
+      const phoneDigits = normalizeToE164(vContact.mobile || vContact.phone || vContact.homephone || vContact.otherphone || '');
+      if (!phoneDigits) {
+        descartadosSinTelefono++;
+        recordAuditEvent({
+          type: 'REVERSE_SYNC_DROPPED_NO_PHONE',
+          severity: 'warn',
+          vTigerId: vContact.id || null,
+          nombre: `${vContact.firstname || ''} ${vContact.lastname || ''}`.trim().slice(0, 60),
+          sedeRegistro: vContact.cf_3451 || null,
+          reason: 'sin teléfono válido no se sincroniza (identificador único ausente)'
+        });
+        continue;
+      }
+
       // 1. Encontrar su par en GHL
       const ghlContact = await findGhlContact(vContact);
-      if (!ghlContact) continue; // Si no existe en GHL, lo ignoramos
+      if (!ghlContact) {
+        sinSede++;
+        continue; // No existe en GHL (o el registro no tiene sede válida)
+      }
+
+      // Sede del REGISTRO de vTiger: define la subcuenta destino (hermetismo).
+      const vSede = String(vContact.cf_3451 || vContact.__sedeOrigen || '').toUpperCase().trim();
+      const targetLocId = ghlContact.locationId;
 
       // 2. Extraer "Ground Truth" para alimentar el Cerebro (Opcional, si cambió condición)
       // [VOCABULARIO CANÓNICO] Un único normalizador reemplaza la cadena de
@@ -126,10 +195,11 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       // 3. Evaluar y Sanear Campos Comerciales (Regla de Oro: vTiger manda)
       // [SEDE-SHIELD] La sede activa se pasa a AMBAS funciones: el veredicto debe
       // usar exactamente la misma puerta de aislamiento que el saneado de campos.
-      const targetLocId = ghlContact.locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId;
       const sedeActivaSync = String(SEDES_GATEWAY[vSede]?.vtigerSedeName || vSede || '').toUpperCase();
       const truth = evaluateCommercialTruth(ghlContact, vContact, sedeActivaSync);
       const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact, targetLocId);
+      // [GEO] Estado y ciudad saneados (el estado no debe viajar como ciudad).
+      customFieldsToUpdate.push(...buildSanitizedGeoFields(vContact, targetLocId, ghlContact));
 
       const sedeContext = resolveSedeContext({ locationId: targetLocId });
       const customFieldsIds = sedeContext.customFields || {};
@@ -264,6 +334,9 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
     
     if (syncCount > 0) {
       console.log(`[Reverse Sync] [COMPLETED] Ciclo completado. ${syncCount} contactos actualizados en GHL.`);
+    }
+    if (descartadosSinTelefono > 0 || sinSede > 0) {
+      console.log(`[Reverse Sync] [CYCLE] Descartados sin teléfono: ${descartadosSinTelefono} | Sin par en GHL o sin sede válida: ${sinSede}.`);
     }
 
   } catch (error) {

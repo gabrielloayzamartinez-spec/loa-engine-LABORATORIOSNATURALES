@@ -226,9 +226,42 @@ que bloquea el deploy si algún padecimiento oficial deja de ser aprendible.
 
 ### 2.00. PROTOCOLO DE GOBERNANZA Y AISLAMIENTO DE SEDES (INNEGOCIABLE)
 
+> **REGLA DE MUDANZA (decidida por el negocio).** Hacia GHL sólo se mudan
+> **COMPRADORES** (`spl_num_compras > 0`). Un contacto de vTiger sin compras es un
+> LEAD y NO se sincroniza por este conducto: entra cuando el negocio lo necesita
+> o por **RECONTACTO**, que es otro flujo. La cartera de compradores es lo que es
+> obligatorio tener sincronizado, porque sin ella una venta cerrada en vTiger no
+> aparece en GHL (el 98% de los compradores de Palacios faltaba en su subcuenta).
+>
+> Blindado en `dual_sync_service.js` con `SOLO_COMPRADORES` y `esRegistroComprador`,
+> y verificado por `test_dual_upsert.js` (TEST 7). La barrera corta ANTES de tocar
+> la red; `permitirLead: true` existe sólo para el flujo explícito de recontacto y
+> nunca se activa por defecto.
+
+> **NO CONFUNDIR CON EL "GHL CENTRAL" DEPRECADO.** Dos conceptos se llamaron
+> igual y NO son lo mismo:
+>
+> | | **GHL Central (DEPRECADO)** | **Cuenta Empresa (VIGENTE)** |
+> | --- | --- | --- |
+> | Rol | Hub de enrutamiento y bóveda operativa | **Solo analítica macro** (reportes) |
+> | Rutea leads | Sí | **No** |
+> | Gestiona chats | Sí | **No** |
+> | Asigna asesores | Sí | **No** |
+> | Location ID | `ATPYNnsfZ1W8sd6WgWIV` | el mismo, con **otro rol** |
+>
+> La purga del hub central sigue vigente: no existen `SEDES_GATEWAY.CENTRAL`,
+> `isUniversalCentral` ni `allowActiveRouting`, y **ningún ruteo pasa por la
+> Empresa**. Si alguien propone "enrutar desde la Central", está reintroduciendo
+> el hub deprecado y debe rechazarse.
+>
+> **Regla de niveles (decidida por el negocio):** la Cuenta Empresa ve el
+> historial GLOBAL del cliente (todas las sedes) porque su fin es la analítica de
+> empresa; las subcuentas de sede ven **únicamente** lo suyo. Un asesor de
+> Benavides jamás ve una compra hecha en Palacios.
+
 > Aplicable a **toda** refactorización de `vtiger_api_service.js`,
 > `commercial_engine.js` y las rutas de webhooks. Blindado por
-> `src/tests/test_sede_governance.js` (51 aserciones) y por el paso 5 del
+> `src/tests/test_sede_governance.js` (69 aserciones) y por el paso 5 del
 > `preflight`, que **bloquea el deploy** si se rompe.
 
 **1. vTiger = sensor de SOLO LECTURA. Regla impuesta, no documentada.**

@@ -221,6 +221,10 @@ export const VTIGER_FIELDS = {
   CANAL: 'cf_3507',             // Canal de captación (FB-MSGR, FORM, ...)
   CAMPANA: 'cf_3472',           // Campaña / origen estructurado
   NUM_COMPRAS: 'spl_num_compras',
+  // MONTO_INVERTIDO: VERIFICADO EN VIVO como GASTO TOTAL ACUMULADO, no la última
+  // compra. La suma de todas las órdenes del contacto coincide exactamente
+  // (MIGUEL REVILLA: órdenes [160,100] = 260 = cf_3392; OLGA CANAS: 5 órdenes
+  // [190,110,100,20,170] = 590 = cf_3392). Se publica como gasto histórico.
   MONTO_INVERTIDO: 'cf_3392',
   ESTADO_VENTA: 'cf_994',
   AD_ID_REAL: 'cf_2850'
@@ -330,7 +334,9 @@ export function assertTenantIsolation(sql = '', { inheritedSede = null } = {}) {
   // --- Estrategia 2: módulo sin campo de sede; aislamiento por vínculo al contacto ---
   // Se exige (a) que la consulta esté acotada por el vínculo y (b) que la sede se
   // herede EXPLÍCITAMENTE del contacto seleccionado bajo Sede-Lock.
-  const linkPattern = new RegExp(`${strategy.linkField}\\s*=`, 'i');
+  // El vínculo se acepta con '=', 'IN' u operadores de comparación: el gate debe
+  // reconocer las formas válidas de acotar, no sólo la igualdad.
+  const linkPattern = new RegExp(`${strategy.linkField}\\s*(=|IN\\s*\\(|LIKE|!=|<>|>=|<=|>|<)`, 'i');
   if (!linkPattern.test(statement)) {
     return {
       safe: false,
