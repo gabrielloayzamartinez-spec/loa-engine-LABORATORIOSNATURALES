@@ -1,34 +1,40 @@
 /**
  * ==============================================================================
- * LOA ENGINE - RESOLUCIÓN DE COLISIONES DE CONTACTO (MERGE SOP)
+ * CRITERIO COMERCIAL DE FUSIÓN (MERGE)
  * ==============================================================================
- * PROBLEMA QUE RESUELVE:
- * El "escudo de homonimia" actual descarta el candidato y **pierde sus datos**:
- * cuando el teléfono coincide pero el nombre no, registra un `warn` y continúa,
- * y el asesor nunca se entera de que hubo DOS contactos. No hay fusión, no hay
- * rescate de información relevante y no hay trazabilidad.
+ * Calibrado con datos reales. Lo que decide NO es cuántas compras tiene cada uno,
+ * sino si son LA MISMA PERSONA:
  *
- * DOS NIVELES DE COLISIÓN (ambos reales, vistos en producción):
+ * | Similitud | Caso medido                                    | Acción          |
+ * |-----------|------------------------------------------------|-----------------|
+ * | 1.00      | MIGUEL REVILLA / MIGUEL REVILLA                 | mismo registro  |
+ * | 0.67      | MIGUEL REVILLA / MIGUEL REVILLA SANCHEZ         | MISMA PERSONA -> fusionar |
+ * | 0.67      | ANA UMAÑA / ANA MARIA UMAÑA                     | MISMA PERSONA -> fusionar |
+ * | 0.50      | JOSE JAIME REYES OVALLE / JOSE REYES            | MISMA PERSONA -> fusionar |
+ * | 0.33      | MIGUEL REVILLA / MARIA REVILLA (esposa)         | PERSONAS DISTINTAS -> revisión |
+ * | 0.00      | MIGUEL REVILLA / JUAN PEREZ                     | PERSONAS DISTINTAS -> revisión |
  *
- *  A) INTERNA (misma sede): el mismo teléfono pertenece a 2+ contactos de la
- *     MISMA sede. Suele ser un familiar que comparte celular, o un contacto
- *     duplicado con el nombre escrito distinto.
+ * REGLA: se conserva el contacto MÁS RECIENTE (el registro vigente) y se le
+ * rescatan los datos relevantes del otro: si el descartado tiene compras que el
+ * reciente no registra, ese historial NO se pierde.
  *
- *  B) EXTERNA (entre sedes): el mismo teléfono está registrado en Palacios y en
- *     Benavides con nombres distintos. Aquí el Sede-Lock es ABSOLUTO: la sede
- *     receptora no puede ver los datos de la otra, pero SÍ debe saber que existe
- *     un conflicto, sin exponer el detalle ajeno.
- *
- * CRITERIO DE RESOLUCIÓN (rescate de datos relevantes):
- *   1. VENTAS MANDAN: si sólo un candidato tiene compras, ése es la persona
- *      real y se rescatan su historial y sus datos comerciales.
- *   2. Si ambos tienen compras -> CONFLICTO CRÍTICO: no se elige en automático,
- *      se marca para revisión humana (elegir mal fusiona dos clientes reales).
- *   3. Si ninguno tiene compras -> gana la mejor coincidencia de nombre; si no
- *      hay coincidencia de nombre, se marca para revisión.
- *   4. Sin certeza -> SIEMPRE revisión humana. Nunca se fusiona a ciegas.
+ * Si los nombres NO coinciden, es un enfrentamiento real (familiar que comparte
+ * celular): NO se fusiona y se marca para revisión humana. Fusionar ahí uniría
+ * dos clientes de verdad.
  * ==============================================================================
  */
+
+/** Umbral de similitud a partir del cual se considera la MISMA persona. */
+export const UMBRAL_MISMA_PERSONA = 0.5;
+
+/** Motivos de resolución. */
+export const MOTIVO = {
+  SIN_COLISION: 'sin colisión',
+  SIN_COLISION_MISMO_NOMBRE: 'sin colisión: el nombre coincide con el contacto encontrado',
+  NOMBRE_DISCREPANTE: 'el teléfono coincidió pero el nombre difería; se conserva el contacto por ser el único con ese número',
+  MISMA_PERSONA: 'mismo cliente registrado dos veces: se conserva el más reciente',
+  PERSONAS_DISTINTAS: 'personas distintas con el mismo teléfono: requiere revisión humana'
+};
 
 import { queryVTiger } from './vtiger_api_service.js';
 import { SEDES_GATEWAY, getActiveSedes } from '../config/index.js';
@@ -162,10 +168,13 @@ export async function detectCollision(vContact = {}, { sedeActiva = '', candidat
       contactos: enSede.map(c => ({
         vTigerId: c.id,
         nombre: `${c.firstname || ''} ${c.lastname || ''}`.trim(),
+        nombrePila: c.firstname || '',
+        apellido: c.lastname || '',
         compras: parseInt(c.spl_num_compras || '0', 10) || 0,
         monto: parseFloat(c.cf_3392 || '0') || 0,
         tratamiento: c.cf_2610 || '',
         modificado: String(c.modifiedtime || '').slice(0, 10),
+        etiquetas: Array.isArray(c.tags) ? c.tags : [],
         similitudConBase: Number(similitudNombre(vContact, c).toFixed(2))
       }))
     };
@@ -210,13 +219,14 @@ export async function detectCollision(vContact = {}, { sedeActiva = '', candidat
 // RESOLUCIÓN (rescate de datos relevantes)
 // ------------------------------------------------------------------------------
 /**
- * Decide qué contacto es la persona real y qué datos se rescatan.
+ * Decide qué contacto se conserva y qué datos se rescatan.
  *
- * CRITERIO:
- *   1. Las VENTAS mandan: si sólo uno tiene compras, ése gana (confianza ALTA).
- *   2. Si 2+ tienen compras -> REVISION (fusionar mal une dos clientes reales).
- *   3. Si ninguno tiene compras -> gana la mejor similitud de nombre si supera
- *      0.5; si no, REVISION.
+ * CRITERIO COMERCIAL (calibrado con datos reales):
+ *   1. ¿Son la MISMA persona? -> similitud de nombre >= UMBRAL_MISMA_PERSONA (0.5).
+ *      Si sí: se conserva el MÁS RECIENTE y se rescata lo relevante del otro
+ *      (compras, monto, tratamiento, etiquetas). Esto es el MERGE de duplicados.
+ *   2. Si los nombres NO coinciden -> PERSONAS DISTINTAS que comparten celular
+ *      (familiar). NO se fusiona: requiere revisión humana.
  *
  * @param {object} informe resultado de `detectCollision`
  * @param {object} vContactBase contacto que se está procesando
@@ -233,52 +243,73 @@ export function resolveCollision(informe = {}, vContactBase = {}) {
   };
 
   if (!informe.interna || !informe.interna.contactos?.length) {
-    // Sin colisión interna: el contacto base es el elegido.
+    // Sin enfrentamiento. Si quien consultó reportó candidatos con nombre
+    // discrepante, se declara: el teléfono coincidió pero el nombre difería.
+    const discrepo = Array.isArray(informe.discrepanciaNombre) && informe.discrepanciaNombre.length > 0;
+    const fuente = discrepo ? informe.discrepanciaNombre[0] : vContactBase;
     res.elegido = {
-      vTigerId: vContactBase.id,
-      nombre: `${vContactBase.firstname || ''} ${vContactBase.lastname || ''}`.trim(),
-      compras: parseInt(vContactBase.spl_num_compras || '0', 10) || 0,
-      monto: parseFloat(vContactBase.cf_3392 || '0') || 0
+      vTigerId: fuente.id,
+      nombre: `${fuente.firstname || ''} ${fuente.lastname || ''}`.trim(),
+      compras: parseInt(fuente.spl_num_compras || '0', 10) || 0,
+      monto: parseFloat(fuente.cf_3392 || '0') || 0,
+      modificado: String(fuente.modifiedtime || '').slice(0, 10)
     };
-    res.motivo = 'sin colisión interna';
+    res.motivo = discrepo ? MOTIVO.NOMBRE_DISCREPANTE : MOTIVO.SIN_COLISION;
     return res;
   }
 
   const candidatos = informe.interna.contactos;
-  const conVentas = candidatos.filter(c => c.compras > 0);
 
-  if (conVentas.length === 1) {
-    // Caso ideal: una sola persona con ventas -> se rescata su historial completo.
-    res.elegido = conVentas[0];
-    res.descartados = candidatos.filter(c => c.vTigerId !== conVentas[0].vTigerId);
-    res.confianza = CONFIANZA.ALTA;
-    res.motivo = 'sólo un candidato tiene compras: se rescata su historial';
+  // ---------------------------------------------------------------------------
+  // 1. ¿MISMA PERSONA? Se mide entre TODOS los pares, no sólo contra la base.
+  //    Un duplicado real tiene nombres casi idénticos (>= 0.5).
+  // ---------------------------------------------------------------------------
+  const similitudes = [];
+  for (let i = 0; i < candidatos.length; i++) {
+    for (let j = i + 1; j < candidatos.length; j++) {
+      similitudes.push(similitudNombre(
+        { firstname: candidatos[i].nombre, lastname: '' },
+        { firstname: candidatos[j].nombre, lastname: '' }
+      ));
+    }
+  }
+  const similitudMinima = similitudes.length > 0 ? Math.min(...similitudes) : 1;
+  const mismaPersona = similitudMinima >= UMBRAL_MISMA_PERSONA;
+
+  if (mismaPersona) {
+    // ---- MERGE DE DUPLICADO: se conserva el MÁS RECIENTE ----
+    const porFecha = [...candidatos].sort((a, b) => String(b.modificado).localeCompare(String(a.modificado)));
+    const reciente = porFecha[0];
+    res.elegido = reciente;
+    res.descartados = candidatos.filter(c => c.vTigerId !== reciente.vTigerId);
+
+    // [RESCATE] Se combinan los datos relevantes de TODOS los registros, para que
+    // la fusión no pierda nada: compras, monto y tratamiento del que más tenga.
+    const totalCompras = Math.max(...candidatos.map(c => c.compras || 0));
+    const conMasCompras = [...candidatos].sort((a, b) => (b.compras || 0) - (a.compras || 0))[0];
+    const monto = conMasCompras?.monto || Math.max(...candidatos.map(c => c.monto || 0));
+    const tratamiento = conMasCompras?.tratamiento || candidatos.find(c => c.tratamiento)?.tratamiento || '';
+
     res.datosRescatados = {
-      compras: conVentas[0].compras,
-      monto: conVentas[0].monto,
-      tratamiento: conVentas[0].tratamiento
+      compras: totalCompras,
+      monto,
+      tratamiento,
+      fuenteCompras: conMasCompras?.vTigerId || null,
+      etiquetas: [...new Set(candidatos.flatMap(c => c.etiquetas || []))]
     };
-  } else if (conVentas.length > 1) {
-    // CRÍTICO: dos clientes reales con el mismo teléfono. No se puede automatizar.
+    res.confianza = similitudMinima >= 0.9 ? CONFIANZA.ALTA : CONFIANZA.MEDIA;
+    res.requiereRevision = false;
+    res.motivo = MOTIVO.MISMA_PERSONA;
+    res.requiereRevision = false;
+  } else {
+    // ---- PERSONAS DISTINTAS: familiar que comparte celular ----
     res.confianza = CONFIANZA.REVISION;
     res.requiereRevision = true;
-    res.motivo = `${conVentas.length} contactos con compras comparten el teléfono: fusionar en automático uniría dos clientes reales`;
-    res.elegido = conVentas.sort((a, b) => b.monto - a.monto)[0]; // propuesta, NO decisión
+    res.motivo = MOTIVO.PERSONAS_DISTINTAS;
+    // Se propone el más reciente como referencia, pero NO se decide.
+    const porFecha = [...candidatos].sort((a, b) => String(b.modificado).localeCompare(String(a.modificado)));
+    res.elegido = porFecha[0];
     res.descartados = candidatos.filter(c => c.vTigerId !== res.elegido.vTigerId);
-  } else {
-    // Ninguno con ventas: se decide por similitud de nombre.
-    const ordenados = [...candidatos].sort((a, b) => b.similitudConBase - a.similitudConBase);
-    const mejor = ordenados[0];
-    if (mejor && mejor.similitudConBase >= 0.5) {
-      res.elegido = mejor;
-      res.descartados = candidatos.filter(c => c.vTigerId !== mejor.vTigerId);
-      res.confianza = CONFIANZA.MEDIA;
-      res.motivo = `sin ventas en ninguno: se eligió por similitud de nombre (${mejor.similitudConBase})`;
-    } else {
-      res.confianza = CONFIANZA.REVISION;
-      res.requiereRevision = true;
-      res.motivo = 'sin ventas y sin coincidencia de nombre suficiente: requiere criterio humano';
-    }
   }
 
   // Auditoría SIEMPRE: una colisión no puede pasar desapercibida.
@@ -289,7 +320,8 @@ export function resolveCollision(informe = {}, vContactBase = {}) {
     telefono: informe.telefono,
     tipo: informe.tipo,
     candidatos: candidatos.length,
-    conVentas: conVentas.length,
+    similitudMinima: Number(similitudMinima.toFixed(2)),
+    mismaPersona,
     confianza: res.confianza,
     elegido: res.elegido?.vTigerId || null,
     motivo: res.motivo
@@ -343,15 +375,28 @@ export function buildCollisionNote(informe = {}, resolucion = {}) {
   }
 
   lineas.push('RESOLUCION');
-  lineas.push(`  Confianza: ${resolucion.confianza}`);
-  lineas.push(`  Motivo: ${resolucion.motivo}`);
-  if (resolucion.datosRescatados?.compras) {
-    lineas.push(`  Datos rescatados: ${resolucion.datosRescatados.compras} compras por $${(resolucion.datosRescatados.monto || 0).toFixed(2)}`);
+  if (resolucion.motivo === MOTIVO.MISMA_PERSONA) {
+    lineas.push('  Resultado: MISMO CLIENTE con registro duplicado.');
+    lineas.push(`  Se conserva el registro mas reciente (${resolucion.elegido?.nombre || 'N/D'}).`);
+    lineas.push('  Datos rescatados del registro anterior:');
+    lineas.push(`    - Compras totales: ${resolucion.datosRescatados?.compras ?? 0}`);
+    lineas.push(`    - Monto acumulado: $${(resolucion.datosRescatados?.monto || 0).toFixed(2)}`);
+    if (resolucion.datosRescatados?.tratamiento) {
+      lineas.push(`    - Tratamiento: ${resolucion.datosRescatados.tratamiento}`);
+    }
+    if (resolucion.datosRescatados?.etiquetas?.length) {
+      lineas.push(`    - Etiquetas unificadas: ${resolucion.datosRescatados.etiquetas.join(', ')}`);
+    }
+  } else {
+    lineas.push(`  Confianza: ${resolucion.confianza}`);
+    lineas.push(`  Motivo: ${resolucion.motivo}`);
   }
   if (resolucion.requiereRevision) {
     lineas.push('');
     lineas.push('  *** REQUIERE REVISION HUMANA ***');
-    lineas.push('  No se fusiono en automatico. Un agente debe decidir cual contacto es la persona real.');
+    lineas.push('  No se fusiono en automatico: los nombres NO coinciden, por lo que');
+    lineas.push('  probablemente son dos personas distintas compartiendo el telefono');
+    lineas.push('  (familiar). Un agente debe decidir cual contacto es la persona real.');
   }
   lineas.push('');
   lineas.push('Sincronizado por LOA Engine - solo lectura desde vTiger');

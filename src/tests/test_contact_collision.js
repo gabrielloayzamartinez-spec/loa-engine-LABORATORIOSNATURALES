@@ -19,7 +19,7 @@
 
 import {
   similitudNombre, mismoTelefono, resolveCollision, buildCollisionNote,
-  TIPO_COLISION, CONFIANZA
+  TIPO_COLISION, CONFIANZA, MOTIVO, UMBRAL_MISMA_PERSONA
 } from '../services/contact_collision_service.js';
 
 let passed = 0;
@@ -49,10 +49,14 @@ assert(mismoTelefono('3055551234', '3055559999') === false, 'Teléfonos distinto
 assert(mismoTelefono('123', '123') === false, 'Un teléfono demasiado corto no se considera coincidencia');
 
 // ------------------------------------------------------------------------------
-// 2. RESOLUCIÓN: LAS VENTAS MANDAN
+// 2. CRITERIO COMERCIAL: ¿ES LA MISMA PERSONA?
 // ------------------------------------------------------------------------------
-console.log('\n[TEST 2] Las ventas mandan: se rescata el historial real');
-const informeInterno = {
+console.log('[TEST 2] Criterio comercial: se conserva el MÁS RECIENTE y se rescatan datos');
+
+// A) DUPLICADO: mismo cliente con el nombre ampliado. El registro RECIENTE no
+//    tiene compras, el antiguo sí -> se conserva el reciente y se rescatan las
+//    compras del antiguo. ESTE es el caso que el motor perdía antes.
+const informeDuplicado = {
   telefono: '+13055551234',
   sedeActiva: 'PALACIOS',
   tipo: TIPO_COLISION.INTERNA,
@@ -60,96 +64,100 @@ const informeInterno = {
     sede: 'PALACIOS',
     total: 2,
     contactos: [
-      { vTigerId: 'V1', nombre: 'MARIA PEREZ', compras: 0, monto: 0, tratamiento: '', modificado: '2026-01-10', similitudConBase: 1 },
-      { vTigerId: 'V2', nombre: 'JUAN GOMEZ', compras: 3, monto: 450, tratamiento: 'Diabetes', modificado: '2026-08-15', similitudConBase: 0 }
+      { vTigerId: 'V1', nombre: 'MIGUEL REVILLA', compras: 5, monto: 800, tratamiento: 'Potencia', modificado: '2024-03-01', etiquetas: ['vip'] },
+      { vTigerId: 'V2', nombre: 'MIGUEL REVILLA SANCHEZ', compras: 0, monto: 0, tratamiento: '', modificado: '2026-09-20', etiquetas: ['nuevo'] }
     ]
   },
   externa: null
 };
 
-const r1 = resolveCollision(informeInterno, { id: 'V1', firstname: 'MARIA', lastname: 'PEREZ' });
-assert(r1.elegido.vTigerId === 'V2', 'Gana el contacto con compras, no el que coincide en nombre');
-assert(r1.confianza === CONFIANZA.ALTA, 'La resolución es de confianza ALTA (criterio inequívoco)');
-assert(r1.requiereRevision === false, 'No requiere revisión humana');
-assert(r1.datosRescatados.compras === 3 && r1.datosRescatados.monto === 450, `Rescata el historial: ${r1.datosRescatados.compras} compras por $${r1.datosRescatados.monto}`);
-assert(r1.datosRescatados.tratamiento === 'Diabetes', 'Rescata también el tratamiento');
-assert(r1.descartados.length === 1 && r1.descartados[0].vTigerId === 'V1', 'El otro candidato queda listado como descartado (trazabilidad)');
-assert(r1.motivo.includes('compras'), 'El motivo explica el criterio aplicado');
+const rDup = resolveCollision(informeDuplicado, { id: 'V1' });
+assert(rDup.requiereRevision === false, 'Un duplicado del mismo cliente se resuelve SIN revisión humana');
+assert(rDup.motivo === MOTIVO.MISMA_PERSONA, 'El motivo declara que es el mismo cliente');
+assert(rDup.elegido.vTigerId === 'V2', 'Se conserva el contacto MÁS RECIENTE (V2), no el que tiene compras');
+assert(rDup.elegido.modificado === '2026-09-20', 'La fecha del conservado es la más reciente');
+assert(rDup.descartados.length === 1 && rDup.descartados[0].vTigerId === 'V1', 'El registro antiguo queda como descartado');
+assert(rDup.datosRescatados.compras === 5, `SE RESCATAN las compras del descartado (${rDup.datosRescatados.compras})`);
+assert(rDup.datosRescatados.monto === 800, `SE RESCATA el monto del descartado ($${rDup.datosRescatados.monto})`);
+assert(rDup.datosRescatados.tratamiento === 'Potencia', 'SE RESCATA el tratamiento');
+assert(rDup.datosRescatados.fuenteCompras === 'V1', 'Se registra de dónde vinieron los datos rescatados (trazabilidad)');
+assert(rDup.datosRescatados.etiquetas.includes('vip') && rDup.datosRescatados.etiquetas.includes('nuevo'), 'Se unen las etiquetas de ambos registros');
 
-// ------------------------------------------------------------------------------
-// 3. RESOLUCIÓN: CONFLICTO CRÍTICO (DOS CON VENTAS)
-// ------------------------------------------------------------------------------
-console.log('\n[TEST 3] Conflicto crítico: dos contactos con compras -> revisión humana');
-const informeCritico = {
+// B) FAMILIARES: nombres claramente distintos con el mismo celular.
+const informeFamiliares = {
   telefono: '+13055559999',
   sedeActiva: 'PALACIOS',
   tipo: TIPO_COLISION.AMBAS,
   interna: {
     sede: 'PALACIOS', total: 2,
     contactos: [
-      { vTigerId: 'V1', nombre: 'CARLOS RUIZ', compras: 2, monto: 300, tratamiento: 'Artritis', modificado: '2026-05-01', similitudConBase: 1 },
-      { vTigerId: 'V2', nombre: 'CARLOS RUIZ MARTINEZ', compras: 5, monto: 890, tratamiento: 'Potencia', modificado: '2026-09-01', similitudConBase: 0.66 }
+      { vTigerId: 'V3', nombre: 'MIGUEL REVILLA', compras: 5, monto: 800, tratamiento: 'Potencia', modificado: '2024-03-01', etiquetas: [] },
+      { vTigerId: 'V4', nombre: 'MARIA REVILLA', compras: 2, monto: 200, tratamiento: 'Colageno', modificado: '2026-09-20', etiquetas: [] }
     ]
   },
   externa: { sedesConElMismoTelefono: ['BENAVIDES'] }
 };
 
-const r2 = resolveCollision(informeCritico, informeCritico.interna.contactos[0]);
-assert(r2.confianza === CONFIANZA.REVISION, 'La confianza es REVISION (no se automatiza)');
-assert(r2.requiereRevision === true, 'Se marca que requiere revisión humana');
-assert(r2.motivo.includes('dos clientes reales') || r2.motivo.includes('contactos con compras'), 'El motivo explica el riesgo de fusionar');
-assert(r2.elegido.vTigerId === 'V2', 'Propone el de mayor monto como candidato, pero SIN decidir');
+const rFam = resolveCollision(informeFamiliares, informeFamiliares.interna.contactos[0]);
+assert(rFam.requiereRevision === true, 'Personas distintas con el mismo celular -> REVISIÓN HUMANA');
+assert(rFam.motivo === MOTIVO.PERSONAS_DISTINTAS, 'El motivo declara que son personas distintas');
+assert(Object.keys(rFam.datosRescatados).length === 0, 'NO se fusionan datos entre dos personas distintas');
+assert(rFam.elegido.vTigerId === 'V4', 'Se propone el reciente como referencia, pero SIN decidir');
 
-// ------------------------------------------------------------------------------
-// 4. RESOLUCIÓN: SIN VENTAS -> SIMILITUD DE NOMBRE
-// ------------------------------------------------------------------------------
-console.log('\n[TEST 4] Sin ventas en ninguno: decide por similitud de nombre');
-const informeSinVentas = {
+// C) DUPLICADO POR ERROR DE CARGA: nombre idéntico.
+const informeIdentico = {
   telefono: '+13055550000', sedeActiva: 'PALACIOS', tipo: TIPO_COLISION.INTERNA,
   interna: {
     sede: 'PALACIOS', total: 2,
     contactos: [
-      { vTigerId: 'V1', nombre: 'ANA LOPEZ', compras: 0, monto: 0, tratamiento: '', modificado: '2026-01-01', similitudConBase: 0.9 },
-      { vTigerId: 'V2', nombre: 'PEDRO DIAZ', compras: 0, monto: 0, tratamiento: '', modificado: '2026-02-01', similitudConBase: 0 }
+      { vTigerId: 'V5', nombre: 'ANA UMAÑA', compras: 3, monto: 450, tratamiento: 'Diabetes', modificado: '2025-01-01', etiquetas: [] },
+      { vTigerId: 'V6', nombre: 'ANA UMAÑA', compras: 0, monto: 0, tratamiento: '', modificado: '2026-09-25', etiquetas: [] }
     ]
   }
 };
-const r3 = resolveCollision(informeSinVentas, { id: 'V1' });
-assert(r3.elegido.vTigerId === 'V1', 'Elige el de mayor similitud de nombre');
-assert(r3.confianza === CONFIANZA.MEDIA, 'Confianza MEDIA: resoluble pero conviene revisar');
+const rIdem = resolveCollision(informeIdentico, { id: 'V5' });
+assert(rIdem.elegido.vTigerId === 'V6', 'Nombre idéntico: se conserva el más reciente');
+assert(rIdem.confianza === CONFIANZA.ALTA, 'Con similitud 1.0 la confianza es ALTA');
+assert(rIdem.datosRescatados.compras === 3, 'Se rescatan las compras del duplicado antiguo');
 
-const informeAmbigua = {
+// El "más reciente" debe respetar formatos de fecha comparables
+const informeFechas = {
   telefono: '+13055551111', sedeActiva: 'PALACIOS', tipo: TIPO_COLISION.INTERNA,
-  interna: {
-    sede: 'PALACIOS', total: 2,
-    contactos: [
-      { vTigerId: 'V1', nombre: 'XX YY', compras: 0, monto: 0, similitudConBase: 0 },
-      { vTigerId: 'V2', nombre: 'ZZ WW', compras: 0, monto: 0, similitudConBase: 0 }
-    ]
-  }
+  interna: { sede: 'PALACIOS', total: 2, contactos: [
+    { vTigerId: 'A', nombre: 'PEDRO GOMEZ', compras: 1, monto: 10, tratamiento: '', modificado: '2026-01-05', etiquetas: [] },
+    { vTigerId: 'B', nombre: 'PEDRO GOMEZ', compras: 1, monto: 10, tratamiento: '', modificado: '2026-11-30', etiquetas: [] }
+  ] }
 };
-const r4 = resolveCollision(informeAmbigua, { id: 'V1' });
-assert(r4.requiereRevision === true, 'Sin ventas ni coincidencia de nombre -> revisión humana');
-assert(r4.elegido === null, 'No se elige a ciegas cuando no hay certeza');
+assert(resolveCollision(informeFechas, {}).elegido.vTigerId === 'B', 'Compara fechas correctamente (YYYY-MM-DD)');
 
 // ------------------------------------------------------------------------------
-// 5. SIN COLISIÓN: COMPORTAMIENTO NORMAL
+// 3. RESOLUCIÓN: SIN COLISIÓN
 // ------------------------------------------------------------------------------
-console.log('\n[TEST 5] Sin colisión: el contacto base es el elegido');
+console.log('\n[TEST 3] Sin colisión: el contacto base es el elegido');
 const r5 = resolveCollision({ interna: null, externa: null, tipo: TIPO_COLISION.NINGUNA }, { id: 'V9', firstname: 'SOLO', lastname: 'UNO', spl_num_compras: '1', cf_3392: '100' });
 assert(r5.elegido.vTigerId === 'V9', 'Sin colisión se elige el contacto base');
 assert(r5.requiereRevision === false, 'Sin colisión no hay revisión');
-assert(r5.motivo === 'sin colisión interna', 'El motivo lo declara explícitamente');
+assert(r5.motivo === MOTIVO.SIN_COLISION, 'El motivo lo declara explícitamente');
+
+// Con discrepancia de nombre reportada por quien consulta, el motivo lo refleja
+const r5b = resolveCollision(
+  { interna: null, externa: null, tipo: TIPO_COLISION.NINGUNA, discrepanciaNombre: [{ id: 'V8', firstname: 'REAL', lastname: 'CLIENTE', spl_num_compras: '2', cf_3392: '300' }] },
+  { id: 'V9', firstname: 'LEAD', lastname: 'NUEVO' }
+);
+assert(r5b.motivo === MOTIVO.NOMBRE_DISCREPANTE, 'Declara que el nombre difería (no lo oculta como "sin colisión")');
+assert(r5b.elegido.vTigerId === 'V8' && r5b.elegido.compras === 2, 'Conserva el contacto real con su historial');
 
 // ------------------------------------------------------------------------------
 // 6. NOTA PARA LA TARJETA + AISLAMIENTO ENTRE SEDES
 // ------------------------------------------------------------------------------
 console.log('\n[TEST 6] Nota del enfrentamiento y aislamiento entre sedes');
-const nota = buildCollisionNote(informeCritico, r2);
+// Se usa el caso de FAMILIARES (personas distintas): es el que requiere revisión
+// humana y el que debe documentarse en la tarjeta.
+const nota = buildCollisionNote(informeFamiliares, rFam);
 assert(nota.includes('[LOA-COLLISION]'), 'La nota tiene marca identificable');
 assert(nota.includes('+13055559999'), 'Declara el teléfono en conflicto');
 assert(nota.includes('AMBAS'), 'Declara el tipo de colisión');
-assert(nota.includes('CARLOS RUIZ') && nota.includes('CARLOS RUIZ MARTINEZ'), 'Lista los candidatos de la MISMA sede con su detalle');
+assert(nota.includes('MIGUEL REVILLA') && nota.includes('MARIA REVILLA'), 'Lista los candidatos de la MISMA sede con su detalle');
 assert(nota.includes('<< ELEGIDO'), 'Marca cuál fue elegido');
 assert(nota.includes('(descartado)'), 'Marca cuáles quedaron descartados');
 assert(nota.includes('BENAVIDES'), 'Menciona que existe conflicto en otra sede');
@@ -157,9 +165,14 @@ assert(nota.includes('SEDE-SHIELD'), 'Declara explícitamente que no expone dato
 assert(nota.includes('REQUIERE REVISION HUMANA'), 'Avisa cuando hace falta criterio humano');
 
 // AISLAMIENTO: la nota NO debe filtrar datos de la otra sede.
-const notaString = JSON.stringify(nota);
-assert(!/BENAVIDES[^\n]*\$\d/.test(nota), 'No expone montos de la otra sede');
-assert(nota.split('BENAVIDES')[1].length < 400, 'Junto a la sede ajena sólo hay la aclaración del shield, sin historial');
+// Se verifica de forma SEMÁNTICA: junto a la sede ajena sólo puede aparecer la
+// aclaración del shield, nunca un nombre, monto, compra o tratamiento ajeno.
+const trasSedeAjena = nota.slice(nota.indexOf('BENAVIDES'));
+assert(!/\$\d/.test(trasSedeAjena), 'No expone montos junto a la otra sede');
+assert(!/Compras:\s*\d/i.test(trasSedeAjena), 'No expone número de compras de la otra sede');
+assert(!/Tratamiento:/i.test(trasSedeAjena), 'No expone tratamientos de la otra sede');
+assert(trasSedeAjena.includes('[SEDE-SHIELD]'), 'Declara explícitamente que los datos ajenos no se exponen');
+assert(trasSedeAjena.split('\n').filter(l => l.trim()).length < 12, 'Junto a la sede ajena sólo va la aclaración, sin historial detallado');
 
 // Sin colisión no se genera nota
 assert(buildCollisionNote({ interna: null, externa: null }, {}) === null, 'Sin colisión no se genera nota (no ensucia la tarjeta)');

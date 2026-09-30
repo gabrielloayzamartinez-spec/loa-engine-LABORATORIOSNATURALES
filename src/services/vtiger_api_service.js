@@ -220,6 +220,10 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
                 { ...phoneMatches[0], homephone: last10 },
                 { sedeActiva: targetSedeUpper, candidatos: phoneMatches }
               );
+              // Se declara la discrepancia de nombre: el teléfono coincidió pero el
+              // nombre del lead no. Sin esto el motivo reportaría "sin colisión",
+              // ocultando que hubo una discrepancia real.
+              informe.discrepanciaNombre = phoneMatches;
               const resolucion = resolveCollision(informe, phoneMatches[0]);
 
               if (resolucion.elegido && !resolucion.requiereRevision) {
