@@ -68,10 +68,13 @@ const CAMPOS_REQUERIDOS = {
   totalCompras: ['v tiger total compras', 'total compras', 'numero de compras', 'num compras'],
   fechaUltimaCompra: ['v tiger fecha ultima compra', 'fecha ultima compra', 'ultima compra'],
   precioVenta: ['precio venta', 'v tiger precio venta', 'monto invertido'],
+  // La Cuenta Empresa expone campos comerciales mas ricos que las sedes
+  // (verificado en vivo): el gasto historico acumulado del cliente.
+  totalHistorico: ['v tiger total historico gastado usd', 'total historico gastado', 'total historico'],
   ultimaInteraccion: ['ultima interaccion'],
   campanaOrigen: ['utm campaign', 'campana origen', 'origen lead'],
   idClienteVt: ['v tiger id cliente', 'id cliente', 'v tiger contact no'],
-  // Campo LARGE_TEXT que aloja el detalle de órdenes (verificado en vivo).
+  // Campo LARGE_TEXT que aloja el detalle de órdenes.
   historialCompleto: ['v tiger historial completo', 'historial completo']
 };
 
@@ -330,6 +333,12 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     push(fieldIdsCentral, 'fechaUltimaCompra', vContact.spl_fecha_ultima_compra || '');
     push(fieldIdsCentral, 'precioVenta', String(vContact.cf_3392 || ''));
     push(fieldIdsCentral, 'idClienteVt', vContact.id || '');
+    // `cf_3392` fue VERIFICADO en vivo como el GASTO TOTAL ACUMULADO (la suma de
+    // todas las órdenes coincide exactamente). Se publica en el campo de gasto
+    // histórico de la Cuenta Empresa.
+    // NOTA: NO se publica "Monto Ultima Compra" porque el contacto de vTiger no
+    // expone ese dato de forma fiable; inventarlo sería peor que omitirlo.
+    if (vContact.cf_3392) push(fieldIdsCentral, 'totalHistorico', String(vContact.cf_3392));
   }
   push(fieldIdsCentral, 'ultimaInteraccion', new Date().toISOString());
 

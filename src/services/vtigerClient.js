@@ -221,6 +221,10 @@ export const VTIGER_FIELDS = {
   CANAL: 'cf_3507',             // Canal de captación (FB-MSGR, FORM, ...)
   CAMPANA: 'cf_3472',           // Campaña / origen estructurado
   NUM_COMPRAS: 'spl_num_compras',
+  // MONTO_INVERTIDO: VERIFICADO EN VIVO como GASTO TOTAL ACUMULADO, no la última
+  // compra. La suma de todas las órdenes del contacto coincide exactamente
+  // (MIGUEL REVILLA: órdenes [160,100] = 260 = cf_3392; OLGA CANAS: 5 órdenes
+  // [190,110,100,20,170] = 590 = cf_3392). Se publica como gasto histórico.
   MONTO_INVERTIDO: 'cf_3392',
   ESTADO_VENTA: 'cf_994',
   AD_ID_REAL: 'cf_2850'
