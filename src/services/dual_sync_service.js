@@ -487,7 +487,12 @@ export async function upsertWithHistoryProtection(payload, ctx = {}) {
   if (res.status === 200 || res.status === 201) {
     const data = await res.json().catch(() => ({}));
     const contactId = data?.contact?.id || data?.id || null;
-    const created = !existente;
+    // [FUENTE DE VERDAD] La respuesta del upsert trae `new: true` cuando CREA el
+    // contacto y `new: false` cuando lo ACTUALIZA (verificado en vivo). Antes se
+    // inferia de la busqueda previa, que falla por el retraso de indexacion de
+    // GHL: recien creado el contacto, la busqueda devuelve vacio y el motor
+    // reportaba `created: true` en cada corrida aunque ya existiera.
+    const created = typeof data?.new === 'boolean' ? data.new : !existente;
     return {
       ok: true,
       created,
