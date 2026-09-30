@@ -47,15 +47,29 @@ export async function fetchVentasRecientesVtiger({
   const pad = n => n.toString().padStart(2, '0');
   const desde = `${fecha.getUTCFullYear()}-${pad(fecha.getUTCMonth() + 1)}-${pad(fecha.getUTCDate())} ${pad(fecha.getUTCHours())}:${pad(fecha.getUTCMinutes())}:${pad(fecha.getUTCSeconds())}`;
   const safeDesde = sanitizeForVtigerQuery(desde, 25);
+  // Ventana por DIA para la fecha de compra (es un campo DATE, no datetime).
+  const desdeDia = safeDesde.slice(0, 10);
 
   const acumulado = [];
   for (const sede of sedesObjetivo) {
     const filtroCompras = soloCompradores ? ` AND ${VTIGER_FIELDS.NUM_COMPRAS} > 0` : '';
-    const q = `SELECT * FROM Contacts WHERE ${VTIGER_FIELDS.MODIFIED_TIME} >= '${safeDesde}'${filtroCompras}${sedeClause(sede)} LIMIT ${Math.min(Math.max(parseInt(limitePorSede, 10) || 50, 1), 200)};`;
+    // ======================================================================
+    // [FILTRO CORREGIDO] Antes se filtraba por `modifiedtime`, que marca
+    // CUALQUIER edición del registro (una nota del asesor, un campo de campaña),
+    // no una compra. Medición real en Palacios:
+    //   modificados en 24 h          -> 2000+  (pero sus compras reales eran de
+    //                                           2026-09, 2026-07, 2026-06, 2025-11...)
+    //   por FECHA REAL DE COMPRA 24 h -> 23    <- las ventas de ayer
+    // Por eso el puente "no traía las ventas del día": traía fichas editadas.
+    //
+    // Ahora se filtra por `spl_fecha_ultima_compra` (la fecha real de la venta) y
+    // se ORDENA de más reciente a más antigua, para que las ventas de ayer sean
+    // SIEMPRE las primeras en entrar y no queden detrás del tope.
+    const q = `SELECT * FROM Contacts WHERE ${VTIGER_FIELDS.FECHA_ULTIMA_COMPRA} >= '${desdeDia}'${filtroCompras}${sedeClause(sede)} ORDER BY ${VTIGER_FIELDS.FECHA_ULTIMA_COMPRA} DESC LIMIT ${Math.min(Math.max(parseInt(limitePorSede, 10) || 50, 1), 200)};`;
     try {
       const filas = await queryVTiger(q, sede);
       for (const f of (filas || [])) acumulado.push({ ...f, __sedeOrigen: sede });
-      console.log(`[Sales Bridge] [FETCH] ${sede}: ${(filas || []).length} registros con compra desde ${desde} UTC.`);
+      console.log(`[Sales Bridge] [FETCH] ${sede}: ${(filas || []).length} COMPRADORES con fecha de ultima compra >= ${desdeDia} (ordenados del mas reciente al mas antiguo).`);
     } catch (err) {
       console.error(`[Sales Bridge] [ERROR] Consulta de ventas falló para ${sede}: ${err.message}`);
       recordAuditEvent({ type: 'SALES_BRIDGE_QUERY_FAILED', severity: 'error', sede, message: err.message });
