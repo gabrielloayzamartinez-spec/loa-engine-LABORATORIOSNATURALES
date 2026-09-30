@@ -20,6 +20,8 @@ services:
         value: "false"
       - key: PREFLIGHT_MAX_MS
         value: "5000"
+      - key: PAUSE_BENAVIDES
+        value: "false"
 
       # GHL Multi-Sede (arquitectura descentralizada point-to-point)
       # IMPORTANTE: la Cuenta Empresa NO es el "GHL Central" hub deprecado.

@@ -95,7 +95,7 @@ export const SEDES_GATEWAY = {
     name: 'Laboratorios Naturales - Sede Benavides',
     vtigerSedeName: 'BENAVIDES',
     isActive: true,
-    isPaused: process.env.PAUSE_BENAVIDES !== 'false',
+    isPaused: process.env.PAUSE_BENAVIDES === 'true',
     isConfigured: isSedeConfigured(BENAVIDES_GHL),
     ghl: BENAVIDES_GHL,
     meta: buildSedeMeta('BENAVIDES'),
