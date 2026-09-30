@@ -148,12 +148,40 @@ export function buildSanitizedGeoFields(vContact = {}, fieldIds = {}, ghlContact
 }
 
 /**
+ * Valida un número de 10 dígitos contra las reglas del NANP (EE.UU./Canadá).
+ *
+ * POR QUÉ ES ESTRICTO: el teléfono es el IDENTIFICADOR ÚNICO de fusión. Un número
+ * inválido que se cuele no se queda quieto: hace que el motor BUSQUE Y FUSIONE
+ * contactos equivocados. De ahí que se descarten los patrones imposibles:
+ *   - el código de área no puede empezar por 0 ni 1 (NANP)
+ *   - el código de central tampoco puede empezar por 0 ni 1
+ *   - los 10 dígitos iguales (0000000000) no son un teléfono
+ *   - el área 555 está reservada para ficción y pruebas
+ *
+ * @param {string} diez dígitos exactos
+ * @returns {boolean}
+ */
+export function isNanpValid(diez = '') {
+  const d = String(diez).replace(/\D/g, '');
+  if (d.length !== 10) return false;
+  if (/^(\d)\1{9}$/.test(d)) return false;              // 0000000000, 1111111111...
+  if (d[0] === '0' || d[0] === '1') return false;       // área inválida
+  if (d[3] === '0' || d[3] === '1') return false;       // central inválida
+  if (d.slice(0, 3) === '555') return false;            // reservado para pruebas
+  return true;
+}
+
+/**
  * Normaliza un teléfono a E.164 (formato de operación: +1 NANP de 10 dígitos).
  * Es el IDENTIFICADOR ÚNICO de fusión de contactos.
  *
+ * @param {string} rawPhone
+ * @param {object} [opts]
+ * @param {boolean} [opts.estricto=true] aplica las reglas NANP. Con `estricto:
+ *        false` sólo se comprueba la longitud (para números internacionales).
  * @returns {string} '+13055551234' o '' si no es un teléfono válido.
  */
-export function normalizeToE164(rawPhone = '', defaultCountryCode = '1') {
+export function normalizeToE164(rawPhone = '', { estricto = true } = {}) {
   const raw = String(rawPhone || '').trim();
   if (!raw) return '';
 
@@ -164,8 +192,15 @@ export function normalizeToE164(rawPhone = '', defaultCountryCode = '1') {
   if (digits.length < 10 || digits.length > 15) return '';
 
   // NANP: 10 dígitos -> +1XXXXXXXXXX ; 11 empezando por 1 -> +1XXXXXXXXXX
-  if (digits.length === 10) return `+${defaultCountryCode}${digits}`;
-  if (digits.length === 11 && digits.startsWith(defaultCountryCode)) return `+${digits}`;
+  let nacional = '';
+  if (digits.length === 10) nacional = digits;
+  else if (digits.length === 11 && digits.startsWith('1')) nacional = digits.slice(1);
+
+  if (nacional) {
+    // [DATO VITAL] Validación estricta del número nacional.
+    if (estricto && !isNanpValid(nacional)) return '';
+    return `+1${nacional}`;
+  }
 
   // Internacional: se respeta el prefijo tal cual.
   return `+${digits}`;
@@ -174,4 +209,22 @@ export function normalizeToE164(rawPhone = '', defaultCountryCode = '1') {
 /** ¿Es un teléfono sincronizable? (regla de descarte) */
 export function hasValidPhone(rawPhone = '') {
   return normalizeToE164(rawPhone).length >= 12;
+}
+
+/** Motivo por el que un teléfono se descarta (para auditoría legible). */
+export function explainPhoneRejection(rawPhone = '') {
+  const raw = String(rawPhone || '').trim();
+  if (!raw) return 'vacío';
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return 'sin dígitos';
+  if (digits.length < 10) return `muy corto (${digits.length} dígitos)`;
+  if (digits.length > 15) return `muy largo (${digits.length} dígitos)`;
+  const nacional = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+  if (nacional.length === 10 && !isNanpValid(nacional)) {
+    if (/^(\d)\1{9}$/.test(nacional)) return 'dígitos repetidos (no es un número real)';
+    if (nacional.slice(0, 3) === '555') return 'área 555 reservada para pruebas';
+    if (nacional[0] === '0' || nacional[0] === '1') return 'código de área inválido (no puede empezar por 0 ni 1)';
+    if (nacional[3] === '0' || nacional[3] === '1') return 'código de central inválido (no puede empezar por 0 ni 1)';
+  }
+  return 'formato no reconocido';
 }

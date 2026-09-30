@@ -24,7 +24,7 @@ import {
   syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador,
   limpiarNombre, buildNombreFields
 } from '../services/dual_sync_service.js';
-import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields, isUsStateCode } from '../utils/geo_phone_sanitizer.js';
+import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields, isUsStateCode, isNanpValid, explainPhoneRejection } from '../utils/geo_phone_sanitizer.js';
 import { SEDES_GATEWAY } from '../config/index.js';
 
 let passed = 0;
@@ -42,17 +42,44 @@ console.log('==========================================================\n');
 // 1. VALIDACIÓN: DROP RULE DEL TELÉFONO
 // ------------------------------------------------------------------------------
 console.log('[TEST 1] Drop rule: sin teléfono válido no se sincroniza');
-assert(normalizeToE164('(305) 555-1234') === '+13055551234', 'Un teléfono NANP de 10 dígitos se normaliza a E.164');
+// --- EL DATO VITAL: el teléfono es el identificador de fusión ---
+// Validación ESTRICTA contra las reglas del NANP. Un número inválido no se queda
+// quieto: hace que el motor busque y fusione contactos equivocados.
+assert(normalizeToE164('(305) 456-1234') === '+13054561234', 'Un teléfono NANP de 10 dígitos se normaliza a E.164');
 assert(normalizeToE164('+1 240-348-6504') === '+12403486504', 'Un teléfono con +1 y guiones se normaliza');
 assert(normalizeToE164('123') === '', 'Un número demasiado corto se invalida');
 assert(normalizeToE164('') === '', 'Un teléfono vacío se invalida');
 assert(normalizeToE164('12345678901234567890') === '', 'Un número absurdamente largo se invalida');
-assert(hasValidPhone('3055551234') === true, 'hasValidPhone acepta un NANP válido');
+assert(hasValidPhone('6145179276') === true, 'hasValidPhone acepta un NANP válido');
+assert(hasValidPhone('123') === false, 'hasValidPhone rechaza un inválido');
+
+// Patrones IMPOSIBLES que antes se colaban como válidos:
+assert(normalizeToE164('0000000000') === '', 'Diez ceros NO son un teléfono (dígitos repetidos)');
+assert(normalizeToE164('1111111111') === '', 'Diez unos NO son un teléfono (dígitos repetidos)');
+assert(normalizeToE164('9999999999') === '', 'Diez nueves NO son un teléfono (dígitos repetidos)');
+assert(normalizeToE164('1234567890') === '', 'Área que empieza por 1 es inválida en el NANP');
+assert(normalizeToE164('0123456789') === '', 'Área que empieza por 0 es inválida en el NANP');
+assert(normalizeToE164('3050123456') === '', 'Central que empieza por 0 es inválida en el NANP');
+assert(normalizeToE164('3051123456') === '', 'Central que empieza por 1 es inválida en el NANP');
+assert(normalizeToE164('5551234567') === '', 'El área 555 está reservada para pruebas');
+assert(normalizeToE164('abc') === '', 'Un texto sin dígitos se invalida');
+
+// El motivo del descarte debe ser legible para auditoría
+assert(explainPhoneRejection('0000000000').includes('repetidos'), 'El rechazo por dígitos repetidos se explica');
+assert(explainPhoneRejection('5551234567').includes('555'), 'El rechazo de área 555 se explica');
+assert(explainPhoneRejection('1234567890').includes('área'), 'El rechazo por área inválida se explica');
+assert(explainPhoneRejection('123').includes('corto'), 'El rechazo por longitud se explica');
+
+// Los números REALES de los compradores deben seguir siendo válidos
+for (const real of ['6145179276', '9802519139', '2132586651', '7707188585', '9722469286', '8054786696', '2404841740']) {
+  assert(hasValidPhone(real) === true, `El teléfono real ${real} sigue siendo válido`);
+}
+
 assert(hasValidPhone('123') === false, 'hasValidPhone rechaza un inválido');
 
 // PRIORIDAD homephone: medido en vivo, 100% de los contactos con compra lo usan.
 assert(pickPhone({ mobile: '', phone: '', homephone: '6145179276' }) === '+16145179276', 'Se usa homephone cuando mobile/phone están vacíos (caso real medido)');
-assert(pickPhone({ mobile: '3055551234', homephone: '6145179276' }) === '+16145179276', 'homephone tiene prioridad sobre mobile');
+assert(pickPhone({ mobile: '3054561234', homephone: '6145179276' }) === '+16145179276', 'homephone tiene prioridad sobre mobile');
 assert(pickPhone({}) === '', 'Sin ningún teléfono devuelve vacío (se descartará)');
 
 // ------------------------------------------------------------------------------
@@ -212,7 +239,7 @@ assert(esRegistroComprador({ spl_num_compras: 'no-numero' }) === false, 'Con un 
 // (Sólo se prueba el caso DESCARTADO: es determinista y no genera efectos
 //  externos. El caso del comprador SÍ tocaría GHL, por lo que se verifica con
 //  `esRegistroComprador`, arriba, y en la prueba en vivo fuera de la suite.)
-const leadSinCompras = { id: 'LEAD-X', firstname: 'PEDRO', lastname: 'LEAD', homephone: '3055551234', cf_3451: 'PALACIOS', spl_num_compras: '0' };
+const leadSinCompras = { id: 'LEAD-X', firstname: 'PEDRO', lastname: 'LEAD', homephone: '3054561234', cf_3451: 'PALACIOS', spl_num_compras: '0' };
 const resLead = await syncVtigerContactDual(leadSinCompras);
 assert(resLead.skipped === true, 'Un lead se descarta con skipped=true');
 assert(resLead.ok === false, 'Un lead no se reporta como sincronizado');
@@ -316,7 +343,7 @@ assert(n6.firstName === '' && n6.lastName === '' && n6.name === undefined, 'Sin 
 
 // El payload real debe usar los nombres saneados, no los crudos.
 const pNombre = buildUpsertPayloads(
-  { id: 'X', firstname: '.', lastname: 'PEREZ', homephone: '3055551234', cf_3451: 'PALACIOS', spl_num_compras: '1' },
+  { id: 'X', firstname: '.', lastname: 'PEREZ', homephone: '3054561234', cf_3451: 'PALACIOS', spl_num_compras: '1' },
   { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} }
 );
 assert(pNombre.macro.firstName === '' && pNombre.macro.name === 'PEREZ', 'El payload macro usa el nombre saneado');
@@ -327,7 +354,7 @@ assert(pNombre.operativa.name === 'PEREZ', 'El payload de la sede usa el nombre 
 // ------------------------------------------------------------------------------
 console.log('\n[TEST 10] Anti-alucinación: sólo valores reales y validados');
 
-const baseAnti = { id: 'A1', firstname: 'X', lastname: 'Y', homephone: '3055551234', cf_3451: 'PALACIOS', spl_num_compras: '1' };
+const baseAnti = { id: 'A1', firstname: 'X', lastname: 'Y', homephone: '3054561234', cf_3451: 'PALACIOS', spl_num_compras: '1' };
 
 // --- a) La zona horaria NUNCA se publica ---
 // vTiger trae "ESTE"/"PACIFICO"/"CENTRO"/"MONTAÑA". GHL gestiona su propio campo
