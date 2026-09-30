@@ -369,13 +369,40 @@ assert(valor(pOrigen.macro.customFields, 'origenLead') === 'PALACIOS-CLICK2RING-
 assert(valor(pOrigen.operativa.customFields, 'origenLead') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'La sede también recibe la relación');
 assert(valor(pOrigen.macro.customFields, 'origenLead') === valor(pOrigen.macro.customFields, 'campanaOrigen'), 'Se publica el MISMO valor de vTiger, sin recomponerlo ni reformatearlo');
 
-// --- d) El sexo NO se inventa ---
-// vTiger: cf_862 (sexo) está DENEGADO por permisos de rol; el único campo legible
-// (salutationtype) vale "." en el 100% de la muestra. GHL no tiene campo de sexo.
-// Ante eso el motor NO deriva el sexo del nombre ni de nada: no lo publica.
-const pSexo = buildUpsertPayloads({ ...baseAnti, firstname: 'MARIA', salutationtype: '.' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
-assert(JSON.stringify(pSexo).indexOf('sexo') === -1 && JSON.stringify(pSexo).indexOf('genero') === -1, 'No se escribe ningún campo de sexo/género');
-assert(JSON.stringify(pSexo).indexOf('Femenino') === -1 && JSON.stringify(pSexo).indexOf('Masculino') === -1, 'No se deriva el sexo del nombre (sería una invención)');
+// --- d) El sexo NO se inventa (se toma de cf_2821, ver TEST 11) ---
+// vTiger guarda el sexo en cf_2821 ("Mujer"/"Hombre"/"TERCER"). Lo que NUNCA debe
+// hacerse es DERIVARLO del nombre: con "GUADALUPE", "JOSÉ MARÍA" o "ROSARIO" eso
+// fallaría. Sin dato de origen, el campo no se publica.
+const pSexo = buildUpsertPayloads({ ...baseAnti, firstname: 'MARIA', salutationtype: '.', cf_2821: '' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: { sexo: 'SX2' } });
+assert(!pSexo.macro.customFields.some(f => f.nombre === 'sexo'), 'Sin cf_2821 el sexo NO se publica (no se deriva del nombre)');
+assert(JSON.stringify(pSexo).indexOf('Femenino') === -1 && JSON.stringify(pSexo).indexOf('Masculino') === -1, 'No se traduce el sexo a otros vocabularios (Femenino/Masculino)');
+assert(JSON.stringify(pSexo).indexOf('Mujer') === -1 && JSON.stringify(pSexo).indexOf('Hombre') === -1, 'Con el campo de vTiger vacío no aparece ningún valor de sexo');
+
+// --- e) SEXO: se publica textual desde cf_2821, sin inventar ni normalizar ---
+// Vocabulario real medido en 200 compradores: "Mujer", "Hombre", "TERCER".
+console.log('  [SEXO] cf_2821 se publica tal cual');
+
+const pSexoM = buildUpsertPayloads(
+  { ...baseAnti, cf_2821: 'Mujer' },
+  { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: { sexo: 'SX2' } }
+);
+assert(valor(pSexoM.macro.customFields, 'sexo') === 'Mujer', 'Sexo "Mujer" se publica textual');
+assert(valor(pSexoM.operativa.customFields, 'sexo') === 'Mujer', 'La sede también recibe el sexo');
+
+const pSexoH = buildUpsertPayloads({ ...baseAnti, cf_2821: 'Hombre' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: {} });
+assert(valor(pSexoH.macro.customFields, 'sexo') === 'Hombre', 'Sexo "Hombre" se publica textual');
+
+const pSexoT = buildUpsertPayloads({ ...baseAnti, cf_2821: 'TERCER' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: {} });
+assert(valor(pSexoT.macro.customFields, 'sexo') === 'TERCER', 'El valor "TERCER" se conserva, sin traducir ni cambiar de caja');
+
+const pSexoMixto = buildUpsertPayloads({ ...baseAnti, cf_2821: 'Mujer' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: {} });
+assert(valor(pSexoMixto.macro.customFields, 'sexo') !== 'MUJER', 'No se fuerza a mayúsculas: se respeta el valor de origen');
+
+const pSexoVacio = buildUpsertPayloads({ ...baseAnti, cf_2821: '' }, { incluirHistorial: true, fieldIdsCentral: { sexo: 'SX1' }, fieldIdsSede: {} });
+assert(!pSexoVacio.macro.customFields.some(f => f.nombre === 'sexo'), 'Sin sexo en vTiger el campo no se envía');
+
+const pSexoSinCampo = buildUpsertPayloads({ ...baseAnti, cf_2821: 'Mujer' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(!pSexoSinCampo.macro.customFields.some(f => f.nombre === 'sexo'), 'Si GHL no tiene campo de sexo, se omite sin romper nada');
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);

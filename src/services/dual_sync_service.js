@@ -79,6 +79,10 @@ const CAMPOS_REQUERIDOS = {
   // SEDE-PROVEEDOR-CANAL-PADECIMIENTO (verificado identico en 20/20 contactos
   // de Palacios y en todos los de Benavides). Se lee directo, no se compone.
   origenLead: ['origen lead', 'origen del lead'],
+  // SEXO: vTiger lo guarda en cf_2821 con valores "Mujer" / "Hombre" / "TERCER".
+  // Se publica TAL CUAL viene para no alterar el dato. Cuando no exista el campo
+  // en GHL, el descubrimiento no lo resuelve y simplemente no se envía.
+  sexo: ['sexo', 'ssexo', 'genero', 'g nero'],
   // --- Campos de negocio que el comprador debe llevar completo ---
   proveedor: ['proveedor', 'v tiger proveedor'],
   canalCaptacion: ['v tiger canal captacion', 'canal captacion', 'canal'],
@@ -460,6 +464,9 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   push(fieldIdsCentral, 'canalCaptacion', vContact.cf_3507 || '');
   push(fieldIdsCentral, 'tratamientoComprado', tratamiento || vContact.cf_2610 || '');
   push(fieldIdsCentral, 'contactoNo', vContact.contact_no || '');
+  // SEXO: se publica EXACTAMENTE el valor de vTiger ("Mujer" / "Hombre" /
+  // "TERCER"), sin normalizar mayusculas ni traducir, para no alterar el dato.
+  push(fieldIdsCentral, 'sexo', String(vContact.cf_2821 || '').trim());
   push(fieldIdsCentral, 'estadoVenta', vContact.cf_994 || '');
   push(fieldIdsCentral, 'estadoComercial', vContact.cf_1876 || '');
   push(fieldIdsCentral, 'asesorAsignado', vContact.wcf_acf_atf_3390 || '');
@@ -507,6 +514,8 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   pushSede('canalCaptacion', vContact.cf_3507 || '');
   pushSede('tratamientoComprado', tratamiento || vContact.cf_2610 || '');
   pushSede('contactoNo', vContact.contact_no || '');
+  // La sede tambien recibe el sexo (es dato de atencion al cliente).
+  pushSede('sexo', String(vContact.cf_2821 || '').trim());
   pushSede('estadoVenta', vContact.cf_994 || '');
   pushSede('estadoComercial', vContact.cf_1876 || '');
   pushSede('ultimaInteraccion', new Date().toISOString());

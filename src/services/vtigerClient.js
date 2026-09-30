@@ -233,6 +233,11 @@ export const VTIGER_FIELDS = {
   ESTADO_REPARTICION: 'cf_2758',      // 1-SIN REPARTIR / reparto del lead
   SEMANA: 'cf_3388',                  // Semana del año (ej. 2019-47)
   REASIGNACIONES: 'spl_reassign_count', // Veces que se reasignó el lead
+  // SEXO: campo verificado en vivo. Vocabulario real medido en 200 compradores:
+  // "Mujer", "Hombre" y "TERCER" (asi, en mayusculas y sin tilde).
+  // OJO: la cobertura es MUY desigual entre sedes (Palacios ~24% informado,
+  // Benavides ~96%), y el valor viene con capitalizacion mixta.
+  SEXO: 'cf_2821',
   // Geografía operativa: `mailingcity`/`mailingstate` están restringidos por rol,
   // por lo que el estado se toma de estos campos que SÍ son legibles.
   ESTADO_GEO: 'splareacodes_state',
@@ -271,6 +276,7 @@ export const VTIGER_CONTACT_SELECT = [
   VTIGER_FIELDS.SEDE,
   VTIGER_FIELDS.TRATAMIENTO,
   VTIGER_FIELDS.PROVEEDOR,
+  VTIGER_FIELDS.SEXO,
   // --- Datos comerciales del comprador (enriquecimiento completo) ---
   VTIGER_FIELDS.CANAL,
   VTIGER_FIELDS.CAMPANA,
