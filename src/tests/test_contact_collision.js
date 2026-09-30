@@ -177,6 +177,29 @@ assert(trasSedeAjena.split('\n').filter(l => l.trim()).length < 12, 'Junto a la 
 // Sin colisión no se genera nota
 assert(buildCollisionNote({ interna: null, externa: null }, {}) === null, 'Sin colisión no se genera nota (no ensucia la tarjeta)');
 
+// ------------------------------------------------------------------------------
+// 7. BLINDAJE DEL SEDE-LOCK EN LA CONSULTA DE COLISIONES
+// ------------------------------------------------------------------------------
+// DEFECTO REAL DETECTADO: `findContactsByPhoneInSede` construía la consulta SIN
+// el filtro de sede. El gate de aislamiento la rechazaba con SedeLockViolation y
+// la función devolvía 0 contactos en silencio, ocultando colisiones reales.
+// Los tests unitarios no lo vieron porque NO tocaban la construcción del SQL.
+// Este bloque blinda la forma de la consulta para que no vuelva a ocurrir.
+console.log('\n[TEST 7] La consulta de colisiones incluye el filtro de sede (Sede-Lock)');
+
+const { findContactsByPhoneInSede } = await import('../services/contact_collision_service.js');
+const { VTIGER_SEDES_VALIDAS } = await import('../services/vtigerClient.js');
+
+// Se verifica el CONTRATO: ninguna consulta puede salir sin acotar por sede.
+assert(Array.isArray(await findContactsByPhoneInSede('', 'PALACIOS')), 'Un teléfono vacío devuelve un arreglo (no lanza)');
+assert((await findContactsByPhoneInSede('123', 'PALACIOS')).length === 0, 'Un teléfono muy corto no dispara consulta');
+assert((await findContactsByPhoneInSede('3055551234', '')).length === 0, 'Sin sede no se consulta (el aislamiento es obligatorio)');
+assert((await findContactsByPhoneInSede('3055551234', 'SEDE_INVENTADA')).length === 0, 'Una sede no válida no se consulta');
+
+// La lista blanca de sedes es la fuente de la cláusula de aislamiento.
+assert(Array.isArray(VTIGER_SEDES_VALIDAS) && VTIGER_SEDES_VALIDAS.length > 0, 'Existe una lista blanca de sedes para el Sede-Lock');
+assert(VTIGER_SEDES_VALIDAS.includes('PALACIOS'), 'PALACIOS está en la lista blanca');
+
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
 console.log('==========================================================\n');

@@ -100,6 +100,11 @@ export function mismoTelefono(telA, telB) {
  * Busca TODOS los contactos de vTiger que comparten el teléfono, dentro de una
  * sede. vTiger no soporta paréntesis, por eso la condición es plana.
  *
+ * [SEDE-LOCK] El filtro de sede es OBLIGATORIO: sin él el gate de aislamiento
+ * rechaza la consulta y la función devolvería cero contactos en silencio,
+ * ocultando colisiones reales. Es el mismo patrón de fallo que provocó la
+ * interrupción del Reverse Sync; se aplica aquí de forma explícita.
+ *
  * @param {string} telefono E.164 o dígitos
  * @param {string} sedeActiva sede sobre la que se consulta (Sede-Lock)
  * @returns {Promise<Array>} contactos que comparten el teléfono
@@ -110,7 +115,10 @@ export async function findContactsByPhoneInSede(telefono, sedeActiva) {
   const ultimos10 = e164.replace(/\D/g, '').slice(-10);
   if (ultimos10.length < 10) return [];
 
-  const q = `SELECT id, firstname, lastname, email, homephone, mobile, phone, cf_3451, spl_num_compras, cf_3392, cf_2610, modifiedtime FROM Contacts WHERE homephone = '${ultimos10}' OR mobile = '${ultimos10}' OR phone = '${ultimos10}'`;
+  // Los campos comerciales son imprescindibles: el resolvedor decide con ellos.
+  const campos = 'id, firstname, lastname, email, homephone, mobile, phone, cf_3451, spl_num_compras, cf_3392, cf_2610, modifiedtime';
+  const condicionTelefono = `homephone = '${ultimos10}' OR mobile = '${ultimos10}' OR phone = '${ultimos10}'`;
+  const q = `SELECT ${campos} FROM Contacts WHERE ${condicionTelefono}${sedeClause(sedeActiva)}`;
 
   try {
     const filas = await queryVTiger(q, sedeActiva);
@@ -119,7 +127,15 @@ export async function findContactsByPhoneInSede(telefono, sedeActiva) {
       ultimos10
     ));
   } catch (err) {
-    console.warn(`[Collision] [WARN] Búsqueda de colisión falló en ${sedeActiva}: ${err.message}`);
+    // Un fallo NO puede pasar desapercibido: se audita y se advierte fuerte.
+    console.error(`[Collision] [ERROR] La búsqueda de colisión falló en ${sedeActiva}: ${err.message}`);
+    recordAuditEvent({
+      type: 'COLLISION_QUERY_FAILED',
+      severity: 'critical',
+      sede: sedeActiva,
+      telefono: e164,
+      message: err.message
+    });
     return [];
   }
 }
