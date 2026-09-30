@@ -21,7 +21,10 @@ services:
       - key: PREFLIGHT_MAX_MS
         value: "5000"
 
-      # GHL Multi-Sede (arquitectura descentralizada point-to-point; sin cuenta central)
+      # GHL Multi-Sede (arquitectura descentralizada point-to-point)
+      # IMPORTANTE: la Cuenta Empresa NO es el "GHL Central" hub deprecado.
+      # Es una replica de SOLO ANALITICA: recibe copia de los datos para
+      # medicion macro, sin chats, sin ruteo y sin asignacion de asesores.
       - key: GHL_API_KEY
         sync: false
       - key: GHL_LOCATION_ID
@@ -41,6 +44,12 @@ services:
       - key: GHL_API_KEY_PIURA
         sync: false
       - key: GHL_LOCATION_ID_PIURA
+        sync: false
+      # Cuenta Empresa (analitica macro). Si faltan, el motor opera solo por sede
+      # sin romperse: la carga macro queda desactivada con un aviso en logs.
+      - key: GHL_API_KEY_CENTRAL
+        sync: false
+      - key: GHL_LOCATION_ID_CENTRAL
         sync: false
 
       # Colas durables y estado distribuido (feature flag)
