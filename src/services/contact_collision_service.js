@@ -93,6 +93,31 @@ export function mismoTelefono(telA, telB) {
   return a.slice(-10) === b.slice(-10);
 }
 
+/**
+ * [SEDE-SHIELD] Detecta a qué sede pertenece un valor de texto, para poder
+ * neutralizar datos comerciales de OTRA sede antes de escribirlos en GHL.
+ *
+ * POR QUÉ: el motor enruta por `cf_3451`, pero campos como la campaña vienen
+ * armados como `SEDE-PROVEEDOR-CANAL-PADECIMIENTO`
+ * ("PALACIOS-CLICK2RING-FB-MSGR-Artritis"). Si un registro llegara etiquetado
+ * con una sede distinta a la del destino (o se reutilizara un contacto entre
+ * sedes), ese texto arrastraría el nombre de la sede ajena a una subcuenta que
+ * no le corresponde. Se detecta por TOKEN completo y no por `includes` suelto,
+ * para no confundir el nombre de un cliente con una sede.
+ *
+ * @param {string} valor
+ * @returns {string|null} la sede detectada ('PALACIOS') o null
+ */
+export function detectarSedeEnTexto(valor = '') {
+  const texto = String(valor || '').toUpperCase();
+  if (!texto.trim()) return null;
+  for (const sedeId of Object.keys(SEDES_GATEWAY)) {
+    const re = new RegExp(`(^|[^A-Z0-9])${sedeId}([^A-Z0-9]|$)`);
+    if (re.test(texto)) return sedeId;
+  }
+  return null;
+}
+
 // ------------------------------------------------------------------------------
 // DETECCIÓN
 // ------------------------------------------------------------------------------
