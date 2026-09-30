@@ -310,6 +310,101 @@ export function partitionFields(campos = [], contactoExiste = false) {
   return { seguros, protegidos };
 }
 
+// ------------------------------------------------------------------------------
+// NORMALIZACIÓN DE VALORES MONÓTONOS
+// ------------------------------------------------------------------------------
+/**
+ * Convierte a marca de tiempo cualquier formato de fecha que GHL devuelva.
+ * Un campo DATE de GHL se lee como epoch en milisegundos (ej. 1763942400000);
+ * vTiger entrega 'YYYY-MM-DD'. Sin normalizar, no se pueden comparar y cualquier
+ * comparación daría un resultado falso.
+ * @returns {number|null}
+ */
+export function parseFechaGhl(valor) {
+  if (valor === null || valor === undefined || valor === '') return null;
+  const s = String(valor).trim();
+  // Epoch en ms (lo que devuelve GHL para sus campos DATE)
+  if (/^\d{10,13}$/.test(s)) {
+    const n = Number(s);
+    const ms = s.length === 10 ? n * 1000 : n;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+  }
+  // ISO / YYYY-MM-DD (lo que entrega vTiger)
+  const d = new Date(s.length === 10 ? `${s}T00:00:00Z` : s);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+/**
+ * [AVANCE MONÓTONO] Decide si el dato de vTiger debe ESCRIBIRSE sobre el que ya
+ * tiene GHL.
+ *
+ * POR QUÉ: la protección de historial original era "si el contacto existe, no
+ * toques sus campos de compra". Eso impedía que un cliente que VUELVE A COMPRAR
+ * actualizara su `Fecha Ultima Compra` -> los campos quedaban congelados en el
+ * valor de la primera sincronización. Consecuencia real: el 50% de los contactos
+ * en GHL no tenía fecha de última compra, y una Smart List de "compras de la
+ * última semana" (base de una campaña de SMS) no podía funcionar.
+ *
+ * La regla correcta NO es "no tocar", sino "no retroceder":
+ *   - si el contacto no tiene el dato -> se escribe;
+ *   - si el dato de vTiger es MÁS RECIENTE -> se escribe (hubo compra nueva);
+ *   - si es más antiguo o igual -> NO se escribe (se protege lo que ya hay).
+ *
+ * @param {*} valorVtiger valor entrante (YYYY-MM-DD)
+ * @param {*} valorGhl    valor actual en GHL (epoch ms o YYYY-MM-DD)
+ * @returns {boolean} true si se debe escribir
+ */
+export function debeAvanzarFecha(valorVtiger, valorGhl) {
+  const nuevo = parseFechaGhl(valorVtiger);
+  if (nuevo === null) return false;            // sin dato válido no se escribe nada
+  const actual = parseFechaGhl(valorGhl);
+  if (actual === null) return true;            // GHL no tiene el dato: se escribe
+  return nuevo > actual;                       // sólo avanza, nunca retrocede
+}
+
+/**
+ * Aplica la regla monótona a una lista de campos ya construidos.
+ * `existentes` es el mapa { nombreLogico: valorActualEnGhl } del contacto.
+ * Los campos sin valor actual en GHL pasan siempre (son un alta de dato).
+ *
+ * @param {Array} campos
+ * @param {object} existentes
+ * @returns {{ avanzan: Array, congelados: Array }}
+ */
+export function splitCamposMonotonos(campos = [], existentes = {}) {
+  const avanzan = [];
+  const congelados = [];
+  for (const c of campos) {
+    const actual = existentes?.[c.nombre];
+    if (actual === undefined || actual === null || actual === '') { avanzan.push(c); continue; }
+    const entrante = c.field_value;
+    // Se comparan como fechas sólo los campos que lo son; el resto (contadores)
+    // avanza si el valor entrante es mayor numéricamente.
+    const esFecha = /^\d{4}-\d{2}-\d{2}/.test(String(entrante));
+    if (esFecha) {
+      if (debeAvanzarFecha(entrante, actual)) avanzan.push(c); else congelados.push(c);
+    } else {
+      // Sólo los CONTADORES se comparan numéricamente (total de compras, monto,
+      // gasto histórico). Un campo que no es número en ninguno de los dos lados
+      // (ids, textos, códigos) NO es comparable: se deja pasar para que el dato
+      // se mantenga al día en lugar de quedar bloqueado por un NaN.
+      const n = parseFloat(String(entrante).replace(/[^0-9.-]/g, ''));
+      const a = parseFloat(String(actual).replace(/[^0-9.-]/g, ''));
+      const soloDigitos = (v) => /^[0-9]+([.,][0-9]+)?$/.test(String(v).trim());
+      if (/^-?\d+(\.\d+)?$/.test(String(entrante).trim()) && /^-?\d+(\.\d+)?$/.test(String(actual).trim())
+          && Number.isFinite(n) && Number.isFinite(a)) {
+        if (soloDigitos(entrante) && !soloDigitos(actual)) { avanzan.push(c); }
+        else if (n > a) avanzan.push(c);
+        else congelados.push(c);
+      } else {
+        avanzan.push(c);   // no comparable: se deja pasar
+      }
+    }
+  }
+  return { avanzan, congelados };
+}
+
 /**
  * [MERGE SOP] Combina las etiquetas actuales con las nuevas preservando el estatus.
  *
@@ -485,13 +580,18 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   push(fieldIdsCentral, 'ultimaInteraccion', new Date().toISOString());
 
   if (incluirHistorial) {
+    // [AVANCE MONÓTONO] El historial se construye SIEMPRE, aunque el contacto ya
+    // exista. Antes se omitía para "proteger" el historial, pero eso CONGELABA
+    // `Fecha Ultima Compra`: un cliente que volvía a comprar nunca actualizaba su
+    // fecha, y la mitad de los contactos en GHL quedó sin ella. Ahora el filtro
+    // `soloAvances` decide campo por campo: escribe si GHL no lo tiene o si el
+    // dato de vTiger es más reciente, y lo omite si retrocedería.
     push(fieldIdsCentral, 'totalCompras', String(compras));
     push(fieldIdsCentral, 'fechaUltimaCompra', vContact.spl_fecha_ultima_compra || '');
     push(fieldIdsCentral, 'fechaPrimeraCompra', vContact.spl_fecha_primera_compra || '');
     push(fieldIdsCentral, 'precioVenta', String(vContact.cf_3392 || ''));
     push(fieldIdsCentral, 'idClienteVt', vContact.id || '');
-    // `cf_3392` fue VERIFICADO en vivo como el GASTO TOTAL ACUMULADO (la suma de
-    // todas las órdenes coincide exactamente en 8 de 8 compradores medidos).
+    // `cf_3392` fue VERIFICADO en vivo como el GASTO TOTAL ACUMULADO.
     if (vContact.cf_3392) push(fieldIdsCentral, 'totalHistorico', String(vContact.cf_3392));
   }
 
@@ -557,11 +657,47 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     customFields: camposSede
   };
 
-  // [MERGE SOP] Se separa el historial si el contacto ya existe en cada cuenta.
-  const particionMacro = partitionFields(macro.customFields, Boolean(ghlExistenteCentral));
-  const particionSede = partitionFields(operativa.customFields, Boolean(ghlExistenteSede));
-  macro.customFields = particionMacro.seguros;
-  operativa.customFields = particionSede.seguros;
+  // [MERGE SOP -> AVANCE MONÓTONO] Ya NO se bloquea el historial cuando el
+  // contacto existe. Bloquearlo congelaba `Fecha Ultima Compra` en el valor de la
+  // primera sincronización, así que un cliente que VOLVÍA A COMPRAR nunca
+  // actualizaba su fecha: el 50% de los contactos en GHL quedó sin fecha, y la
+  // Smart List "compras de la última semana" (base de una campaña de SMS) no
+  // podía funcionar. La regla correcta es "no retroceder", no "no tocar".
+  //
+  // `ghlExistente*` puede venir como objeto de contacto (con customFields) o como
+  // simple booleano. Se extrae el valor actual de cada campo para compararlo.
+  // Mapa { idDeCampoGHL: valorActual } a partir del contacto que ya existe en GHL.
+  // Se indexa por ID porque es lo único estable entre las tres cuentas (los campos
+  // lógicos se resuelven a IDs distintos en cada location).
+  const valoresActuales = (existente) => {
+    const mapa = {};
+    if (!existente || typeof existente !== 'object') return mapa;
+    for (const f of (existente.customFields || [])) {
+      const valor = f.value ?? f.field_value;
+      if (valor !== undefined && valor !== null && valor !== '') mapa[f.id] = valor;
+    }
+    return mapa;
+  };
+  const porIdMacro = valoresActuales(ghlExistenteCentral);
+  const porIdSede = valoresActuales(ghlExistenteSede);
+
+  /**
+   * Deja pasar SÓLO los campos que aportan avance. Un campo cuyo valor actual en
+   * GHL ya es igual o más reciente que el de vTiger se descarta del payload, así
+   * no se pisa información buena con información vieja.
+   */
+  const soloAvances = (campos, porId) => campos.filter(c => {
+    const actual = porId[c.id];
+    if (actual === undefined) return true;   // GHL no tiene el dato: se escribe
+    const r = splitCamposMonotonos([c], { [c.nombre]: actual });
+    return r.avanzan.length > 0;
+  });
+
+  macro.customFields = soloAvances(macro.customFields, porIdMacro);
+  operativa.customFields = soloAvances(operativa.customFields, porIdSede);
+
+  const particionMacro = { protegidos: [] };
+  const particionSede = { protegidos: [] };
 
   const tagsNuevas = ['vtiger', 'vtiger-sincronizado'];
   if (esComprador) tagsNuevas.push('compro', 'convertido', 'cliente-vtiger');
