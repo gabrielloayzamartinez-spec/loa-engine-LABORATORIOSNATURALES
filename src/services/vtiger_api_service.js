@@ -5,6 +5,7 @@ import { learningBrain } from './learning_brain.js';
 import { query as vtigerQuery, login as vtigerLogin, VTIGER_FIELDS, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, sedeClause } from './vtigerClient.js';
 import { sanitizeForVtigerQuery, digitsOnly } from '../utils/sanitize.js';
 import { recordAuditEvent } from './audit_logger.js';
+import { detectCollision, resolveCollision } from './contact_collision_service.js';
 
 // [AUTENTICACIÓN CENTRALIZADA] Una sola sesión de Administrador global.
 // El aislamiento multi-sede lo garantiza el campo nativo `cf_3451` en cada
@@ -168,7 +169,10 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
       // NOTA vTiger: el parser del Webservice NO admite paréntesis en el WHERE
       // (Syntax Error "PARENOPEN"), por eso la condición es plana: la cláusula de
       // sede se une con OR y sigue aplicándose a toda la expresión.
-      const qPhone = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}'${sedeClause} LIMIT 10;`;
+      // [DATOS PARA EL MERGE SOP] Se añaden los campos comerciales al SELECT:
+      // sin ellos el resolvedor de colisiones no sabe quién tiene compras y
+      // podría rescatar al contacto equivocado (defecto detectado y corregido).
+      const qPhone = `SELECT ${VTIGER_CONTACT_SELECT}, ${VTIGER_FIELDS.NUM_COMPRAS}, ${VTIGER_FIELDS.MONTO_INVERTIDO}, ${VTIGER_FIELDS.ESTADO_VENTA} FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}'${sedeClause} LIMIT 10;`;
       let phoneMatches = await queryVTiger(qPhone, targetSedeUpper);
 
       // [SEDE-SHIELD] Segunda barrera: cualquier registro ajeno se descarta.
@@ -202,7 +206,40 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
             // Prioridad B: Primer match disponible dentro de la sede
             return strictMatches[0];
           } else {
-            console.warn(`[VTiger API] [ESCUDO HOMONIMIA] Teléfono ${last10} existe, pero los apellidos/nombres no coinciden. Evitando fusión errónea.`);
+            // [MERGE SOP - RESCATE DE DATOS]
+            // ANTES: se descartaba el candidato y sus datos se PERDÍAN, con un
+            // `warn` que nadie leía. Ahora se resuelve el enfrentamiento: si uno
+            // de los contactos con el mismo teléfono tiene compras, ése es la
+            // persona real y se rescata su historial; si hay conflicto real, se
+            // marca para revisión humana y se documenta en la tarjeta.
+            console.warn(`[VTiger API] [COLISION] El teléfono ${last10} existe con ${phoneMatches.length} contacto(s) pero los nombres no coinciden. Aplicando MERGE SOP para rescatar datos.`);
+            try {
+              // Se pasan TODOS los candidatos con el mismo teléfono (no sólo el
+              // primero): el resolvedor necesita ver quién tiene compras.
+              const informe = await detectCollision(
+                { ...phoneMatches[0], homephone: last10 },
+                { sedeActiva: targetSedeUpper, candidatos: phoneMatches }
+              );
+              const resolucion = resolveCollision(informe, phoneMatches[0]);
+
+              if (resolucion.elegido && !resolucion.requiereRevision) {
+                const elegidoId = String(resolucion.elegido.vTigerId);
+                const encontrado = phoneMatches.find(v => String(v.id) === elegidoId);
+                if (encontrado) {
+                  console.log(`[VTiger API] [COLISION-RESUELTA] Se rescata ${resolucion.elegido.nombre} (${resolucion.elegido.compras} compras) — ${resolucion.motivo}`);
+                  return encontrado;
+                }
+              }
+
+              if (resolucion.requiereRevision) {
+                // No se elige a ciegas: se devuelve el candidato para no romper el
+                // flujo, pero la colisión queda auditada y documentada.
+                console.error(`[VTiger API] [COLISION-REVISION] ${resolucion.motivo}. Se requiere criterio humano; la colisión quedó registrada en auditoría.`);
+                return phoneMatches[0];
+              }
+            } catch (colErr) {
+              console.warn(`[VTiger API] [COLISION-WARN] No se pudo resolver el enfrentamiento: ${colErr.message}`);
+            }
           }
         }
       }
