@@ -88,7 +88,13 @@ const CAMPOS_REQUERIDOS = {
   canalCaptacion: ['v tiger canal captacion', 'canal captacion', 'canal'],
   tratamientoComprado: ['tratamiento comprado', 'v tiger tratamiento comprado', 'tratamiento'],
   estadoComercial: ['v tiger estado comercial', 'estado comercial'],
-  estadoVenta: ['v tiger estado de compra', 'estado de compra', 'v tiger estado venta'],
+  // [IMPORTANTE - NO USAR "Estado de Compra"] Ese campo es DEL NEGOCIO y usa el
+  // vocabulario Comprador / No Comprador, con el que ya estan construidas sus
+  // Smart Lists. Escribir ahi la etapa de vTiger mezclaba dos vocabularios
+  // incompatibles y ROMPIA los filtros: un cliente que si compro pero figuraba
+  // como "EN LLAMADA" no aparecia al filtrar por "Comprador".
+  // La etapa de vTiger va a su PROPIO campo para no contaminar el del negocio.
+  etapaComercial: ['v tiger etapa comercial', 'etapa comercial', 'v tiger estado venta'],
   contactoNo: ['v tiger contact no', 'contact no', 'numero de contacto'],
   asesorAsignado: ['v tiger asesor asignado', 'asesor asignado'],
   fechaCreacion: ['v tiger fecha creacion', 'fecha creacion'],
@@ -467,7 +473,7 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   // SEXO: se publica EXACTAMENTE el valor de vTiger ("Mujer" / "Hombre" /
   // "TERCER"), sin normalizar mayusculas ni traducir, para no alterar el dato.
   push(fieldIdsCentral, 'sexo', String(vContact.cf_2821 || '').trim());
-  push(fieldIdsCentral, 'estadoVenta', vContact.cf_994 || '');
+  push(fieldIdsCentral, 'etapaComercial', vContact.cf_994 || '');
   push(fieldIdsCentral, 'estadoComercial', vContact.cf_1876 || '');
   push(fieldIdsCentral, 'asesorAsignado', vContact.wcf_acf_atf_3390 || '');
   push(fieldIdsCentral, 'fechaCreacion', String(vContact.createdtime || '').slice(0, 10));
@@ -516,7 +522,7 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   pushSede('contactoNo', vContact.contact_no || '');
   // La sede tambien recibe el sexo (es dato de atencion al cliente).
   pushSede('sexo', String(vContact.cf_2821 || '').trim());
-  pushSede('estadoVenta', vContact.cf_994 || '');
+  pushSede('etapaComercial', vContact.cf_994 || '');
   pushSede('estadoComercial', vContact.cf_1876 || '');
   pushSede('ultimaInteraccion', new Date().toISOString());
 
