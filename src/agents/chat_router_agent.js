@@ -640,6 +640,18 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       targetTratamiento = utmInferredTreatment || vtigerTreatment || currentTratamiento;
     }
 
+    // Detección de pauta pagada (usada tanto en triage como en resolución de proveedor)
+    const checkIsPaidAd = (adId) => Boolean(
+      (adId && isValidMetaAdId(adId)) ||
+      latestAdSetName ||
+      contact.attributionSource?.sessionSource === 'Paid Social' ||
+      contact.attributionSource?.utmMedium === 'cpc' ||
+      contact.attributionSource?.utmMedium === 'paid' ||
+      latestMedium === 'cpc' ||
+      latestMedium === 'paid'
+    );
+    let isPaidAd = checkIsPaidAd(targetAdId);
+
     // [TRIAGE - SIN CLASIFICAR]
     // REGLA DE NEGOCIO: si el lead entra SIN Ad ID y SIN palabras clave de
     // dolencia identificables, NO se le atribuye producto ni proveedor. Antes
@@ -700,16 +712,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
  // D. PREPARACIÓN DE FUENTE ESTILO VTIGER: [SEDE]-[PROVEEDOR]-[CANAL]-[TRATAMIENTO]
-    // Un lead es pauta pagada si tiene un Meta Ad ID numérico válido O parámetros explícitos de cobro (Paid Social / cpc)
-    const isPaidAd = Boolean(
-      (targetAdId && isValidMetaAdId(targetAdId)) ||
-      latestAdSetName ||
-      contact.attributionSource?.sessionSource === 'Paid Social' ||
-      contact.attributionSource?.utmMedium === 'cpc' ||
-      contact.attributionSource?.utmMedium === 'paid' ||
-      latestMedium === 'cpc' ||
-      latestMedium === 'paid'
-    );
+    // Actualizar estado de pauta tras el fuzzy matching
+    isPaidAd = checkIsPaidAd(targetAdId);
 
     const targetProvider = resolveLeadProvider({
       pageId: targetPageId,
