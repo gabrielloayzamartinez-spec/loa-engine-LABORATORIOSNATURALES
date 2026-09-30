@@ -35,7 +35,7 @@
 
 import { SEDES_GATEWAY, resolveSedeContext } from '../config/index.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
-import { normalizeToE164, buildSanitizedGeoFields, splitCityAndState } from '../utils/geo_phone_sanitizer.js';
+import { normalizeToE164, buildSanitizedGeoFields, splitCityAndState, isUsStateCode, isUsStateName, normalizeUsState } from '../utils/geo_phone_sanitizer.js';
 import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { readSecret } from '../config/secrets.js';
@@ -75,6 +75,10 @@ const CAMPOS_REQUERIDOS = {
   ultimaInteraccion: ['ultima interaccion'],
   campanaOrigen: ['v tiger campana origen', 'utm campaign', 'campana origen', 'origen lead'],
   idClienteVt: ['v tiger id cliente', 'id cliente', 'v tiger contact no'],
+  // RELACION DE ORIGEN: vTiger ya la trae armada en `cf_3472` con el formato
+  // SEDE-PROVEEDOR-CANAL-PADECIMIENTO (verificado identico en 20/20 contactos
+  // de Palacios y en todos los de Benavides). Se lee directo, no se compone.
+  origenLead: ['origen lead', 'origen del lead'],
   // --- Campos de negocio que el comprador debe llevar completo ---
   proveedor: ['proveedor', 'v tiger proveedor'],
   canalCaptacion: ['v tiger canal captacion', 'canal captacion', 'canal'],
@@ -419,8 +423,24 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   // ==========================================================================
 
   /** Valores comerciales ya normalizados, compartidos por ambas cargas. */
-  const estadoGeo = String(vContact.splareacodes_state || '').trim();   // " Ohio" -> "Ohio"
-  const estadoCodigo = String(vContact.splareacodes_state_code || '').trim().toUpperCase();
+  // [ANTI-ALUCINACION] El estado SÓLO se publica si es un estado real de EE.UU.,
+  // validado contra la lista oficial. Antes existía un fallback que escribía el
+  // valor crudo sin validar y colaba códigos inválidos (se detectó "VI", que
+  // además ni es Virginia: es VA). Es preferible dejar el campo vacío que
+  // escribir un valor que no corresponde.
+  const estadoResuelto = (() => {
+    const codigo = String(vContact.splareacodes_state_code || '').trim().toUpperCase();
+    const nombre = String(vContact.splareacodes_state || '').trim();
+    if (isUsStateCode(codigo)) return codigo;
+    if (isUsStateName(nombre)) return normalizeUsState(nombre);
+    if (isUsStateName(codigo)) return normalizeUsState(codigo);
+    if (isUsStateCode(nombre)) return nombre.toUpperCase();
+    // Nada válido: se OMITE el estado (nunca se escribe un valor sin validar).
+    return '';
+  })();
+  // La zona horaria de vTiger viene como "ESTE"/"PACIFICO"/"CENTRO"/"MONTAÑA" y
+  // NO se publica en ningún campo: GHL gestiona su propio `timezone` y escribir
+  // una zona inventada es precisamente lo que no debe hacerse.
 
   // --- Carga MACRO (Cuenta Empresa / Data Warehouse) ---
   const camposMacro = [];
@@ -433,6 +453,10 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   // Identificación y origen (siempre, para que el contacto quede completo)
   push(fieldIdsCentral, 'oficinaOrigen', sedeId || vContact.cf_3451 || '');
   push(fieldIdsCentral, 'campanaOrigen', vContact.cf_3472 || '');
+  // RELACION DE ORIGEN en el campo "Origen Lead": se publica EXACTAMENTE el valor
+  // de vTiger (`cf_3472`), sin recomponerlo ni reformatearlo. Verificado identico
+  // a la construccion SEDE-PROVEEDOR-CANAL-PADECIMIENTO en el 100% de la muestra.
+  push(fieldIdsCentral, 'origenLead', vContact.cf_3472 || '');
   push(fieldIdsCentral, 'canalCaptacion', vContact.cf_3507 || '');
   push(fieldIdsCentral, 'tratamientoComprado', tratamiento || vContact.cf_2610 || '');
   push(fieldIdsCentral, 'contactoNo', vContact.contact_no || '');
@@ -463,7 +487,7 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     // La ciudad sale de cf_1157 (la operativa real); el estado de splareacodes_*
     // porque mailingcity/mailingstate están restringidos por rol.
     city: geo.find(g => g.key === 'city')?.field_value || undefined,
-    state: geo.find(g => g.key === 'state')?.field_value || estadoCodigo || estadoGeo || undefined,
+    state: geo.find(g => g.key === 'state')?.field_value || estadoResuelto || undefined,
     source: 'vTiger',
     customFields: camposMacro
   };
@@ -478,6 +502,8 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
 
   pushSede('oficinaOrigen', sedeId || '');
   pushSede('campanaOrigen', vContact.cf_3472 || '');
+  // En la sede "Origen Lead" tambien recibe la relacion completa (es TEXT ahi).
+  pushSede('origenLead', vContact.cf_3472 || '');
   pushSede('canalCaptacion', vContact.cf_3507 || '');
   pushSede('tratamientoComprado', tratamiento || vContact.cf_2610 || '');
   pushSede('contactoNo', vContact.contact_no || '');
@@ -501,7 +527,7 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     name: nombreLimpio.name,
     email: vContact.email || undefined,
     city: geo.find(g => g.key === 'city')?.field_value || undefined,
-    state: geo.find(g => g.key === 'state')?.field_value || estadoCodigo || estadoGeo || undefined,
+    state: geo.find(g => g.key === 'state')?.field_value || estadoResuelto || undefined,
     source: vContact.cf_3472 || 'vTiger',
     customFields: camposSede
   };

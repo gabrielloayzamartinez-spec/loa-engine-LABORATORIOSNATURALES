@@ -24,7 +24,7 @@ import {
   syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador,
   limpiarNombre, buildNombreFields
 } from '../services/dual_sync_service.js';
-import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields } from '../utils/geo_phone_sanitizer.js';
+import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields, isUsStateCode } from '../utils/geo_phone_sanitizer.js';
 import { SEDES_GATEWAY } from '../config/index.js';
 
 let passed = 0;
@@ -321,6 +321,61 @@ const pNombre = buildUpsertPayloads(
 );
 assert(pNombre.macro.firstName === '' && pNombre.macro.name === 'PEREZ', 'El payload macro usa el nombre saneado');
 assert(pNombre.operativa.name === 'PEREZ', 'El payload de la sede usa el nombre saneado');
+
+// ------------------------------------------------------------------------------
+// 10. ANTI-ALUCINACION: sólo datos exactos de vTiger, nada inventado
+// ------------------------------------------------------------------------------
+console.log('\n[TEST 10] Anti-alucinación: sólo valores reales y validados');
+
+const baseAnti = { id: 'A1', firstname: 'X', lastname: 'Y', homephone: '3055551234', cf_3451: 'PALACIOS', spl_num_compras: '1' };
+
+// --- a) La zona horaria NUNCA se publica ---
+// vTiger trae "ESTE"/"PACIFICO"/"CENTRO"/"MONTAÑA". GHL gestiona su propio campo
+// `timezone`: escribir una zona derivada es exactamente lo que no debe hacerse.
+const pTz = buildUpsertPayloads(
+  { ...baseAnti, splareacodes_timezone: 'PACIFICO', splareacodes_state: ' California', splareacodes_state_code: 'CA' },
+  { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} }
+);
+assert(!('timezone' in pTz.macro) && !('timezone' in pTz.operativa), 'El motor NO envía ningún campo timezone');
+assert(JSON.stringify(pTz).indexOf('PACIFICO') === -1, 'El valor de zona horaria no aparece en ningún payload');
+assert(JSON.stringify(pTz).indexOf('MONTAÑA') === -1, 'Ninguna zona horaria se cuela en el payload');
+
+// --- b) El estado SÓLO se publica si es un estado real y válido ---
+const pEstadoOk = buildUpsertPayloads({ ...baseAnti, splareacodes_state: ' Ohio', splareacodes_state_code: 'OH' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(pEstadoOk.macro.state === 'OH', 'Un estado válido se normaliza al código de 2 letras');
+
+const pEstadoNombre = buildUpsertPayloads({ ...baseAnti, splareacodes_state: 'South Carolina', splareacodes_state_code: '' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(pEstadoNombre.macro.state === 'SC', 'El nombre completo del estado se convierte a su código');
+
+// DEFECTO REAL CORREGIDO: existía un fallback que escribía el valor crudo sin
+// validar y colaba "VI" (que ni siquiera es Virginia: es VA).
+const pEstadoInvalido = buildUpsertPayloads({ ...baseAnti, splareacodes_state: '', splareacodes_state_code: 'VI' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(pEstadoInvalido.macro.state === undefined || pEstadoInvalido.macro.state === '', 'Un código de estado inválido ("VI") NO se escribe: se omite');
+assert(pEstadoInvalido.macro.state !== 'VI', 'El valor inválido jamás llega a la tarjeta');
+
+const pEstadoBasura = buildUpsertPayloads({ ...baseAnti, splareacodes_state: 'ESTE', splareacodes_state_code: 'ESTE' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(!pEstadoBasura.macro.state || isUsStateCode(pEstadoBasura.macro.state), 'Una zona horaria en el campo de estado NO se publica como estado');
+
+const pEstadoSinDatos = buildUpsertPayloads({ ...baseAnti, cf_1157: '' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(!pEstadoSinDatos.macro.city, 'Sin ciudad en vTiger NO se inventa una');
+
+// --- c) La relación de origen se publica EXACTAMENTE como viene de vTiger ---
+// vTiger ya la trae armada en cf_3472 (verificado idéntico en 20/20 contactos).
+const pOrigen = buildUpsertPayloads(
+  { ...baseAnti, cf_3451: 'PALACIOS', cf_2572: 'CLICK2RING', cf_3507: 'FB-MSGR', cf_2610: 'Artritis', cf_3472: 'PALACIOS-CLICK2RING-FB-MSGR-Artritis' },
+  { incluirHistorial: true, fieldIdsCentral: { origenLead: 'O1', campanaOrigen: 'O2' }, fieldIdsSede: { origenLead: 'O3', campanaOrigen: 'O4' } }
+);
+assert(valor(pOrigen.macro.customFields, 'origenLead') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'La relación SEDE-PROVEEDOR-CANAL-PADECIMIENTO se publica textual');
+assert(valor(pOrigen.operativa.customFields, 'origenLead') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'La sede también recibe la relación');
+assert(valor(pOrigen.macro.customFields, 'origenLead') === valor(pOrigen.macro.customFields, 'campanaOrigen'), 'Se publica el MISMO valor de vTiger, sin recomponerlo ni reformatearlo');
+
+// --- d) El sexo NO se inventa ---
+// vTiger: cf_862 (sexo) está DENEGADO por permisos de rol; el único campo legible
+// (salutationtype) vale "." en el 100% de la muestra. GHL no tiene campo de sexo.
+// Ante eso el motor NO deriva el sexo del nombre ni de nada: no lo publica.
+const pSexo = buildUpsertPayloads({ ...baseAnti, firstname: 'MARIA', salutationtype: '.' }, { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} });
+assert(JSON.stringify(pSexo).indexOf('sexo') === -1 && JSON.stringify(pSexo).indexOf('genero') === -1, 'No se escribe ningún campo de sexo/género');
+assert(JSON.stringify(pSexo).indexOf('Femenino') === -1 && JSON.stringify(pSexo).indexOf('Masculino') === -1, 'No se deriva el sexo del nombre (sería una invención)');
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
