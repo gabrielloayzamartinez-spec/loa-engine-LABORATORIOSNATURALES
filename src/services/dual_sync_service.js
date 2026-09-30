@@ -215,6 +215,43 @@ export const TAGS_ESTATUS_PROTEGIDAS = [
 const TAGS_GESTIONADAS = ['vtiger', 'vtiger-sincronizado', 'campaña-nueva', 'campana-nueva', 'reingreso'];
 
 /**
+ * Limpia un componente del nombre.
+ *
+ * En vTiger el campo `salutationtype` vale `"."` y a veces ese punto termina en
+ * el nombre, produciendo tarjetas como ". PEREZ". También hay valores con
+ * espacios sobrantes que generan "ANA     LOPEZ". Se sanea para que la tarjeta
+ * del contacto se lea correctamente.
+ *
+ * @param {string} valor
+ * @returns {string} el valor limpio, o '' si no aporta nada
+ */
+export function limpiarNombre(valor = '') {
+  // [DEFECTO CORREGIDO] Sin esta comprobación, `String(null)` produce "null" y
+  // `String(0)` produce "0": la tarjeta habría mostrado el literal "null" como
+  // nombre. Sólo se aceptan cadenas y números como texto válido.
+  if (valor === null || valor === undefined) return '';
+  if (typeof valor === 'boolean') return '';
+  const limpio = String(valor)
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Marcadores vacíos que no son nombres reales
+  if (!limpio) return '';
+  if (/^[.\-_*]+$/.test(limpio)) return '';
+  return limpio;
+}
+
+/**
+ * Construye los tres campos de nombre que GHL usa, ya saneados.
+ * @returns {{firstName: string, lastName: string, name: string|undefined}}
+ */
+export function buildNombreFields(vContact = {}) {
+  const firstName = limpiarNombre(vContact.firstname);
+  const lastName = limpiarNombre(vContact.lastname);
+  const nombre = [firstName, lastName].filter(Boolean).join(' ').trim();
+  return { firstName, lastName, name: nombre || undefined };
+}
+
+/**
  * [REGLA DE NEGOCIO - INNEGOCIABLE] Sólo se sincronizan COMPRADORES.
  *
  * Un contacto de vTiger sin compras es un LEAD, y los leads NO se mudan a GHL
@@ -344,6 +381,8 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   const tratamiento = normalizeTreatment(vContact.cf_2610) || '';
 
   const nombre = [vContact.firstname, vContact.lastname].filter(Boolean).join(' ').trim();
+  // Nombre saneado: vTiger trae basura como salutationtype "." o espacios dobles.
+  const nombreLimpio = buildNombreFields(vContact);
   const compras = parseInt(vContact.spl_num_compras || '0', 10) || 0;
   const esComprador = compras > 0;
 
@@ -417,9 +456,9 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   const macro = {
     locationId: CENTRAL_LOCATION_ID,
     phone,
-    firstName: vContact.firstname || '',
-    lastName: vContact.lastname || '',
-    name: nombre || undefined,
+    firstName: nombreLimpio.firstName,
+    lastName: nombreLimpio.lastName,
+    name: nombreLimpio.name,
     email: vContact.email || undefined,
     // La ciudad sale de cf_1157 (la operativa real); el estado de splareacodes_*
     // porque mailingcity/mailingstate están restringidos por rol.
@@ -457,9 +496,9 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   const operativa = {
     locationId: sedeConf?.ghl?.locationId || null,
     phone,
-    firstName: vContact.firstname || '',
-    lastName: vContact.lastname || '',
-    name: nombre || undefined,
+    firstName: nombreLimpio.firstName,
+    lastName: nombreLimpio.lastName,
+    name: nombreLimpio.name,
     email: vContact.email || undefined,
     city: geo.find(g => g.key === 'city')?.field_value || undefined,
     state: geo.find(g => g.key === 'state')?.field_value || estadoCodigo || estadoGeo || undefined,

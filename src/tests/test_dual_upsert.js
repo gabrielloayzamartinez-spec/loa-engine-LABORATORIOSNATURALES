@@ -21,7 +21,8 @@ import {
   pickPhone, resolveSedeFromVtiger, buildUpsertPayloads,
   partitionFields, mergeTagsPreservingStatus, esCampoHistorialProtegido,
   CAMPOS_HISTORIAL_PROTEGIDOS, TAGS_ESTATUS_PROTEGIDAS, isCentralConfigured,
-  syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador
+  syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador,
+  limpiarNombre, buildNombreFields
 } from '../services/dual_sync_service.js';
 import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields } from '../utils/geo_phone_sanitizer.js';
 import { SEDES_GATEWAY } from '../config/index.js';
@@ -275,6 +276,51 @@ assert(nombresSede.includes('tratamientoComprado') && nombresSede.includes('cana
 assert(!nombresSede.includes('asesorAsignado') && !nombresSede.includes('totalHistorico'), 'La sede NO recibe campos exclusivos de la Empresa');
 
 assert(!nombresMacro.includes('anotacionesRedes'), 'No se publica cf_3561: su valor ("49") no aporta información');
+
+// ------------------------------------------------------------------------------
+// 9. CALIDAD DEL NOMBRE EN LA TARJETA DEL CONTACTO
+// ------------------------------------------------------------------------------
+// vTiger trae basura en los nombres: `salutationtype` vale "." y a veces ese
+// punto llega al nombre (tarjetas tipo ". PEREZ"), o hay espacios dobles que
+// producen "ANA     LOPEZ". La tarjeta debe leerse correctamente.
+console.log('\n[TEST 9] Calidad del nombre en la tarjeta del contacto');
+
+assert(limpiarNombre('  ANA  ') === 'ANA', 'Recorta espacios sobrantes');
+assert(limpiarNombre('ANA   MARIA') === 'ANA MARIA', 'Colapsa espacios internos duplicados');
+assert(limpiarNombre('.') === '', 'Un punto (salutationtype de vTiger) no es un nombre');
+assert(limpiarNombre('...') === '', 'Varios puntos tampoco');
+assert(limpiarNombre('-') === '' && limpiarNombre('_') === '' && limpiarNombre('*') === '', 'Otros marcadores vacíos se descartan');
+assert(limpiarNombre('') === '' && limpiarNombre(null) === '' && limpiarNombre(undefined) === '', 'Vacíos y nulos devuelven vacío');
+assert(limpiarNombre('JOSÉ') === 'JOSÉ', 'Conserva acentos');
+assert(limpiarNombre('MUÑOZ') === 'MUÑOZ', 'Conserva la eñe');
+assert(limpiarNombre("O'BRIEN") === "O'BRIEN", 'Conserva apóstrofes');
+assert(limpiarNombre('DE LA CRUZ') === 'DE LA CRUZ', 'Conserva apellidos compuestos');
+
+const n1 = buildNombreFields({ firstname: 'MIGUEL', lastname: 'REVILLA' });
+assert(n1.firstName === 'MIGUEL' && n1.lastName === 'REVILLA' && n1.name === 'MIGUEL REVILLA', 'Caso normal: nombre y apellido bien separados');
+
+const n2 = buildNombreFields({ firstname: '.', lastname: 'PEREZ' });
+assert(n2.firstName === '' && n2.name === 'PEREZ', 'Un punto como nombre no contamina la tarjeta (antes: ". PEREZ")');
+
+const n3 = buildNombreFields({ firstname: 'ROSA', lastname: '' });
+assert(n3.firstName === 'ROSA' && n3.lastName === '' && n3.name === 'ROSA', 'Sin apellido el nombre queda limpio, sin espacios colgando');
+
+const n4 = buildNombreFields({ firstname: '', lastname: 'GOMEZ' });
+assert(n4.lastName === 'GOMEZ' && n4.name === 'GOMEZ', 'Sin nombre el apellido queda limpio');
+
+const n5 = buildNombreFields({ firstname: '  ANA  ', lastname: '  LOPEZ  ' });
+assert(n5.name === 'ANA LOPEZ', 'Con espacios sobrantes el nombre queda "ANA LOPEZ" (antes "ANA     LOPEZ")');
+
+const n6 = buildNombreFields({});
+assert(n6.firstName === '' && n6.lastName === '' && n6.name === undefined, 'Sin ningún nombre, name queda undefined (no se envía basura)');
+
+// El payload real debe usar los nombres saneados, no los crudos.
+const pNombre = buildUpsertPayloads(
+  { id: 'X', firstname: '.', lastname: 'PEREZ', homephone: '3055551234', cf_3451: 'PALACIOS', spl_num_compras: '1' },
+  { incluirHistorial: true, fieldIdsCentral: {}, fieldIdsSede: {} }
+);
+assert(pNombre.macro.firstName === '' && pNombre.macro.name === 'PEREZ', 'El payload macro usa el nombre saneado');
+assert(pNombre.operativa.name === 'PEREZ', 'El payload de la sede usa el nombre saneado');
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
