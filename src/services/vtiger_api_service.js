@@ -5,7 +5,6 @@ import { learningBrain } from './learning_brain.js';
 import { query as vtigerQuery, login as vtigerLogin, VTIGER_FIELDS, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, sedeClause } from './vtigerClient.js';
 import { sanitizeForVtigerQuery, digitsOnly } from '../utils/sanitize.js';
 import { recordAuditEvent } from './audit_logger.js';
-import { detectCollision, resolveCollision } from './contact_collision_service.js';
 
 // [AUTENTICACIÓN CENTRALIZADA] Una sola sesión de Administrador global.
 // El aislamiento multi-sede lo garantiza el campo nativo `cf_3451` en cada
@@ -179,73 +178,41 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
       phoneMatches = (phoneMatches || []).filter(v => belongsToSede(v, targetSedeUpper));
 
       if (phoneMatches.length > 0) {
-        {
-          // [ESCUDO DE HOMONIMIA ESTRICTA]: Cruzar el nombre/apellido.
-          // Previene que familiares que comparten celular (ej. Perez vs Martinez) sean fusionados.
-          const strictMatches = phoneMatches.filter(v => {
-            const vFirst = sanitizeForVtigerQuery(v.firstname || '');
-            const vLast = sanitizeForVtigerQuery(v.lastname || '');
-            
-            // Si en GHL no tenemos nombre, lo dejamos pasar (no hay forma de validar).
-            if (!firstName && !lastName) return true;
-
-            // Validar que al menos el Nombre o el Apellido (mínimo 3 letras) compartan raíz
-            // Ej: "MART" y "MARTINEZ" coincidirán. "PEREZ" y "MARTINEZ" fallarán.
-            const lastMatch = (lastName.length >= 3 && vLast.includes(lastName)) || (vLast.length >= 3 && lastName.includes(vLast));
-            const firstMatch = (firstName.length >= 3 && vFirst.includes(firstName)) || (vFirst.length >= 3 && firstName.includes(vFirst));
-
-            // Debe coincidir apellido O nombre para considerarse la misma persona.
-            return lastMatch || firstMatch;
+        // ======================================================================
+        // [REGLA DEL NEGOCIO] EL TELÉFONO ES EL ÚNICO FACTOR QUE RELACIONA.
+        //
+        // Antes había un "escudo de homonimia" que cruzaba nombre y apellido para
+        // decidir si dos registros con el mismo teléfono eran la misma persona, y
+        // un resolvedor que comparaba similitud de nombres. Esa lógica se RETIRA:
+        // el match se resuelve SOLO por el número.
+        //
+        // Justificación operativa: en GHL el teléfono ya es único por subcuenta
+        // (la plataforma no admite dos contactos con el mismo número en la misma
+        // location). El número es la llave del dato comercial y el nombre no
+        // participa en la decisión.
+        //
+        // Si varios registros de vTiger comparten el número, se prefiere el que
+        // TIENE COMPRAS (es la cartera que interesa); si ninguno tiene, se toma el
+        // primero. La decisión queda auditada para poder rastrearla.
+        // ======================================================================
+        if (phoneMatches.length > 1) {
+          recordAuditEvent({
+            type: 'VTIGER_PHONE_MULTI_MATCH',
+            severity: 'warn',
+            telefono: last10,
+            sede: targetSedeUpper,
+            candidatos: phoneMatches.length,
+            conCompras: phoneMatches.filter(v => parseInt(v.spl_num_compras || '0', 10) > 0).length,
+            reason: 'varios registros comparten el teléfono: se elige por compras, sin usar el nombre'
           });
-
-          if (strictMatches.length > 0) {
-            // Prioridad A: Match con compras registradas
-            const withSales = strictMatches.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
-            if (withSales) return withSales;
-
-            // Prioridad B: Primer match disponible dentro de la sede
-            return strictMatches[0];
-          } else {
-            // [MERGE SOP - RESCATE DE DATOS]
-            // ANTES: se descartaba el candidato y sus datos se PERDÍAN, con un
-            // `warn` que nadie leía. Ahora se resuelve el enfrentamiento: si uno
-            // de los contactos con el mismo teléfono tiene compras, ése es la
-            // persona real y se rescata su historial; si hay conflicto real, se
-            // marca para revisión humana y se documenta en la tarjeta.
-            console.warn(`[VTiger API] [COLISION] El teléfono ${last10} existe con ${phoneMatches.length} contacto(s) pero los nombres no coinciden. Aplicando MERGE SOP para rescatar datos.`);
-            try {
-              // Se pasan TODOS los candidatos con el mismo teléfono (no sólo el
-              // primero): el resolvedor necesita ver quién tiene compras.
-              const informe = await detectCollision(
-                { ...phoneMatches[0], homephone: last10 },
-                { sedeActiva: targetSedeUpper, candidatos: phoneMatches }
-              );
-              // Se declara la discrepancia de nombre: el teléfono coincidió pero el
-              // nombre del lead no. Sin esto el motivo reportaría "sin colisión",
-              // ocultando que hubo una discrepancia real.
-              informe.discrepanciaNombre = phoneMatches;
-              const resolucion = resolveCollision(informe, phoneMatches[0]);
-
-              if (resolucion.elegido && !resolucion.requiereRevision) {
-                const elegidoId = String(resolucion.elegido.vTigerId);
-                const encontrado = phoneMatches.find(v => String(v.id) === elegidoId);
-                if (encontrado) {
-                  console.log(`[VTiger API] [COLISION-RESUELTA] Se rescata ${resolucion.elegido.nombre} (${resolucion.elegido.compras} compras) — ${resolucion.motivo}`);
-                  return encontrado;
-                }
-              }
-
-              if (resolucion.requiereRevision) {
-                // No se elige a ciegas: se devuelve el candidato para no romper el
-                // flujo, pero la colisión queda auditada y documentada.
-                console.error(`[VTiger API] [COLISION-REVISION] ${resolucion.motivo}. Se requiere criterio humano; la colisión quedó registrada en auditoría.`);
-                return phoneMatches[0];
-              }
-            } catch (colErr) {
-              console.warn(`[VTiger API] [COLISION-WARN] No se pudo resolver el enfrentamiento: ${colErr.message}`);
-            }
-          }
         }
+
+        const conCompras = phoneMatches.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
+        const elegido = conCompras || phoneMatches[0];
+        if (phoneMatches.length > 1) {
+          console.log(`[VTiger API] [TELEFONO] ${last10} coincide con ${phoneMatches.length} registros de ${targetSedeUpper}; se elige ${elegido.firstname} ${elegido.lastname} (compras=${elegido.spl_num_compras || 0}) por tener compras.`);
+        }
+        return elegido;
       }
     } catch (pErr) {
       console.warn(`[VTiger API] [WARN] Error en búsqueda directa por teléfono (${last10}):`, pErr.message);
