@@ -330,7 +330,9 @@ export function assertTenantIsolation(sql = '', { inheritedSede = null } = {}) {
   // --- Estrategia 2: módulo sin campo de sede; aislamiento por vínculo al contacto ---
   // Se exige (a) que la consulta esté acotada por el vínculo y (b) que la sede se
   // herede EXPLÍCITAMENTE del contacto seleccionado bajo Sede-Lock.
-  const linkPattern = new RegExp(`${strategy.linkField}\\s*=`, 'i');
+  // El vínculo se acepta con '=', 'IN' u operadores de comparación: el gate debe
+  // reconocer las formas válidas de acotar, no sólo la igualdad.
+  const linkPattern = new RegExp(`${strategy.linkField}\\s*(=|IN\\s*\\(|LIKE|!=|<>|>=|<=|>|<)`, 'i');
   if (!linkPattern.test(statement)) {
     return {
       safe: false,

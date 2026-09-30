@@ -58,20 +58,25 @@ async function findGhlContact(vContact) {
     return null;
   }
 
+  // [ENDPOINT CORREGIDO] `/contacts/search` responde HTTP 400 en esta cuenta y
+  // hacía que el Reverse Sync no encontrara NUNCA el par en GHL. El correcto es
+  // `/contacts/?locationId=...&query=...` (verificado en vivo).
   const headers = getGhlHeaders({ locationId: targetLocId });
 
   if (cleanPhone.length >= 7) {
-    const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${targetLocId}&query=${cleanPhone}`;
+    const searchUrl = `https://services.leadconnectorhq.com/contacts/?locationId=${targetLocId}&query=${cleanPhone}`;
     const res = await fetchWithRetry(searchUrl, { headers });
     if (res.status === 200) {
       const data = await res.json();
       const contacts = data.contacts || [];
       if (contacts.length > 0) return { ...contacts[0], locationId: targetLocId };
+    } else {
+      console.warn(`[Reverse Sync] [SEARCH-WARN] Búsqueda por teléfono devolvió HTTP ${res.status}.`);
     }
   }
 
   if (email.includes('@')) {
-    const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${targetLocId}&query=${encodeURIComponent(email)}`;
+    const searchUrl = `https://services.leadconnectorhq.com/contacts/?locationId=${targetLocId}&query=${encodeURIComponent(email)}`;
     const res = await fetchWithRetry(searchUrl, { headers });
     if (res.status === 200) {
       const data = await res.json();

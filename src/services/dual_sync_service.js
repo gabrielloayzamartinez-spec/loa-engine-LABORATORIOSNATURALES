@@ -70,7 +70,9 @@ const CAMPOS_REQUERIDOS = {
   precioVenta: ['precio venta', 'v tiger precio venta', 'monto invertido'],
   ultimaInteraccion: ['ultima interaccion'],
   campanaOrigen: ['utm campaign', 'campana origen', 'origen lead'],
-  idClienteVt: ['v tiger id cliente', 'id cliente', 'v tiger contact no']
+  idClienteVt: ['v tiger id cliente', 'id cliente', 'v tiger contact no'],
+  // Campo LARGE_TEXT que aloja el detalle de órdenes (verificado en vivo).
+  historialCompleto: ['v tiger historial completo', 'historial completo']
 };
 
 // ------------------------------------------------------------------------------
@@ -406,6 +408,12 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
 // ------------------------------------------------------------------------------
 /**
  * Busca un contacto por teléfono dentro de una location.
+ *
+ * CORRECCIÓN VERIFICADA EN VIVO: `/contacts/search` responde **HTTP 400** en esta
+ * cuenta, por lo que la búsqueda devolvía `null` siempre y el motor concluía
+ * "no existe" aunque el contacto sí existiera. El endpoint correcto es
+ * `/contacts/?locationId=...&query=...`.
+ *
  * @returns {object|null} contacto existente o null
  */
 export async function findContactByPhone(locationId, phone, headers) {
@@ -413,15 +421,18 @@ export async function findContactByPhone(locationId, phone, headers) {
   const limpio = String(phone).replace(/\D/g, '');
   try {
     const res = await ghlFetch(
-      `https://services.leadconnectorhq.com/contacts/search?locationId=${locationId}&query=${limpio}`,
+      `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&query=${limpio}`,
       { headers },
       1,
       'Dual Sync'
     );
-    if (res.status !== 200) return null;
+    if (res.status !== 200) {
+      console.warn(`[Dual Sync] [SEARCH-WARN] Búsqueda de contacto HTTP ${res.status} en ${locationId}.`);
+      return null;
+    }
     const data = await res.json();
     const contactos = data.contacts || [];
-    // Se prefiere el que coincida exactamente en teléfono
+    // Se prefiere el que coincida por los últimos 10 dígitos (NANP).
     return contactos.find(c => String(c.phone || '').replace(/\D/g, '').endsWith(limpio.slice(-10))) || contactos[0] || null;
   } catch (err) {
     console.warn(`[Dual Sync] [SEARCH-WARN] ${locationId}: ${err.message}`);

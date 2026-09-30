@@ -5,8 +5,8 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "test": "node src/tests/test_audit_engine.js && node src/tests/test_commercial_engine.js && node src/tests/test_cooldown_mudanza.js && node src/tests/test_doble_ingreso.js && node src/tests/test_sede_isolation.js && node src/tests/test_sede_governance.js && node src/tests/test_queue_policy.js && node src/tests/test_clinical_vocabulary.js && node src/tests/test_security_hardening.js && node src/tests/test_ingress_filter.js && node src/tests/test_dual_upsert.js",
-    "test:offline": "node src/tests/test_audit_engine.js && node src/tests/test_commercial_engine.js && node src/tests/test_cooldown_mudanza.js && node src/tests/test_doble_ingreso.js && node src/tests/test_sede_isolation.js && node src/tests/test_sede_governance.js && node src/tests/test_queue_policy.js && node src/tests/test_clinical_vocabulary.js && node src/tests/test_security_hardening.js && node src/tests/test_ingress_filter.js && node src/tests/test_dual_upsert.js",
+    "test": "node src/tests/test_audit_engine.js && node src/tests/test_commercial_engine.js && node src/tests/test_cooldown_mudanza.js && node src/tests/test_doble_ingreso.js && node src/tests/test_sede_isolation.js && node src/tests/test_sede_governance.js && node src/tests/test_queue_policy.js && node src/tests/test_clinical_vocabulary.js && node src/tests/test_security_hardening.js && node src/tests/test_ingress_filter.js && node src/tests/test_dual_upsert.js && node src/tests/test_order_history.js",
+    "test:offline": "node src/tests/test_audit_engine.js && node src/tests/test_commercial_engine.js && node src/tests/test_cooldown_mudanza.js && node src/tests/test_doble_ingreso.js && node src/tests/test_sede_isolation.js && node src/tests/test_sede_governance.js && node src/tests/test_queue_policy.js && node src/tests/test_clinical_vocabulary.js && node src/tests/test_security_hardening.js && node src/tests/test_ingress_filter.js && node src/tests/test_dual_upsert.js && node src/tests/test_order_history.js",
     "test:governance": "node src/tests/test_sede_governance.js",
     "test:queue": "node src/tests/test_queue_policy.js",
     "test:vocab": "node src/tests/test_clinical_vocabulary.js",
@@ -25,7 +25,8 @@
     "create": "node src/scripts/pipeline_manager.js",
     "distribute": "node src/services/distribute_contacts.js",
     "test:ingress": "node src/tests/test_ingress_filter.js",
-    "test:dual": "node src/tests/test_dual_upsert.js"
+    "test:dual": "node src/tests/test_dual_upsert.js",
+    "test:orders": "node src/tests/test_order_history.js"
   },
   "keywords": [
     "ghl",

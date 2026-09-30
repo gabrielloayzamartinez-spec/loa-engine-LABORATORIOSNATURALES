@@ -24,6 +24,7 @@ import { recordAuditEvent, getAuditMetrics, readAuditEvents } from './services/a
 import { getVtigerConfigStatus } from './services/vtigerClient.js';
 import { syncVtigerContactDual } from './services/dual_sync_service.js';
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
+import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
 import { getActiveSedeAgents, getSedeAgent } from './agents/sede_agent.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes } from './config/sedes_gateway.js';
@@ -1141,6 +1142,35 @@ app.post('/api/vtiger/sales-bridge', async (req, res) => {
   }
 });
 
+/**
+ * [TICKET 1] Historial de compras vTiger -> GHL (detalle de órdenes).
+ * Avanza UN lote del backfill reanudable. Llamar repetidamente hasta que
+ * `completo: true`. El cursor persiste, así que no repite trabajo.
+ * Query: ?lote=50&lotes=1 (contactos por lote y lotes por ejecución)
+ */
+app.post('/api/vtiger/order-history', async (req, res) => {
+  try {
+    const lote = Math.min(Math.max(parseInt(req.query.lote || req.body?.lote || '50', 10) || 50, 1), 150);
+    const lotes = Math.min(Math.max(parseInt(req.query.lotes || req.body?.lotes || '1', 10) || 1, 1), 20);
+    res.json({ success: true, message: `Backfill de historial iniciado (${lotes} lote(s) de ${lote}). Consulta /api/vtiger/order-history/status.` });
+    setImmediate(() => {
+      runOrderHistoryBackfill({ tamanoLote: lote, maxLotes: lotes })
+        .catch(err => console.error('[Order Backfill] Error:', err.message));
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/** Estado del backfill de historial (progreso y totales acumulados). */
+app.get('/api/vtiger/order-history/status', async (req, res) => {
+  try {
+    res.json({ success: true, estado: await getBackfillStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/webhook/vtiger', async (req, res) => {
   try {
     // [SANITIZACIÓN OBLIGATORIA] Endpoint semi-público: el payload se sanea por
@@ -1347,7 +1377,19 @@ export function registerBackgroundSchedulers() {
       .catch(err => console.error('[Sales Bridge] Error en ciclo programado:', err.message));
   }, 10 * 60 * 1000));
 
-  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s).`);
+  // [TICKET 1] Backfill del DETALLE de órdenes vTiger -> GHL.
+  // Avanza lotes pequeños cada 30 min hasta completar el historial de todas las
+  // sedes. El cursor persiste en el StateStore: un redeploy no reinicia el trabajo.
+  timers.push(setInterval(() => {
+    getBackfillStatus()
+      .then(estado => {
+        if (estado.completo) return; // nada pendiente
+        return runOrderHistoryBackfill({ tamanoLote: 25, maxLotes: 2, pausaMs: 400 });
+      })
+      .catch(err => console.error('[Order Backfill] Error en ciclo programado:', err.message));
+  }, 30 * 60 * 1000));
+
+  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s, order-history 1800s).`);
   return timers;
 }
 
