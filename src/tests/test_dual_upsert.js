@@ -22,7 +22,7 @@ import {
   partitionFields, mergeTagsPreservingStatus, esCampoHistorialProtegido,
   CAMPOS_HISTORIAL_PROTEGIDOS, TAGS_ESTATUS_PROTEGIDAS, isCentralConfigured,
   syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador,
-  limpiarNombre, buildNombreFields
+  limpiarNombre, buildNombreFields, parseFechaGhl, debeAvanzarFecha
 } from '../services/dual_sync_service.js';
 import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields, isUsStateCode, isNanpValid, explainPhoneRejection } from '../utils/geo_phone_sanitizer.js';
 import { SEDES_GATEWAY } from '../config/index.js';
@@ -495,6 +495,51 @@ assert(resSinSede.skipped === true, 'Una sede no reconocida se descarta (no se s
 for (const [caso, r] of [['lead', resLead12], ['sin teléfono', resSinTel], ['sin sede', resSinSede]]) {
   assert(typeof r.ok === 'boolean' && typeof r.skipped === 'boolean', `El caso "${caso}" expone ok y skipped como booleanos`);
 }
+
+// ------------------------------------------------------------------------------
+// 13. AVANCE MONÓTONO DEL HISTORIAL (fechas que no retroceden)
+// ------------------------------------------------------------------------------
+// DEFECTO REAL DETECTADO EN PRODUCCION: la protección del historial era "si el
+// contacto existe, no toques sus campos de compra". Eso CONGELABA la fecha de
+// última compra: un cliente que VOLVÍA A COMPRAR nunca la actualizaba, y la mitad
+// de los contactos en GHL quedó sin ese dato (25 de 50 medidos). Sin él no puede
+// funcionar una Smart List de "compras de la última semana" (campaña de SMS).
+// La regla correcta es "no retroceder", no "no tocar".
+console.log('\n[TEST 13] Avance monótono: el historial avanza pero nunca retrocede');
+
+// Normalización: GHL entrega epoch ms en sus campos DATE; vTiger entrega YYYY-MM-DD.
+assert(parseFechaGhl('1763942400000') !== null, 'Un epoch en ms de GHL se parsea');
+assert(new Date(parseFechaGhl('1763942400000')).toISOString().slice(0, 10) === '2025-11-24', 'El epoch de GHL se interpreta como fecha correcta');
+assert(new Date(parseFechaGhl('2026-09-25')).toISOString().slice(0, 10) === '2026-09-25', 'Una fecha de vTiger se parsea igual');
+assert(parseFechaGhl('') === null && parseFechaGhl(null) === null, 'Vacío y null devuelven null');
+assert(parseFechaGhl('basura') === null, 'Un texto inválido devuelve null');
+
+const ms = (iso) => String(new Date(`${iso}T00:00:00Z`).getTime());
+assert(debeAvanzarFecha('2026-09-25', ms('2025-01-01')) === true, 'vTiger más reciente que GHL -> avanza');
+assert(debeAvanzarFecha('2025-01-01', ms('2026-09-25')) === false, 'vTiger más antiguo que GHL -> NO retrocede');
+assert(debeAvanzarFecha('2026-09-25', ms('2026-09-25')) === false, 'Misma fecha -> no hay avance');
+assert(debeAvanzarFecha('2026-09-25', '') === true, 'GHL sin el dato -> se escribe');
+assert(debeAvanzarFecha('2026-09-25', null) === true, 'GHL null -> se escribe');
+assert(debeAvanzarFecha('', ms('2026-09-25')) === false, 'vTiger sin dato -> no se escribe nada');
+
+// Comportamiento real dentro del payload
+const vMono = {
+  id: '12x1', firstname: 'ANA', lastname: 'MONO', homephone: '6145179276', cf_3451: 'PALACIOS',
+  spl_num_compras: '3', spl_fecha_ultima_compra: '2026-09-25', spl_fecha_primera_compra: '2025-01-10', cf_3392: '500'
+};
+const idsMono = { totalCompras: 'T1', fechaUltimaCompra: 'F1', fechaPrimeraCompra: 'F2', precioVenta: 'P1', idClienteVt: 'I1' };
+const enviaCampo = (ghlFields, id) => buildUpsertPayloads(vMono, {
+  incluirHistorial: true, fieldIdsSede: idsMono,
+  ghlExistenteSede: { customFields: ghlFields }
+}).operativa.customFields.some(f => f.id === id);
+
+assert(enviaCampo([{ id: 'F1', value: ms('2025-01-01') }], 'F1') === true, 'Contacto EXISTENTE con fecha vieja: la fecha AVANZA');
+assert(enviaCampo([{ id: 'F1', value: ms('2027-01-01') }], 'F1') === false, 'Contacto EXISTENTE con fecha más nueva: se PROTEGE');
+assert(enviaCampo([], 'F1') === true, 'Contacto sin el dato: la fecha se escribe');
+assert(enviaCampo([], 'F2') === true, 'La fecha de PRIMERA compra también se escribe cuando falta');
+assert(enviaCampo([{ id: 'T1', value: '1' }], 'T1') === true, 'El contador de compras avanza (1 -> 3)');
+assert(enviaCampo([{ id: 'T1', value: '9' }], 'T1') === false, 'El contador no retrocede (9 -> 3 se omite)');
+assert(enviaCampo([{ id: 'I1', value: '12x1' }], 'I1') === true, 'Un campo no comparable (id de cliente) se envía igual');
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
