@@ -218,6 +218,64 @@ assert(resLead.ok === false, 'Un lead no se reporta como sincronizado');
 assert(resLead.reason.includes('no es comprador'), `El motivo lo declara: "${resLead.reason}"`);
 assert(resLead.macro === undefined && resLead.operativa === undefined, 'El lead se corta ANTES de llamar a GHL (sin efectos externos)');
 
+// ------------------------------------------------------------------------------
+// 8. MAPEO COMPLETO DEL COMPRADOR (enriquecimiento total)
+// ------------------------------------------------------------------------------
+// Todo dato legible de vTiger que tenga destino real en GHL debe publicarse.
+console.log('\n[TEST 8] Mapeo completo: el comprador queda lleno, no a medias');
+
+const compradorCompleto = {
+  id: '12x35433', firstname: 'MIGUEL', lastname: 'REVILLA',
+  homephone: '6145179276', cf_3451: 'PALACIOS',
+  cf_2610: 'Artritis', cf_2572: 'CLICK2RING', cf_3507: 'FB-MSGR',
+  cf_3472: 'PALACIOS-CLICK2RING-FB-MSGR-Artritis',
+  cf_3392: '260.00000', cf_994: '1-POR ASIGNAR', cf_1876: 'CONVERTIDO',
+  spl_num_compras: '2',
+  spl_fecha_primera_compra: '2019-11-21',
+  spl_fecha_ultima_compra: '2019-12-18',
+  contact_no: 'CON6501',
+  wcf_acf_atf_3390: 'MARIBEL',
+  createdtime: '2019-11-21 19:53:22',
+  splareacodes_state: ' Ohio',
+  splareacodes_state_code: 'OH'
+};
+
+const idsMacro = { oficinaOrigen:'C1', totalCompras:'C2', fechaUltimaCompra:'C3', fechaPrimeraCompra:'C4', precioVenta:'C5', totalHistorico:'C6', ultimaInteraccion:'C7', campanaOrigen:'C8', idClienteVt:'C9', canalCaptacion:'C10', tratamientoComprado:'C11', estadoComercial:'C12', estadoVenta:'C13', contactoNo:'C14', asesorAsignado:'C15', fechaCreacion:'C16' };
+const idsSede = { oficinaOrigen:'S1', totalCompras:'S2', fechaUltimaCompra:'S3', fechaPrimeraCompra:'S4', precioVenta:'S5', ultimaInteraccion:'S6', campanaOrigen:'S7', idClienteVt:'S8', canalCaptacion:'S9', tratamientoComprado:'S10', estadoComercial:'S11', estadoVenta:'S12', contactoNo:'S13' };
+
+const p8 = buildUpsertPayloads(compradorCompleto, { incluirHistorial: true, fieldIdsCentral: idsMacro, fieldIdsSede: idsSede });
+const nombresMacro = p8.macro.customFields.map(f => f.nombre);
+const nombresSede = p8.operativa.customFields.map(f => f.nombre);
+const valor = (campos, n) => campos.find(f => f.nombre === n)?.field_value;
+
+assert(nombresMacro.length >= 16, `La carga macro llena ${nombresMacro.length} campos (antes 8)`);
+for (const campo of ['oficinaOrigen', 'campanaOrigen', 'canalCaptacion', 'tratamientoComprado', 'contactoNo', 'estadoVenta', 'estadoComercial', 'asesorAsignado', 'fechaCreacion', 'totalCompras', 'fechaUltimaCompra', 'fechaPrimeraCompra', 'precioVenta', 'idClienteVt', 'totalHistorico', 'ultimaInteraccion']) {
+  assert(nombresMacro.includes(campo), `La carga macro incluye "${campo}"`);
+}
+
+assert(valor(p8.macro.customFields, 'fechaPrimeraCompra') === '2019-11-21', 'Fecha de PRIMERA compra mapeada');
+assert(valor(p8.macro.customFields, 'fechaUltimaCompra') === '2019-12-18', 'Fecha de ÚLTIMA compra mapeada');
+assert(valor(p8.macro.customFields, 'fechaCreacion') === '2019-11-21', 'Fecha de creación (saneada a YYYY-MM-DD)');
+assert(valor(p8.macro.customFields, 'tratamientoComprado') === 'Artritis', 'Padecimiento/tratamiento mapeado');
+assert(valor(p8.macro.customFields, 'canalCaptacion') === 'FB-MSGR', 'Canal de captación mapeado');
+assert(valor(p8.macro.customFields, 'campanaOrigen').includes('CLICK2RING'), 'Campaña de origen mapeada');
+assert(valor(p8.macro.customFields, 'estadoComercial') === 'CONVERTIDO', 'Estado comercial del embudo mapeado');
+assert(valor(p8.macro.customFields, 'estadoVenta') === '1-POR ASIGNAR', 'Estado de venta mapeado');
+assert(valor(p8.macro.customFields, 'contactoNo') === 'CON6501', 'Código de cliente (contact_no) mapeado');
+assert(valor(p8.macro.customFields, 'asesorAsignado') === 'MARIBEL', 'Asesor asignado mapeado');
+assert(valor(p8.macro.customFields, 'totalHistorico') === '260.00000', 'Gasto histórico acumulado mapeado');
+
+// GEOGRAFÍA: el estado llega desde splareacodes_state_code, porque
+// mailingcity/mailingstate están restringidos por rol y salían vacíos.
+assert(p8.macro.state === 'OH', `El estado se resuelve desde splareacodes_state_code (${p8.macro.state})`);
+assert(p8.operativa.state === 'OH', 'La sede también recibe el estado');
+assert(!p8.macro.city, 'Sin ciudad real no se inventa una (cf_1157 viene vacío)');
+
+assert(nombresSede.includes('tratamientoComprado') && nombresSede.includes('canalCaptacion'), 'La sede también recibe tratamiento y canal');
+assert(!nombresSede.includes('asesorAsignado') && !nombresSede.includes('totalHistorico'), 'La sede NO recibe campos exclusivos de la Empresa');
+
+assert(!nombresMacro.includes('anotacionesRedes'), 'No se publica cf_3561: su valor ("49") no aporta información');
+
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
 console.log('==========================================================\n');

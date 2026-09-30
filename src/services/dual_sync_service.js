@@ -67,13 +67,24 @@ const CAMPOS_REQUERIDOS = {
   oficinaOrigen: ['oficina_origen', 'oficina origen', 'sede origen', 'v tiger sede tienda compra', 'sede asignada'],
   totalCompras: ['v tiger total compras', 'total compras', 'numero de compras', 'num compras'],
   fechaUltimaCompra: ['v tiger fecha ultima compra', 'fecha ultima compra', 'ultima compra'],
+  fechaPrimeraCompra: ['v tiger fecha primera compra', 'fecha primera compra'],
   precioVenta: ['precio venta', 'v tiger precio venta', 'monto invertido'],
   // La Cuenta Empresa expone campos comerciales mas ricos que las sedes
   // (verificado en vivo): el gasto historico acumulado del cliente.
   totalHistorico: ['v tiger total historico gastado usd', 'total historico gastado', 'total historico'],
   ultimaInteraccion: ['ultima interaccion'],
-  campanaOrigen: ['utm campaign', 'campana origen', 'origen lead'],
+  campanaOrigen: ['v tiger campana origen', 'utm campaign', 'campana origen', 'origen lead'],
   idClienteVt: ['v tiger id cliente', 'id cliente', 'v tiger contact no'],
+  // --- Campos de negocio que el comprador debe llevar completo ---
+  proveedor: ['proveedor', 'v tiger proveedor'],
+  canalCaptacion: ['v tiger canal captacion', 'canal captacion', 'canal'],
+  tratamientoComprado: ['tratamiento comprado', 'v tiger tratamiento comprado', 'tratamiento'],
+  estadoComercial: ['v tiger estado comercial', 'estado comercial'],
+  estadoVenta: ['v tiger estado de compra', 'estado de compra', 'v tiger estado venta'],
+  contactoNo: ['v tiger contact no', 'contact no', 'numero de contacto'],
+  asesorAsignado: ['v tiger asesor asignado', 'asesor asignado'],
+  fechaCreacion: ['v tiger fecha creacion', 'fecha creacion'],
+  anotacionesRedes: ['v tiger anotaciones redes', 'anotaciones redes'],
   // Campo LARGE_TEXT que aloja el detalle de órdenes.
   historialCompleto: ['v tiger historial completo', 'historial completo']
 };
@@ -336,6 +347,42 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   const compras = parseInt(vContact.spl_num_compras || '0', 10) || 0;
   const esComprador = compras > 0;
 
+  // ==========================================================================
+  // MAPEO COMPLETO vTiger -> GHL (solo se publica en campos que EXISTEN)
+  // ==========================================================================
+  // Inventario verificado en vivo. vTiger expone 93 campos del contacto (40 con
+  // valor). La Cuenta Empresa tiene 41 personalizados y las sedes 29. Se mapea
+  // todo lo que tiene destino real; lo que no lo tiene se OMITE en vez de
+  // inventar campos o escribir datos en el lugar equivocado.
+  //
+  // | vTiger                       | GHL                                    |
+  // |------------------------------|----------------------------------------|
+  // | firstname / lastname         | firstName / lastName (nativos)         |
+  // | email                        | email (nativo)                         |
+  // | homephone (prioritario)      | phone (nativo)                         |
+  // | cf_2572 proveedor            | Proveedor (pendiente de crear)         |
+  // | cf_2610 padecimiento         | Tratamiento comprado                   |
+  // | cf_3507 canal                | vTiger Canal Captacion                 |
+  // | cf_3472 campana              | vTiger Campana Origen / UTM Campaign   |
+  // | splareacodes_state(_code)    | state (nativo, saneado)                |
+  // | cf_1157 ciudad               | city (nativo)                          |
+  // | spl_fecha_ultima_compra      | vTiger Fecha Ultima Compra             |
+  // | spl_fecha_primera_compra     | vTiger Fecha Primera Compra            |
+  // | spl_num_compras              | vTiger Total Compras                   |
+  // | cf_3392 gasto ACUMULADO      | vTiger Total Historico Gastado USD     |
+  // | cf_994 estado de venta       | Estado de Compra                       |
+  // | cf_1876 estado del embudo    | vTiger Estado Comercial                |
+  // | contact_no                   | vTiger Contact No                      |
+  // | wcf_acf_atf_3390 asesor      | vTiger Asesor Asignado (solo Empresa)  |
+  // | createdtime                  | vTiger Fecha Creacion (solo Empresa)   |
+  // | Splash: sin campo destino    | cf_3561 (valor "49", no es anotacion)  |
+  // |                              | se DESCARTA: no aporta informacion     |
+  // ==========================================================================
+
+  /** Valores comerciales ya normalizados, compartidos por ambas cargas. */
+  const estadoGeo = String(vContact.splareacodes_state || '').trim();   // " Ohio" -> "Ohio"
+  const estadoCodigo = String(vContact.splareacodes_state_code || '').trim().toUpperCase();
+
   // --- Carga MACRO (Cuenta Empresa / Data Warehouse) ---
   const camposMacro = [];
   const push = (mapa, logico, valor) => {
@@ -344,21 +391,28 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     }
   };
 
+  // Identificación y origen (siempre, para que el contacto quede completo)
   push(fieldIdsCentral, 'oficinaOrigen', sedeId || vContact.cf_3451 || '');
   push(fieldIdsCentral, 'campanaOrigen', vContact.cf_3472 || '');
+  push(fieldIdsCentral, 'canalCaptacion', vContact.cf_3507 || '');
+  push(fieldIdsCentral, 'tratamientoComprado', tratamiento || vContact.cf_2610 || '');
+  push(fieldIdsCentral, 'contactoNo', vContact.contact_no || '');
+  push(fieldIdsCentral, 'estadoVenta', vContact.cf_994 || '');
+  push(fieldIdsCentral, 'estadoComercial', vContact.cf_1876 || '');
+  push(fieldIdsCentral, 'asesorAsignado', vContact.wcf_acf_atf_3390 || '');
+  push(fieldIdsCentral, 'fechaCreacion', String(vContact.createdtime || '').slice(0, 10));
+  push(fieldIdsCentral, 'ultimaInteraccion', new Date().toISOString());
+
   if (incluirHistorial) {
     push(fieldIdsCentral, 'totalCompras', String(compras));
     push(fieldIdsCentral, 'fechaUltimaCompra', vContact.spl_fecha_ultima_compra || '');
+    push(fieldIdsCentral, 'fechaPrimeraCompra', vContact.spl_fecha_primera_compra || '');
     push(fieldIdsCentral, 'precioVenta', String(vContact.cf_3392 || ''));
     push(fieldIdsCentral, 'idClienteVt', vContact.id || '');
     // `cf_3392` fue VERIFICADO en vivo como el GASTO TOTAL ACUMULADO (la suma de
-    // todas las órdenes coincide exactamente). Se publica en el campo de gasto
-    // histórico de la Cuenta Empresa.
-    // NOTA: NO se publica "Monto Ultima Compra" porque el contacto de vTiger no
-    // expone ese dato de forma fiable; inventarlo sería peor que omitirlo.
+    // todas las órdenes coincide exactamente en 8 de 8 compradores medidos).
     if (vContact.cf_3392) push(fieldIdsCentral, 'totalHistorico', String(vContact.cf_3392));
   }
-  push(fieldIdsCentral, 'ultimaInteraccion', new Date().toISOString());
 
   const macro = {
     locationId: CENTRAL_LOCATION_ID,
@@ -367,9 +421,10 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     lastName: vContact.lastname || '',
     name: nombre || undefined,
     email: vContact.email || undefined,
-    city: geo.find(g => g.key === 'city')?.field_value,
-    state: geo.find(g => g.key === 'state')?.field_value,
-    postalCode: geo.find(g => g.key === 'postalCode')?.field_value,
+    // La ciudad sale de cf_1157 (la operativa real); el estado de splareacodes_*
+    // porque mailingcity/mailingstate están restringidos por rol.
+    city: geo.find(g => g.key === 'city')?.field_value || undefined,
+    state: geo.find(g => g.key === 'state')?.field_value || estadoCodigo || estadoGeo || undefined,
     source: 'vTiger',
     customFields: camposMacro
   };
@@ -381,12 +436,20 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
       camposSede.push({ id: fieldIdsSede[logico], nombre: logico, field_value: valor });
     }
   };
+
   pushSede('oficinaOrigen', sedeId || '');
   pushSede('campanaOrigen', vContact.cf_3472 || '');
+  pushSede('canalCaptacion', vContact.cf_3507 || '');
+  pushSede('tratamientoComprado', tratamiento || vContact.cf_2610 || '');
+  pushSede('contactoNo', vContact.contact_no || '');
+  pushSede('estadoVenta', vContact.cf_994 || '');
+  pushSede('estadoComercial', vContact.cf_1876 || '');
   pushSede('ultimaInteraccion', new Date().toISOString());
+
   if (incluirHistorial) {
     pushSede('totalCompras', String(compras));
     pushSede('fechaUltimaCompra', vContact.spl_fecha_ultima_compra || '');
+    pushSede('fechaPrimeraCompra', vContact.spl_fecha_primera_compra || '');
     pushSede('precioVenta', String(vContact.cf_3392 || ''));
     pushSede('idClienteVt', vContact.id || '');
   }
@@ -398,9 +461,8 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     lastName: vContact.lastname || '',
     name: nombre || undefined,
     email: vContact.email || undefined,
-    city: geo.find(g => g.key === 'city')?.field_value,
-    state: geo.find(g => g.key === 'state')?.field_value,
-    postalCode: geo.find(g => g.key === 'postalCode')?.field_value,
+    city: geo.find(g => g.key === 'city')?.field_value || undefined,
+    state: geo.find(g => g.key === 'state')?.field_value || estadoCodigo || estadoGeo || undefined,
     source: vContact.cf_3472 || 'vTiger',
     customFields: camposSede
   };

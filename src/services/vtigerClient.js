@@ -221,6 +221,23 @@ export const VTIGER_FIELDS = {
   CANAL: 'cf_3507',             // Canal de captación (FB-MSGR, FORM, ...)
   CAMPANA: 'cf_3472',           // Campaña / origen estructurado
   NUM_COMPRAS: 'spl_num_compras',
+  // Fechas de compra: alimentan la antigüedad y el ciclo de recompra del cliente.
+  FECHA_PRIMERA_COMPRA: 'spl_fecha_primera_compra',
+  FECHA_ULTIMA_COMPRA: 'spl_fecha_ultima_compra',
+  // Identificadores y estado comercial
+  CONTACT_NO: 'contact_no',           // Código legible del cliente (ej. CON6501)
+  ESTADO_CRM: 'cf_1876',              // CONVERTIDO / ... (estado del embudo)
+  ASESOR: 'wcf_acf_atf_3390',         // Asesor que atendió (ej. MARIBEL)
+  ASESOR_ID: 'wcf_acf_atf_3240',      // Id interno del asesor asignado
+  ANOTACIONES_REDES: 'cf_3561',       // Anotaciones de redes (si viniera texto)
+  ESTADO_REPARTICION: 'cf_2758',      // 1-SIN REPARTIR / reparto del lead
+  SEMANA: 'cf_3388',                  // Semana del año (ej. 2019-47)
+  REASIGNACIONES: 'spl_reassign_count', // Veces que se reasignó el lead
+  // Geografía operativa: `mailingcity`/`mailingstate` están restringidos por rol,
+  // por lo que el estado se toma de estos campos que SÍ son legibles.
+  ESTADO_GEO: 'splareacodes_state',
+  ESTADO_CODIGO: 'splareacodes_state_code',
+  ZONA_HORARIA: 'splareacodes_timezone',
   // MONTO_INVERTIDO: VERIFICADO EN VIVO como GASTO TOTAL ACUMULADO, no la última
   // compra. La suma de todas las órdenes del contacto coincide exactamente
   // (MIGUEL REVILLA: órdenes [160,100] = 260 = cf_3392; OLGA CANAS: 5 órdenes
@@ -253,7 +270,28 @@ export const VTIGER_CONTACT_SELECT = [
   VTIGER_FIELDS.OTHER_PHONE,
   VTIGER_FIELDS.SEDE,
   VTIGER_FIELDS.TRATAMIENTO,
-  VTIGER_FIELDS.PROVEEDOR
+  VTIGER_FIELDS.PROVEEDOR,
+  // --- Datos comerciales del comprador (enriquecimiento completo) ---
+  VTIGER_FIELDS.CANAL,
+  VTIGER_FIELDS.CAMPANA,
+  VTIGER_FIELDS.CIUDAD,
+  VTIGER_FIELDS.NUM_COMPRAS,
+  VTIGER_FIELDS.MONTO_INVERTIDO,
+  VTIGER_FIELDS.FECHA_PRIMERA_COMPRA,
+  VTIGER_FIELDS.FECHA_ULTIMA_COMPRA,
+  VTIGER_FIELDS.ESTADO_VENTA,
+  VTIGER_FIELDS.CONTACT_NO,
+  VTIGER_FIELDS.ESTADO_CRM,
+  VTIGER_FIELDS.ASESOR,
+  VTIGER_FIELDS.ANOTACIONES_REDES,
+  VTIGER_FIELDS.ESTADO_REPARTICION,
+  VTIGER_FIELDS.SEMANA,
+  VTIGER_FIELDS.REASIGNACIONES,
+  VTIGER_FIELDS.ESTADO_GEO,
+  VTIGER_FIELDS.ESTADO_CODIGO,
+  VTIGER_FIELDS.ZONA_HORARIA,
+  VTIGER_FIELDS.CREATED_TIME,
+  VTIGER_FIELDS.MODIFIED_TIME
 ].join(', ');
 
 /** Módulos sobre los que el motor tiene PROHIBIDO escribir (solo lectura estricta). */
