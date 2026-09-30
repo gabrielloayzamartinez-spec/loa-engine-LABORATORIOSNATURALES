@@ -38,6 +38,7 @@ import { ghlFetch } from '../utils/ghl_http_client.js';
 import { normalizeToE164, buildSanitizedGeoFields, splitCityAndState, isUsStateCode, isUsStateName, normalizeUsState } from '../utils/geo_phone_sanitizer.js';
 import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
 import { recordAuditEvent } from './audit_logger.js';
+import { detectarSedeEnTexto } from './contact_collision_service.js';
 import { readSecret } from '../config/secrets.js';
 
 // ------------------------------------------------------------------------------
@@ -692,6 +693,78 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     const r = splitCamposMonotonos([c], { [c.nombre]: actual });
     return r.avanzan.length > 0;
   });
+
+  /**
+   * [SEDE-SHIELD — FUGA REAL DETECTADA] Neutraliza todo dato comercial que
+   * pertenezca a OTRA sede.
+   *
+   * Se verificó con un comprador de Palacios que, si el registro llegara
+   * etiquetado con otra sede, el payload escribía en la subcuenta de destino:
+   *   campanaOrigen = "PALACIOS-CLICK2RING-FB-MSGR-Artritis"
+   *   contactoNo    = "CON6501"    (código de cliente de Palacios)
+   *   idClienteVt   = "12x35433"   (id de vTiger de Palacios)
+   *   source        = "PALACIOS-..."
+   * Es decir: la subcuenta de Benavides habría recibido datos de Palacios.
+   *
+   * El motor enruta por `cf_3451`, pero un solo dato mal etiquetado bastaba para
+   * arrastrar la sede ajena. Aquí se comprueba el CONTENIDO, no la etiqueta: si
+   * un campo nombra una sede distinta a la del destino, se VACÍA en lugar de
+   * propagarse. Se prefiere el campo vacío a un dato de otra sede.
+   */
+  const sedeDestino = String(sedeId || '').toUpperCase().trim();
+  const neutralizarSedeAjena = (campos = []) => campos.map(c => {
+    const sedeEnValor = detectarSedeEnTexto(c.field_value);
+    if (sedeEnValor && sedeEnValor !== sedeDestino) {
+      console.warn(`[Dual Sync] [SEDE-SHIELD] Campo "${c.nombre}" contenía la sede ${sedeEnValor} y el destino es ${sedeDestino}: se vacía para no filtrar datos de otra sede.`);
+      return { ...c, field_value: '' };
+    }
+    return c;
+  });
+
+  // Se aplica ANTES del filtro monótono: un valor de sede ajena no debe ni
+  // compararse contra el actual, porque no corresponde a esta subcuenta.
+  macro.customFields = neutralizarSedeAjena(macro.customFields);
+  operativa.customFields = neutralizarSedeAjena(operativa.customFields);
+
+  // El campo nativo `source` también puede arrastrar el nombre de la sede ajena.
+  const sourceEnMacro = detectarSedeEnTexto(macro.source);
+  if (sourceEnMacro && sourceEnMacro !== sedeDestino) macro.source = 'vTiger';
+  const sourceEnSede = detectarSedeEnTexto(operativa.source);
+  if (sourceEnSede && sourceEnSede !== sedeDestino) operativa.source = 'vTiger';
+
+  // ---------------------------------------------------------------------------
+  // [SEDE-SHIELD ESTRUCTURAL] Verificación de origen, no de contenido.
+  //
+  // La detección por texto cubre los campos que NOMBRAN la sede (campaña, source,
+  // origen). Pero `contactoNo` e `idClienteVt` son IDENTIFICADORES de vTiger: no
+  // contienen el nombre de la sede, así que una comprobación de texto no puede
+  // verlos. Su protección es distinta y más fuerte: el registro de vTiger del que
+  // salen debe pertenecer a la sede de DESTINO.
+  //
+  // Medición real: en 200 compradores, el 100% tiene `cf_3451` y NINGUNO tiene
+  // una campaña que nombre otra sede. Por tanto hoy la fuga no es alcanzable. Esta
+  // guarda existe para que, si algún día el dato se corrompe en origen, los
+  // identificadores de una sede no viajen a la subcuenta de otra: se prefiere
+  // dejar el campo vacío antes que escribir un id que no corresponde.
+  // ---------------------------------------------------------------------------
+  const sedeOrigenRegistro = String(vContact.cf_3451 || '').toUpperCase().trim();
+  const origenCoincide = Boolean(sedeDestino) && sedeOrigenRegistro === sedeDestino;
+  if (!origenCoincide) {
+    recordAuditEvent({
+      type: 'SEDE_SHIELD_ORIGIN_MISMATCH',
+      severity: 'critical',
+      vTigerId: vContact.id || null,
+      sedeOrigenRegistro: sedeOrigenRegistro || '(vacía)',
+      sedeDestino: sedeDestino || '(vacía)',
+      reason: 'el registro de vTiger no pertenece a la sede de destino: se purgan sus identificadores'
+    });
+    const purgar = (campos = []) => campos.map(c =>
+      (c.nombre === 'idClienteVt' || c.nombre === 'contactoNo') ? { ...c, field_value: '' } : c
+    );
+    macro.customFields = purgar(macro.customFields);
+    operativa.customFields = purgar(operativa.customFields);
+    console.error(`[Dual Sync] [SEDE-SHIELD] Registro ${vContact.id} es de ${sedeOrigenRegistro || '(sin sede)'} y el destino es ${sedeDestino || '(sin sede)'}: se purgan idClienteVt y contactoNo.`);
+  }
 
   macro.customFields = soloAvances(macro.customFields, porIdMacro);
   operativa.customFields = soloAvances(operativa.customFields, porIdSede);
