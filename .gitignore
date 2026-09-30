@@ -35,6 +35,15 @@ scratch/
 data/
 .agents/
 
+# Estado de RUNTIME que el motor escribe en cada ciclo. La regla `data/` de arriba
+# NO basta por si sola: .gitignore no afecta a archivos YA versionados. Estos se
+# anadieron en el commit inicial, antes de que existiera la regla, y git los seguia
+# rastreando -> cada ciclo de aprendizaje ensuciaba el repo y un merge podia pisar
+# lo aprendido en produccion. Se sacaron del indice con `git rm --cached`.
+data/learning_brain.json
+data/cursor_curador_benavides.json
+src/config/pipelines_cache.json
+
 # Python cache & data
 __pycache__/
 *.pyc
