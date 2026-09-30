@@ -14,7 +14,9 @@
     "Colageno",
     "Vision",
     "Gastro",
-    "Artritis"
+    "Artritis",
+    "Hongos",
+    "Gummies"
   ],
   "vocabularyWeights": {
     "100": {
@@ -496,11 +498,6 @@
     "reuma": {
       "Artritis": 12
     },
-    "muy": {
-      "Artritis": 90,
-      "Potencia": 90,
-      "Diabetes": 90
-    },
     "muy amable": {
       "Artritis": 40,
       "Diabetes": 80,
@@ -706,23 +703,8 @@
     "7630 opportunity created": {
       "Artritis": 10
     },
-    "opportunity": {
-      "Artritis": 60,
-      "Potencia": 30,
-      "Diabetes": 50
-    },
-    "opportunity created": {
-      "Artritis": 60,
-      "Potencia": 30,
-      "Diabetes": 50
-    },
     "opportunity created finalizar": {
       "Artritis": 10
-    },
-    "created": {
-      "Artritis": 60,
-      "Potencia": 30,
-      "Diabetes": 50
     },
     "created finalizar": {
       "Artritis": 10
@@ -1198,10 +1180,6 @@
     "dolores las rodillas": {
       "Artritis": 10
     },
-    "las": {
-      "Artritis": 40,
-      "Potencia": 30
-    },
     "las rodillas": {
       "Artritis": 20
     },
@@ -1237,12 +1215,6 @@
     },
     "buenos dias dolor": {
       "Artritis": 10
-    },
-    "dias": {
-      "Artritis": 710,
-      "Diabetes": 230,
-      "Potencia": 210,
-      "Gastro": 30
     },
     "dias dolor": {
       "Artritis": 10
@@ -1629,12 +1601,6 @@
       "Artritis": 200,
       "Diabetes": 70,
       "Potencia": 70
-    },
-    "una": {
-      "Artritis": 700,
-      "Diabetes": 260,
-      "Potencia": 260,
-      "Gastro": 40
     },
     "una muestra": {
       "Artritis": 680,
@@ -2266,12 +2232,6 @@
       "Diabetes": 220,
       "Potencia": 150,
       "Artritis": 480,
-      "Gastro": 30
-    },
-    "has": {
-      "Diabetes": 220,
-      "Potencia": 170,
-      "Artritis": 510,
       "Gastro": 30
     },
     "has sido": {
@@ -7261,9 +7221,6 @@
     "90057 muestra gratis": {
       "Diabetes": 10
     },
-    "hello": {
-      "Potencia": 50
-    },
     "hello filled": {
       "Potencia": 50
     },
@@ -7288,9 +7245,6 @@
     "out your form": {
       "Potencia": 50
     },
-    "your": {
-      "Potencia": 50
-    },
     "your form": {
       "Potencia": 50
     },
@@ -7306,16 +7260,7 @@
     "form and would": {
       "Potencia": 50
     },
-    "and": {
-      "Potencia": 50
-    },
-    "and would": {
-      "Potencia": 50
-    },
     "and would like": {
-      "Potencia": 50
-    },
-    "would": {
       "Potencia": 50
     },
     "would like": {
@@ -7349,12 +7294,6 @@
       "Potencia": 50
     },
     "more about your": {
-      "Potencia": 50
-    },
-    "about": {
-      "Potencia": 50
-    },
-    "about your": {
       "Potencia": 50
     },
     "about your business": {
@@ -7631,10 +7570,6 @@
       "Artritis": 10,
       "Diabetes": 20
     },
-    "aqui": {
-      "Artritis": 30,
-      "Diabetes": 20
-    },
     "aqui estoy": {
       "Artritis": 20,
       "Diabetes": 20
@@ -7642,11 +7577,6 @@
     "estoy": {
       "Artritis": 30,
       "Diabetes": 20
-    },
-    "pero": {
-      "Artritis": 30,
-      "Potencia": 140,
-      "Diabetes": 10
     },
     "ayudar": {
       "Artritis": 70,
@@ -8068,9 +7998,6 @@
     "compromiso del varmen": {
       "Diabetes": 10
     },
-    "del": {
-      "Diabetes": 10
-    },
     "del varmen": {
       "Diabetes": 10
     },
@@ -8105,9 +8032,6 @@
       "Diabetes": 10
     },
     "buenos dias del": {
-      "Diabetes": 10
-    },
-    "dias del": {
       "Diabetes": 10
     },
     "dias del varmen": {
@@ -9222,11 +9146,6 @@
       "Artritis": 10,
       "Potencia": 10
     },
-    "los": {
-      "Artritis": 40,
-      "Potencia": 20,
-      "Diabetes": 20
-    },
     "los puedes": {
       "Artritis": 10,
       "Potencia": 10
@@ -10217,16 +10136,7 @@
     "waiting for the": {
       "Gastro": 10
     },
-    "for": {
-      "Gastro": 10
-    },
-    "for the": {
-      "Gastro": 10
-    },
     "for the free": {
-      "Gastro": 10
-    },
-    "the": {
       "Gastro": 10
     },
     "the free": {
@@ -10425,9 +10335,6 @@
       "Potencia": 10
     },
     "probarla pero los": {
-      "Potencia": 10
-    },
-    "pero los": {
       "Potencia": 10
     },
     "pero los medicos": {
@@ -11205,9 +11112,6 @@
       "Artritis": 10
     },
     "dejame uno nuestros": {
-      "Artritis": 10
-    },
-    "uno": {
       "Artritis": 10
     },
     "uno nuestros": {

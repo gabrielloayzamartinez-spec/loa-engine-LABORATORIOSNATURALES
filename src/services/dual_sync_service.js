@@ -477,6 +477,11 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   push(fieldIdsCentral, 'estadoComercial', vContact.cf_1876 || '');
   push(fieldIdsCentral, 'asesorAsignado', vContact.wcf_acf_atf_3390 || '');
   push(fieldIdsCentral, 'fechaCreacion', String(vContact.createdtime || '').slice(0, 10));
+  if (vContact.cf_2572) {
+    let prov = String(vContact.cf_2572).trim().toUpperCase();
+    if (/pikalex|pikales/i.test(prov)) prov = 'CLICK2RING';
+    push(fieldIdsCentral, 'proveedor', prov);
+  }
   push(fieldIdsCentral, 'ultimaInteraccion', new Date().toISOString());
 
   if (incluirHistorial) {
@@ -524,6 +529,11 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   pushSede('sexo', String(vContact.cf_2821 || '').trim());
   pushSede('etapaComercial', vContact.cf_994 || '');
   pushSede('estadoComercial', vContact.cf_1876 || '');
+  if (vContact.cf_2572) {
+    let prov = String(vContact.cf_2572).trim().toUpperCase();
+    if (/pikalex|pikales/i.test(prov)) prov = 'CLICK2RING';
+    pushSede('proveedor', prov);
+  }
   pushSede('ultimaInteraccion', new Date().toISOString());
 
   if (incluirHistorial) {
