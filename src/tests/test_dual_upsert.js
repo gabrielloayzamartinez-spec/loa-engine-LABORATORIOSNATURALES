@@ -468,6 +468,34 @@ for (const etapa of ['1-POR ASIGNAR', '2-POR ASIGNAR', 'SIN TRABAJAR', 'EN LLAMA
   assert(valor(p.operativa.customFields, 'etapaComercial') === etapa, `La etapa "${etapa}" se publica textual (etiquetable para Smart Lists)`);
 }
 
+// ------------------------------------------------------------------------------
+// 12. CONTRATO DE SALIDA DE syncVtigerContactDual
+// ------------------------------------------------------------------------------
+// DEFECTO REAL DETECTADO EN PRODUCCION: el camino de éxito devolvía el objeto
+// `resultado` (con `ok` DENTRO de macro/operativa) pero SIN `ok` ni `skipped` a
+// nivel raíz. `syncVtigerBatchDual` buscaba `r.ok` ahí, no lo encontraba y
+// contaba TODO contacto sincronizado como FALLIDO. En producción eso hacía
+// parecer que el puente no hacía nada cuando en realidad SÍ sincronizaba
+// (11 DUAL_SYNC_SEDE_OK conviviendo con 11 fallos contados).
+console.log('\n[TEST 12] Contrato de salida: ok/skipped siempre a nivel raíz');
+
+const resLead12 = await syncVtigerContactDual({ id: 'L', firstname: 'X', lastname: 'Y', homephone: '6145179276', cf_3451: 'PALACIOS', spl_num_compras: '0' });
+assert(resLead12.skipped === true, 'Un descarte devuelve skipped=true');
+assert(resLead12.ok === false, 'Un descarte devuelve ok=false');
+
+const resSinTel = await syncVtigerContactDual({ id: 'S', firstname: 'X', lastname: 'Y', homephone: '', cf_3451: 'PALACIOS', spl_num_compras: '2' });
+assert(resSinTel.skipped === true && resSinTel.ok === false, 'Sin teléfono válido: skipped=true, ok=false');
+assert(String(resSinTel.reason).includes('teléfono'), 'El motivo del descarte por teléfono es explícito');
+
+const resSinSede = await syncVtigerContactDual({ id: 'N', firstname: 'X', lastname: 'Y', homephone: '6145179276', cf_3451: 'SEDE_INVENTADA', spl_num_compras: '2' });
+assert(resSinSede.skipped === true, 'Una sede no reconocida se descarta (no se sincroniza a ciegas)');
+
+// El contrato exige que AMBOS campos existan siempre, para que el batch pueda
+// clasificar sin ambigüedad. Se comprueba sobre los tres caminos de descarte.
+for (const [caso, r] of [['lead', resLead12], ['sin teléfono', resSinTel], ['sin sede', resSinSede]]) {
+  assert(typeof r.ok === 'boolean' && typeof r.skipped === 'boolean', `El caso "${caso}" expone ok y skipped como booleanos`);
+}
+
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
 console.log('==========================================================\n');
