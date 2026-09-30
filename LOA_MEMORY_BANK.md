@@ -226,6 +226,18 @@ que bloquea el deploy si algún padecimiento oficial deja de ser aprendible.
 
 ### 2.00. PROTOCOLO DE GOBERNANZA Y AISLAMIENTO DE SEDES (INNEGOCIABLE)
 
+> **REGLA DE MUDANZA (decidida por el negocio).** Hacia GHL sólo se mudan
+> **COMPRADORES** (`spl_num_compras > 0`). Un contacto de vTiger sin compras es un
+> LEAD y NO se sincroniza por este conducto: entra cuando el negocio lo necesita
+> o por **RECONTACTO**, que es otro flujo. La cartera de compradores es lo que es
+> obligatorio tener sincronizado, porque sin ella una venta cerrada en vTiger no
+> aparece en GHL (el 98% de los compradores de Palacios faltaba en su subcuenta).
+>
+> Blindado en `dual_sync_service.js` con `SOLO_COMPRADORES` y `esRegistroComprador`,
+> y verificado por `test_dual_upsert.js` (TEST 7). La barrera corta ANTES de tocar
+> la red; `permitirLead: true` existe sólo para el flujo explícito de recontacto y
+> nunca se activa por defecto.
+
 > **NO CONFUNDIR CON EL "GHL CENTRAL" DEPRECADO.** Dos conceptos se llamaron
 > igual y NO son lo mismo:
 >

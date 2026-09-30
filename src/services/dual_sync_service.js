@@ -204,6 +204,24 @@ export const TAGS_ESTATUS_PROTEGIDAS = [
 const TAGS_GESTIONADAS = ['vtiger', 'vtiger-sincronizado', 'campaña-nueva', 'campana-nueva', 'reingreso'];
 
 /**
+ * [REGLA DE NEGOCIO - INNEGOCIABLE] Sólo se sincronizan COMPRADORES.
+ *
+ * Un contacto de vTiger sin compras es un LEAD, y los leads NO se mudan a GHL
+ * por este conducto: entran cuando el negocio lo necesita o cuando hay un
+ * RECONTACTO (que es otro flujo). Lo que es obligatorio tener sincronizado es la
+ * cartera de compradores.
+ *
+ * Sin esta barrera, cualquier llamada directa (el webhook o un `soloCompradores:
+ * false`) podía meter leads en GHL, y el filtro de la consulta no protege eso.
+ */
+export const SOLO_COMPRADORES = true;
+
+/** ¿El registro de vTiger representa a un comprador? */
+export function esRegistroComprador(vContact = {}) {
+  return (parseInt(vContact.spl_num_compras || '0', 10) || 0) > 0;
+}
+
+/**
  * ¿El campo pertenece al historial financiero protegido?
  * @param {string} nombreCampo nombre lógico o real del campo
  */
@@ -522,9 +540,27 @@ export async function upsertWithHistoryProtection(payload, ctx = {}) {
  * @param {object} vContact
  * @returns {Promise<object>} resultado discriminado
  */
-export async function syncVtigerContactDual(vContact = {}) {
+export async function syncVtigerContactDual(vContact = {}, { permitirLead = false } = {}) {
   const phone = pickPhone(vContact);
   const nombre = `${vContact.firstname || ''} ${vContact.lastname || ''}`.trim();
+
+  // --- [REGLA DE NEGOCIO] Sólo compradores ---
+  // Los leads no se mudan por este conducto: entran por necesidad del negocio o
+  // por RECONTACTO (otro flujo). `permitirLead` existe únicamente para ese caso
+  // explícito; nunca se activa por defecto.
+  if (SOLO_COMPRADORES && !permitirLead && !esRegistroComprador(vContact)) {
+    recordAuditEvent({
+      type: 'DUAL_SYNC_SKIPPED_NOT_BUYER',
+      severity: 'info',
+      vTigerId: vContact.id || null,
+      nombre: nombre.slice(0, 60),
+      sede: vContact.cf_3451 || null,
+      compras: parseInt(vContact.spl_num_compras || '0', 10) || 0,
+      reason: 'sólo se sincronizan compradores; los leads entran por recontacto'
+    });
+    console.log(`[Dual Sync] [SKIP-LEAD] ${nombre || vContact.id} no tiene compras: no se muda (regla: sólo compradores).`);
+    return { ok: false, skipped: true, reason: 'no es comprador (los leads no se sincronizan)' };
+  }
 
   // --- VALIDACIÓN (Drop Rule) ---
   if (!phone) {

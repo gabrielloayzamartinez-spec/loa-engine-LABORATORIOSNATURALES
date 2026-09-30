@@ -20,7 +20,8 @@
 import {
   pickPhone, resolveSedeFromVtiger, buildUpsertPayloads,
   partitionFields, mergeTagsPreservingStatus, esCampoHistorialProtegido,
-  CAMPOS_HISTORIAL_PROTEGIDOS, TAGS_ESTATUS_PROTEGIDAS, isCentralConfigured
+  CAMPOS_HISTORIAL_PROTEGIDOS, TAGS_ESTATUS_PROTEGIDAS, isCentralConfigured,
+  syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador
 } from '../services/dual_sync_service.js';
 import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields } from '../utils/geo_phone_sanitizer.js';
 import { SEDES_GATEWAY } from '../config/index.js';
@@ -189,6 +190,33 @@ if (!isCentralConfigured()) {
 // El middleware NUNCA debe romperse por la ausencia de la Central.
 const sinCentral = buildUpsertPayloads(vContact, { incluirHistorial: true, fieldIdsSede: {} });
 assert(sinCentral.operativa.locationId === SEDES_GATEWAY.PALACIOS.ghl.locationId, 'La carga operativa se construye aunque no haya Cuenta Empresa');
+
+// ------------------------------------------------------------------------------
+// 7. REGLA DE NEGOCIO: SÓLO SE SINCRONIZAN COMPRADORES
+// ------------------------------------------------------------------------------
+// Un contacto de vTiger sin compras es un LEAD y NO se muda a GHL por este
+// conducto: entra cuando el negocio lo necesita o por RECONTACTO. Lo obligatorio
+// es tener sincronizada la cartera de compradores.
+console.log('\n[TEST 7] Regla de negocio: sólo compradores (los leads no se mudan)');
+
+assert(SOLO_COMPRADORES === true, 'La regla de sólo compradores está activa a nivel de módulo');
+assert(esRegistroComprador({ spl_num_compras: '3' }) === true, 'Con 3 compras es comprador');
+assert(esRegistroComprador({ spl_num_compras: '1' }) === true, 'Con 1 compra es comprador');
+assert(esRegistroComprador({ spl_num_compras: '0' }) === false, 'Con 0 compras NO es comprador (es un lead)');
+assert(esRegistroComprador({}) === false, 'Sin el campo de compras NO es comprador (fail-safe)');
+assert(esRegistroComprador({ spl_num_compras: '' }) === false, 'Con el campo vacío NO es comprador');
+assert(esRegistroComprador({ spl_num_compras: 'no-numero' }) === false, 'Con un valor inválido NO es comprador');
+
+// La barrera actúa ANTES de tocar la red: un lead se descarta sin llamar a GHL.
+// (Sólo se prueba el caso DESCARTADO: es determinista y no genera efectos
+//  externos. El caso del comprador SÍ tocaría GHL, por lo que se verifica con
+//  `esRegistroComprador`, arriba, y en la prueba en vivo fuera de la suite.)
+const leadSinCompras = { id: 'LEAD-X', firstname: 'PEDRO', lastname: 'LEAD', homephone: '3055551234', cf_3451: 'PALACIOS', spl_num_compras: '0' };
+const resLead = await syncVtigerContactDual(leadSinCompras);
+assert(resLead.skipped === true, 'Un lead se descarta con skipped=true');
+assert(resLead.ok === false, 'Un lead no se reporta como sincronizado');
+assert(resLead.reason.includes('no es comprador'), `El motivo lo declara: "${resLead.reason}"`);
+assert(resLead.macro === undefined && resLead.operativa === undefined, 'El lead se corta ANTES de llamar a GHL (sin efectos externos)');
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
