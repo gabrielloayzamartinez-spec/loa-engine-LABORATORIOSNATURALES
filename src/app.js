@@ -22,6 +22,8 @@ import { envInt } from './config/secrets.js';
 import { sanitizeContactPayload, sanitizeObject, sanitizeString, sanitizePhone, sanitizeEmail, sanitizeId, detectInjectionPatterns } from './utils/sanitize.js';
 import { recordAuditEvent, getAuditMetrics, readAuditEvents } from './services/audit_logger.js';
 import { getVtigerConfigStatus } from './services/vtigerClient.js';
+import { syncVtigerContactDual } from './services/dual_sync_service.js';
+import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { getActiveSedeAgents, getSedeAgent } from './agents/sede_agent.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes } from './config/sedes_gateway.js';
@@ -1064,6 +1066,81 @@ app.post('/webhook/meta', async (req, res) => {
 // ==========================================
 // VTIGER CRM: Webhook Receptor & Sincronización
 // ==========================================
+/**
+ * [TICKET 1] Webhook receptor para eventos de vTiger (onContactCreate/Update,
+ * onOrderCreate) enviados por un bridge del lado de vTiger o Make.
+ *
+ * vTiger NO emite webhooks por sí mismo: este endpoint existe para que un
+ * disparador externo (trigger de BD, watcher o Make) entregue el registro en
+ * vivo. Responde 200 de inmediato y procesa el upsert DUAL en segundo plano,
+ * de modo que el emisor nunca sufre timeout.
+ */
+app.post('/webhook/vtiger-sync', async (req, res) => {
+  try {
+    const raw = req.body || {};
+
+    // Lectura defensiva: el registro puede venir suelto o envuelto.
+    const registro = raw.contact || raw.data?.contact || raw.data || raw.record || raw;
+
+    // Respuesta inmediata: el emisor no espera al CRM.
+    res.status(200).send({ success: true, message: 'Registro recibido, sincronización dual en curso.' });
+
+    setImmediate(async () => {
+      try {
+        const taint = detectInjectionPatterns(registro);
+        if (taint.suspicious) {
+          recordAuditEvent({
+            type: 'WEBHOOK_TAINT_DETECTED',
+            severity: 'warn',
+            endpoint: '/webhook/vtiger-sync',
+            reasons: taint.reasons,
+            sourceIp: req.ip
+          });
+        }
+
+        const resultado = await syncVtigerContactDual(registro);
+
+        if (resultado.skipped) {
+          console.warn(`[vTiger Sync] [SKIP] Registro descartado: ${resultado.reason}`);
+        } else if (resultado.ok) {
+          console.log(`[vTiger Sync] [OK] ${registro.firstname || ''} ${registro.lastname || ''} -> sede ${resultado.sedeId} | macro: ${resultado.macro?.ok ? 'ok' : 'n/a'} | operativa: ${resultado.operativa?.ok ? (resultado.operativa.created ? 'creado' : 'actualizado') : 'falló'}`);
+          if (global.pushLiveLog) {
+            global.pushLiveLog(`[VTIGER-SYNC] ${registro.firstname || ''} ${registro.lastname || ''} sincronizado a ${resultado.sedeId}`);
+          }
+        }
+      } catch (err) {
+        console.error('[vTiger Sync Background Error]:', err.message);
+        recordAuditEvent({ type: 'DUAL_SYNC_EXCEPTION', severity: 'error', endpoint: '/webhook/vtiger-sync', message: err.message });
+      }
+    });
+  } catch (error) {
+    console.error("[vTiger Sync Webhook Error]:", error.message);
+    if (!res.headersSent) res.status(500).send({ success: false, error: 'Error interno' });
+  }
+});
+
+/**
+ * [TICKET 1] Disparo manual del puente de ventas vTiger -> GHL.
+ * Útil para recuperar ventas históricas sin esperar al ciclo programado.
+ * Query: ?horas=48&soloCompradores=true&limite=50
+ */
+app.post('/api/vtiger/sales-bridge', async (req, res) => {
+  try {
+    const horas = Math.min(Math.max(parseInt(req.query.horas || req.body?.horas || '24', 10) || 24, 1), 8760);
+    const limite = Math.min(Math.max(parseInt(req.query.limite || req.body?.limite || '50', 10) || 50, 1), 200);
+    const soloCompradores = String(req.query.soloCompradores ?? req.body?.soloCompradores ?? 'true') !== 'false';
+
+    res.json({ success: true, message: `Puente de ventas iniciado (${horas} h, limite ${limite}/sede). Consulta los logs para el resultado.` });
+
+    setImmediate(() => {
+      runVtigerSalesBridge({ horasAtras: horas, soloCompradores, limitePorSede: limite })
+        .catch(err => console.error('[Sales Bridge] Error en ciclo manual:', err.message));
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/webhook/vtiger', async (req, res) => {
   try {
     // [SANITIZACIÓN OBLIGATORIA] Endpoint semi-público: el payload se sanea por
@@ -1261,7 +1338,16 @@ export function registerBackgroundSchedulers() {
   // Poda del mapa de contactos procesados (anti memory-leak)
   timers.push(startMemoryGuard());
 
-  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s).`);
+  // [TICKET 1] Puente de ventas vTiger -> GHL (upsert dual con protección de historial).
+  // Cada 10 min busca ventas nuevas en vTiger POR SEDE y las publica en GHL,
+  // creando el contacto si no existía. Cierra el hueco por el que una venta de
+  // vTiger no aparecía nunca en GHL (el reverse sync sólo actualizaba existentes).
+  timers.push(setInterval(() => {
+    runVtigerSalesBridge({ horasAtras: 6, soloCompradores: true, limitePorSede: 25 })
+      .catch(err => console.error('[Sales Bridge] Error en ciclo programado:', err.message));
+  }, 10 * 60 * 1000));
+
+  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s).`);
   return timers;
 }
 
