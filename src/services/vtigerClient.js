@@ -148,7 +148,7 @@ async function vtigerFetch(url, options = {}, meta = {}) {
 
   if (meta.operation) assertAllowedOperation(meta.operation);
 
-  return fetchWithTimeout(url, options);
+  return fetchWithTimeout(url, options, meta.timeoutMs || REQUEST_TIMEOUT_MS);
 }
 
 /**
@@ -577,9 +577,9 @@ async function ensureSession(force = false) {
   return globalSession;
 }
 
-async function fetchWithTimeout(url, options = {}) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
@@ -598,9 +598,12 @@ async function fetchWithTimeout(url, options = {}) {
  * @param {object} [options]
  * @param {string} [options.context] etiqueta para el log de auditoría
  * @param {number} [options.maxAttempts]
+ * @param {number} [options.timeoutMs]  timeout por intento. Se usa para consultas
+ *        de RECORRIDO MASIVO (backfill), donde una respuesta lenta de vTiger no
+ *        debe abortar: el trabajo avanza por cursor y puede permitirse esperar.
  * @returns {Promise<Array>} filas devueltas por vTiger
  */
-export async function query(queryStr, { context = 'query', maxAttempts = MAX_ATTEMPTS, allowAggregate = false, inheritedSede = null } = {}) {
+export async function query(queryStr, { context = 'query', maxAttempts = MAX_ATTEMPTS, allowAggregate = false, inheritedSede = null, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   const { url } = assertCredentials();
   const endpoint = `${url.replace(/\/$/, '')}/webservice.php`;
   let cleanQuery = String(queryStr || '').trim();
@@ -643,7 +646,7 @@ export async function query(queryStr, { context = 'query', maxAttempts = MAX_ATT
       const res = await vtigerFetch(
         `${endpoint}?operation=query&sessionName=${encodeURIComponent(session)}&query=${encodeURIComponent(cleanQuery)}`,
         { method: 'GET' },
-        { operation: 'query' }
+        { operation: 'query', timeoutMs }
       );
       const data = await res.json();
 
