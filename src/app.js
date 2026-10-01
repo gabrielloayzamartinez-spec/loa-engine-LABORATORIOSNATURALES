@@ -24,6 +24,33 @@ import { recordAuditEvent, getAuditMetrics, readAuditEvents } from './services/a
 import { getVtigerConfigStatus } from './services/vtigerClient.js';
 import { readSecret } from './config/secrets.js';
 import { isCentralConfigured } from './services/dual_sync_service.js';
+import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
+
+/**
+ * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
+ * El endpoint /api/health debe ser SIN I/O (para que Render nunca lo marque como
+ * caido por una dependencia lenta), asi que la prueba corre en segundo plano y
+ * aqui solo se expone el ultimo resultado conocido.
+ */
+let centralCredentialStatus = { verificado: false, detalle: 'aun no verificado' };
+
+/** Lanza la verificacion de credencial en segundo plano (no bloquea el arranque). */
+function startCentralCredentialCheck(intervaloMs = 15 * 60 * 1000) {
+  const ejecutar = () => {
+    verificarCredencialEmpresa()
+      .then(r => {
+        centralCredentialStatus = { ...r, verificado: true, ts: new Date().toISOString() };
+        if (r.configurada && r.valida === false) {
+          console.error(`[Health] [CREDENCIAL EMPRESA] ${r.detalle} (HTTP ${r.status})`);
+        }
+      })
+      .catch(err => { centralCredentialStatus = { verificado: false, detalle: err.message }; });
+  };
+  ejecutar();
+  const t = setInterval(ejecutar, intervaloMs);
+  if (t.unref) t.unref();
+  return t;
+}
 import { syncVtigerContactDual } from './services/dual_sync_service.js';
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
@@ -349,13 +376,15 @@ app.get('/api/health', (req, res) => {
     vtiger: vtigerConnectionStatus,
     vtigerConfig: getVtigerConfigStatus(),
     // [DIAGNOSTICO] Estado de la Cuenta Empresa. Expone SOLO presencia de
-    // credenciales, nunca su valor: permite saber si la carga macro esta activa
-    // y detectar una credencial ausente o revocada sin esperar a un fallo de sync.
+    // credenciales, nunca su valor. `apiKeyPresente: true` NO significa que el
+    // token sirva (un PIT revocado esta presente y falla igual), por eso se
+    // incluye `credencial`: el resultado de una PRUEBA REAL contra GHL.
     cuentaEmpresa: {
       configurada: isCentralConfigured(),
       locationIdPresente: Boolean(readSecret('GHL_LOCATION_ID_CENTRAL')),
       apiKeyPresente: Boolean(readSecret('GHL_API_KEY_CENTRAL')),
-      rol: 'analitica macro (sin ruteo ni chats)'
+      rol: 'analitica macro (sin ruteo ni chats)',
+      credencial: centralCredentialStatus
     },
     meta: metaConnectionStatus,
     infrastructure: {
@@ -1489,5 +1518,5 @@ export function registerBackgroundSchedulers() {
 // EXPORT: la malla HTTP no abre puertos por sí sola.
 // El puerto lo abre src/server.js (runtime) o los smoke tests lo omiten.
 // ==========================================
-export { app, stats, processedContactTimestamps, runExpressAssignment, fetchWithRetry, registerQueueProcessors };
+export { app, stats, processedContactTimestamps, runExpressAssignment, fetchWithRetry, registerQueueProcessors, startCentralCredentialCheck };
 export default app;

@@ -17,7 +17,7 @@
 // ------------------------------------------------------------------------------
 // IMPORTS DEL RUNTIME (la malla HTTP vive en app.js; los side effects, aquí)
 // ------------------------------------------------------------------------------
-import { app, stats, runExpressAssignment, registerQueueProcessors, registerBackgroundSchedulers } from './app.js';
+import { app, stats, runExpressAssignment, registerQueueProcessors, registerBackgroundSchedulers, startCentralCredentialCheck } from './app.js';
 import { learningBrain } from './services/learning_brain.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes, getOperationalSedes, getActiveSedes } from './config/sedes_gateway.js';
@@ -187,6 +187,11 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
 
   // Programadores de fondo (radar, guardián, sync inverso, retry, memory guard)
   registerBackgroundSchedulers();
+
+  // Prueba REAL de la credencial de la Cuenta Empresa (en segundo plano, sin
+  // bloquear el arranque). Expone el veredicto en /api/health: un PIT revocado
+  // esta "presente" pero no autentica, y eso antes solo se descubria en los logs.
+  startCentralCredentialCheck();
 });
 
 // ==========================================

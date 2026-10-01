@@ -109,6 +109,53 @@ const CAMPOS_REQUERIDOS = {
 // ------------------------------------------------------------------------------
 const fieldCache = new Map(); // locationId -> { nombreNormalizado: fieldId }
 
+/**
+ * Credenciales que GHL rechazó, por location: { locationId: statusHttp }.
+ * Permite que el orquestador reporte una credencial inválida como causa raíz en
+ * lugar de dejar que el fallo aparezca como un error genérico de upsert.
+ */
+const credentialErrors = new Map();
+
+/** ¿Falló la credencial de esa location? Devuelve el status o null. */
+export function getCredentialError(locationId) {
+  return credentialErrors.has(locationId) ? credentialErrors.get(locationId) : null;
+}
+
+/**
+ * PRUEBA REAL de la credencial de la Cuenta Empresa contra GHL.
+ *
+ * POR QUÉ: `apiKeyPresente: true` NO significa que el token sirva. Un PIT
+ * revocado está "presente" y falla igual. Esta función hace una llamada real y
+ * devuelve el veredicto, para poder verificar la credencial sin leer logs.
+ *
+ * @returns {Promise<{configurada:boolean, valida:boolean|null, status:number|null, detalle:string}>}
+ */
+export async function verificarCredencialEmpresa() {
+  if (!isCentralConfigured()) {
+    return { configurada: false, valida: null, status: null, detalle: 'sin credenciales configuradas' };
+  }
+  try {
+    const res = await ghlFetch(
+      `https://services.leadconnectorhq.com/locations/${CENTRAL_LOCATION_ID}`,
+      { headers: { Authorization: `Bearer ${CENTRAL_API_KEY}`, Version: '2021-07-28', Accept: 'application/json' } },
+      1,
+      'Health Central'
+    );
+    if (res.status === 200) {
+      return { configurada: true, valida: true, status: 200, detalle: 'la credencial autentica correctamente' };
+    }
+    if (res.status === 401) {
+      return { configurada: true, valida: false, status: 401, detalle: 'PIT invalido o revocado: el token no autentica' };
+    }
+    if (res.status === 403) {
+      return { configurada: true, valida: false, status: 403, detalle: 'PIT sin permisos: revisar los scopes de la Private Integration' };
+    }
+    return { configurada: true, valida: null, status: res.status, detalle: `respuesta inesperada de GHL (HTTP ${res.status})` };
+  } catch (err) {
+    return { configurada: true, valida: null, status: null, detalle: `no se pudo verificar: ${err.message}` };
+  }
+}
+
 function normalizar(s) {
   return String(s || '')
     .toLowerCase()
@@ -192,7 +239,24 @@ export async function resolveCustomFieldIds(locationId, headers) {
       }
       console.log(`[Dual Sync] [FIELDS] Location ${String(locationId).slice(0, 8)}...: ${Object.keys(mapa).length}/${Object.keys(CAMPOS_REQUERIDOS).length} campos resueltos.`);
     } else {
+      // [DIAGNOSTICO DE CREDENCIAL] Un 401 aquí significa que el PIT es inválido
+      // o fue revocado. Antes solo se imprimía un warn y el descubrimiento
+      // degradaba en silencio: la sincronización seguía intentándose sin campos y
+      // el fallo real (credencial) quedaba enterrado entre los errores del upsert.
       console.warn(`[Dual Sync] [FIELDS-WARN] No se pudieron leer los custom fields de ${locationId}: HTTP ${res.status}. Se continuará sin mapeo de campos.`);
+      if (res.status === 401 || res.status === 403) {
+        credentialErrors.set(locationId, res.status);
+        recordAuditEvent({
+          type: 'GHL_CREDENTIAL_INVALID',
+          severity: 'critical',
+          locationId,
+          status: res.status,
+          reason: res.status === 401
+            ? 'PIT invalido o revocado: el token no autentica contra GHL'
+            : 'PIT sin permisos suficientes: revisar los scopes de la Private Integration'
+        });
+        console.error(`[Dual Sync] [CREDENCIAL] HTTP ${res.status} en ${locationId}: el PIT no es valido. La sincronizacion hacia esa cuenta fallara.`);
+      }
     }
   } catch (err) {
     console.warn(`[Dual Sync] [FIELDS-WARN] Descubrimiento de campos falló: ${err.message}`);
