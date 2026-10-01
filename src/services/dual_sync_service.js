@@ -1057,14 +1057,20 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
       tagsNuevas: construido.tagsNuevas
     });
 
+    // [DEFECTO CORREGIDO] El audit leia `construido.macro` (el PAYLOAD) en vez de
+    // `resultado.macro` (el RESULTADO del upsert). El payload no tiene `ok`, asi
+    // que la condicion caia SIEMPRE en MACRO_FAIL: el sistema reportaba 335
+    // fallos consecutivos hacia la Cuenta Empresa aunque el upsert funcionara.
+    // Ademas `status` y `error` salian `undefined`, de modo que el audit no
+    // registraba el motivo real y era imposible diagnosticar la credencial.
     recordAuditEvent({
-      type: construido.macro.ok ? 'DUAL_SYNC_MACRO_OK' : 'DUAL_SYNC_MACRO_FAIL',
-      severity: construido.macro.ok ? 'info' : 'error',
+      type: resultado.macro?.ok ? 'DUAL_SYNC_MACRO_OK' : 'DUAL_SYNC_MACRO_FAIL',
+      severity: resultado.macro?.ok ? 'info' : 'error',
       vTigerId: vContact.id,
       sede: sedeId,
-      created: construido.macro.created,
-      status: construido.macro.status,
-      error: construido.macro.error
+      created: Boolean(resultado.macro?.created),
+      status: resultado.macro?.status ?? null,
+      error: resultado.macro?.error ? String(resultado.macro.error).slice(0, 200) : null
     });
   } else {
     console.log('[Dual Sync] [MACRO-SKIP] Cuenta Empresa no configurada (GHL_LOCATION_ID_CENTRAL / GHL_API_KEY_CENTRAL ausentes). Se sincroniza solo la sede.');
