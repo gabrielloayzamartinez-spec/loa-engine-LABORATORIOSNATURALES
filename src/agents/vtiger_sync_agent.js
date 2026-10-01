@@ -47,6 +47,12 @@ const CURSOR_KEY = 'cursor_v1';
 const CURSOR_PAGE_SIZE = 50;   // filas por consulta
 const CURSOR_MAX_PAGES = 20;   // tope de paginas por ciclo (drena sin bloquear)
 
+/**
+ * Guarda de solapamiento del reverse sync. La funcion se invoca desde el
+ * scheduler y desde el webhook, y ambos comparten el cursor persistente.
+ */
+let reverseSyncCorriendo = false;
+
 /** Campo de vTiger que marca la ultima modificacion del registro. */
 const VTIGER_FIELDS_MODIFIED = 'modifiedtime';
 
@@ -197,6 +203,24 @@ async function findGhlContact(vContact) {
  *        por compatibilidad de firma con los llamantes existentes.
  */
 export async function runVTigerToGHLPoller(minutesLookback = 4) {
+  // ==========================================================================
+  // [GUARDA DE SOLAPAMIENTO — DEFECTO CORREGIDO]
+  //
+  // Esta funcion se invoca desde DOS sitios: el scheduler (cada 180 s) y el
+  // webhook `/webhook/vtiger`. Sin guarda, ambos ciclos leen el MISMO cursor,
+  // avanzan por separado y el que guarde ULTIMO pisa al otro: los cambios que el
+  // primero ya habia procesado se saltan de forma PERMANENTE, porque el cursor
+  // quedo mas adelante de donde el otro lo dejo.
+  //
+  // Se descarta el disparo si ya hay un ciclo en curso. El trabajo no se pierde:
+  // el cursor no avanzo, asi que el ciclo en curso (o el siguiente) lo cubre.
+  // ==========================================================================
+  if (reverseSyncCorriendo) {
+    console.warn('[Reverse Sync] [SKIP] Ya hay un ciclo en curso: se omite este disparo para no pisar el cursor.');
+    return { ok: false, skipped: true, reason: 'ciclo en curso' };
+  }
+  reverseSyncCorriendo = true;
+
   try {
     const sedesObjetivo = getActiveSedes().map(s => s.sedeId);
 
@@ -317,6 +341,10 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
     console.error('[Reverse Sync] [ERROR] Ciclo fallido:', err.message);
     recordAuditEvent({ type: 'REVERSE_SYNC_CYCLE_FAILED', severity: 'error', message: err.message });
     return { ok: false, error: err.message };
+  } finally {
+    // Se libera SIEMPRE (exito, fallo o excepcion): si quedara en true, el ciclo
+    // se omitiria para siempre y el reverse sync moriria en silencio.
+    reverseSyncCorriendo = false;
   }
 }
 
