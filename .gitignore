@@ -5,6 +5,11 @@ node_modules/
 
 # State & Logs
 *.log
+# [DEFECTO CORREGIDO] `*.log` NO matchea los logs ROTADOS (`.log.1`, `.log.2`...).
+# Por eso `tools/data/logs/integration_system.log.1` (10,4 MB) quedo versionado y
+# se convirtio en el blob mas grande del repositorio (127x el siguiente). Con
+# `*.log*` se cubren tambien las rotaciones.
+*.log*
 counters.json
 stats.json
 healer_state.json
