@@ -492,6 +492,97 @@ const REQUEST_TIMEOUT_MS = envInt('VTIGER_TIMEOUT_MS', 12000);
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// ==============================================================================
+// [LIMITE DE CONCURRENCIA HACIA VTIGER]
+//
+// PROBLEMA OBSERVADO EN PRODUCCION: 252 fallos `VTIGER_QUERY_FAILED` ("This
+// operation was aborted") en rafagas de segundos, afectando a la VEZ a consultas
+// de todo tipo (busqueda por telefono, SalesOrder, reverse sync) y de las DOS
+// sedes. Ese patron no es una consulta lenta: es SATURACION.
+//
+// CAUSA: vTiger usa UNA SOLA sesion global de Administrador y NO habia ningun
+// limite de concurrencia. Varias tareas corren en paralelo (las colas de GHL estan
+// aisladas por subcuenta, el backfill procesa 2 sedes a la vez, y Agente 3 resuelve
+// telefonos en vivo), asi que podian dispararse decenas de consultas simultaneas
+// contra la MISMA sesion. Latencia en cola -> se supera el timeout -> aborto ->
+// reintento -> mas carga. Efecto "thundering herd".
+//
+// SOLUCION: una compuerta de concurrencia (semaforo FIFO). Las consultas se encolan
+// y se ejecutan como maximo N a la vez. La latencia deja de dispararse y el timeout
+// vuelve a ser holgado.
+//
+// El limite es por PROCESO (una instancia de Render = un proceso).
+// ==============================================================================
+const VTIGER_MAX_CONCURRENT = Math.max(envInt('VTIGER_MAX_CONCURRENT', 3), 1);
+const VTIGER_QUEUE_MAX_WAIT_MS = envInt('VTIGER_QUEUE_MAX_WAIT_MS', 60000);
+const VTIGER_QUEUE_MAX_LEN = envInt('VTIGER_QUEUE_MAX_LEN', 200);
+
+const vtigerGate = {
+  activas: 0,
+  cola: [],
+  stats: { ejecutadas: 0, esperas: 0, esperaTotalMs: 0, rechazadas: 0 }
+};
+
+/** Ejecuta `fn` respetando el limite de concurrencia hacia vTiger. */
+async function conCompuerta(fn) {
+  if (vtigerGate.activas < VTIGER_MAX_CONCURRENT) {
+    vtigerGate.activas++;
+    try {
+      return await fn();
+    } finally {
+      vtigerGate.activas--;
+      liberarCompuerta();
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    if (vtigerGate.cola.length >= VTIGER_QUEUE_MAX_LEN) {
+      vtigerGate.stats.rechazadas++;
+      reject(new Error(`Cola de vTiger saturada (${vtigerGate.cola.length} en espera). Se descarta para no bloquear el ciclo.`));
+      return;
+    }
+    vtigerGate.cola.push({ fn, resolve, reject, encoladaEn: Date.now() });
+    vtigerGate.stats.esperas++;
+  });
+}
+
+function liberarCompuerta() {
+  while (vtigerGate.activas < VTIGER_MAX_CONCURRENT && vtigerGate.cola.length > 0) {
+    const item = vtigerGate.cola.shift();
+    const espera = Date.now() - item.encoladaEn;
+    if (espera > VTIGER_QUEUE_MAX_WAIT_MS) {
+      vtigerGate.stats.rechazadas++;
+      item.reject(new Error(`Espera excesiva en la cola de vTiger (${Math.round(espera / 1000)}s). Se descarta.`));
+      continue;
+    }
+    vtigerGate.activas++;
+    vtigerGate.stats.ejecutadas++;
+    vtigerGate.stats.esperaTotalMs += espera;
+    Promise.resolve()
+      .then(item.fn)
+      .then(item.resolve)
+      .catch(item.reject)
+      .finally(() => {
+        vtigerGate.activas--;
+        liberarCompuerta();
+      });
+  }
+}
+
+/** Metricas de la compuerta (para /api/health). */
+export function getVtigerGateMetrics() {
+  const s = vtigerGate.stats;
+  return {
+    maxConcurrent: VTIGER_MAX_CONCURRENT,
+    activas: vtigerGate.activas,
+    enEspera: vtigerGate.cola.length,
+    ejecutadas: s.ejecutadas,
+    esperas: s.esperas,
+    esperaMediaMs: s.esperas ? Math.round(s.esperaTotalMs / s.esperas) : 0,
+    rechazadas: s.rechazadas
+  };
+}
+
 /**
  * Backoff exponencial con JITTER completo.
  * El jitter evita que las 2 sedes reintenten sincronizadas y vuelvan a saturar
@@ -522,44 +613,70 @@ let globalSession = null;
 let sessionIssuedAt = 0;
 
 /**
+ * [SINGLE-FLIGHT] Promesa del login en curso.
+ *
+ * PROBLEMA DETECTADO AL PROBAR LA COMPUERTA: al renovar la sesion, varias consultas
+ * concurrentes lanzaban SU PROPIO `login()` a la vez. vTiger responde
+ * "Invalid username or password" a los logins simultaneos (el challenge se consume
+ * una sola vez), asi que 4 de 12 consultas fallaban por esta carrera — un fallo que
+ * NO tenia nada que ver con la saturacion.
+ *
+ * SOLUCION: single-flight. Si ya hay un login en curso, las demas consultas esperan
+ * ESA MISMA promesa en lugar de iniciar otro. Un solo login, una sola sesion.
+ */
+let loginEnCurso = null;
+
+/**
  * Inicia sesión con la cuenta de Administrador global.
  * `operation=getchallenge` + MD5(token + accessKey) es el flujo nativo de vTiger.
  */
 export async function login() {
-  const { url, username, accessKey } = assertCredentials();
-  const endpoint = `${url.replace(/\/$/, '')}/webservice.php`;
+  // Si ya hay un login en vuelo, se reutiliza (evita la carrera de challenges).
+  if (loginEnCurso) return loginEnCurso;
 
-  const challengeRes = await vtigerFetch(
-    `${endpoint}?operation=getchallenge&username=${encodeURIComponent(username)}`,
-    { method: 'GET' },
-    { operation: 'getchallenge' }
-  );
-  const challengeData = await challengeRes.json();
-  if (!challengeData.success) {
-    throw new Error(`getchallenge falló: ${challengeData.error?.message || 'respuesta inválida'}`);
+  loginEnCurso = (async () => {
+    const { url, username, accessKey } = assertCredentials();
+    const endpoint = `${url.replace(/\/$/, '')}/webservice.php`;
+
+    const challengeRes = await vtigerFetch(
+      `${endpoint}?operation=getchallenge&username=${encodeURIComponent(username)}`,
+      { method: 'GET' },
+      { operation: 'getchallenge' }
+    );
+    const challengeData = await challengeRes.json();
+    if (!challengeData.success) {
+      throw new Error(`getchallenge falló: ${challengeData.error?.message || 'respuesta inválida'}`);
+    }
+
+    const generatedKey = crypto
+      .createHash('md5')
+      .update(challengeData.result.token + accessKey)
+      .digest('hex');
+
+    const loginRes = await vtigerFetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ operation: 'login', username, accessKey: generatedKey })
+    }, { isLogin: true, operation: 'login' });
+
+    const loginData = await loginRes.json();
+    if (!loginData.success) {
+      throw new Error(`login falló: ${loginData.error?.message || 'respuesta inválida'}`);
+    }
+
+    globalSession = loginData.result.sessionName;
+    sessionIssuedAt = Date.now();
+    // Se registra SÓLO el prefijo de sesión, nunca la credencial.
+    console.log(`[vTiger] [AUTH] Sesión global de Administrador iniciada. session=${globalSession.substring(0, 6)}...`);
+    return globalSession;
+  })();
+
+  try {
+    return await loginEnCurso;
+  } finally {
+    // Se libera SIEMPRE: si el login falló, la proxima consulta debe poder reintentar.
+    loginEnCurso = null;
   }
-
-  const generatedKey = crypto
-    .createHash('md5')
-    .update(challengeData.result.token + accessKey)
-    .digest('hex');
-
-  const loginRes = await vtigerFetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ operation: 'login', username, accessKey: generatedKey })
-  }, { isLogin: true, operation: 'login' });
-
-  const loginData = await loginRes.json();
-  if (!loginData.success) {
-    throw new Error(`login falló: ${loginData.error?.message || 'respuesta inválida'}`);
-  }
-
-  globalSession = loginData.result.sessionName;
-  sessionIssuedAt = Date.now();
-  // Se registra SÓLO el prefijo de sesión, nunca la credencial.
-  console.log(`[vTiger] [AUTH] Sesión global de Administrador iniciada. session=${globalSession.substring(0, 6)}...`);
-  return globalSession;
 }
 
 /** Indica si hay sesión vigente (se renueva cada 12 h por precaución). */
@@ -638,6 +755,16 @@ export async function query(queryStr, { context = 'query', maxAttempts = MAX_ATT
     }
   }
 
+  // [COMPUERTA DE CONCURRENCIA] Todo intento (incluidos los reintentos) pasa por
+  // la compuerta. Sin esto, decenas de consultas simultaneas saturan la unica
+  // sesion de vTiger y provocan abortos en cadena.
+  return conCompuerta(() => ejecutarConReintentos({
+    endpoint, cleanQuery, context, maxAttempts, timeoutMs
+  }));
+}
+
+/** Bucle de intentos + backoff. Se extrajo para poder envolverlo con la compuerta. */
+async function ejecutarConReintentos({ endpoint, cleanQuery, context, maxAttempts, timeoutMs }) {
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
