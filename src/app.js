@@ -1336,6 +1336,105 @@ app.get('/api/curator/status', (req, res) => {
   });
 });
 
+/**
+ * DIAGNOSTICO DE LA CUENTA EMPRESA (la cuenta macro con ~400K contactos).
+ *
+ * PARA QUE SIRVE: saber que datos tiene realmente la Empresa para BI y postventa
+ * (segmentar compradores, enviar SMS a quien compro) sin exponer credenciales y
+ * usando el PIT VALIDO de Render. Un muestreo local no sirve porque el .env de
+ * desarrollo puede tener un PIT revocado.
+ *
+ * Solo lectura. Muestrea N contactos (sin recorrer los 400K) y reporta cobertura
+ * por campo y por etiqueta.
+ *
+ * @query muestra {number} contactos a leer (por defecto 300, tope 1000)
+ */
+app.get('/api/empresa/diagnostico', async (req, res) => {
+  if (!isCentralConfigured()) {
+    return res.status(503).json({ success: false, error: 'Cuenta Empresa no configurada' });
+  }
+  const muestra = Math.min(Math.max(parseInt(req.query.muestra || '300', 10) || 300, 20), 1000);
+  const headers = {
+    'Authorization': `Bearer ${readSecret('GHL_API_KEY_CENTRAL')}`,
+    'Version': '2021-07-28',
+    'Accept': 'application/json'
+  };
+  const loc = readSecret('GHL_LOCATION_ID_CENTRAL');
+
+  try {
+    // 1) Volumen total
+    const rTot = await ghlFetch(`https://services.leadconnectorhq.com/contacts/?locationId=${loc}&limit=1`, { headers }, 1, 'Empresa Diag');
+    let total = null;
+    if (rTot.status === 200) total = (await rTot.json()).meta?.total ?? null;
+
+    // 2) Campos disponibles, con foco en los que sirven para BI
+    const rCampos = await ghlFetch(`https://services.leadconnectorhq.com/locations/${loc}/customFields`, { headers }, 1, 'Empresa Diag');
+    const campos = rCampos.status === 200 ? ((await rCampos.json()).customFields || []) : [];
+    const relevantes = campos
+      .filter(c => /compra|total|fecha|sede|oficina|proveedor|tratamiento|etapa|sexo|origen|historial/i.test(c.name || ''))
+      .map(c => ({ nombre: c.name, tipo: c.dataType, id: c.id }));
+
+    // 3) Cobertura real sobre una muestra
+    let leidos = 0, conCompras = 0, conFechas = 0, conSede = 0, conOrigen = 0;
+    let conTagComprador = 0, conTagNoCompro = 0, conTelefono = 0, sinTelefono = 0;
+    let url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc}&limit=100`;
+    while (leidos < muestra && url) {
+      const r = await ghlFetch(url, { headers }, 1, 'Empresa Diag');
+      if (r.status !== 200) break;
+      const d = await r.json();
+      const lista = d.contacts || [];
+      if (!lista.length) break;
+      for (const c of lista) {
+        if (leidos >= muestra) break;
+        leidos++;
+        const cf = c.customFields || [];
+        const leer = re => cf.find(f => re.test(String(f.id)) && String(f.value ?? '').trim() !== '');
+        // Los IDs de campo se resuelven por nombre contra los campos descubiertos
+        const idDe = nombre => campos.find(f => String(f.name).toLowerCase() === nombre.toLowerCase())?.id;
+        const tiene = nombre => {
+          const id = idDe(nombre);
+          if (!id) return false;
+          const v = cf.find(f => f.id === id)?.value;
+          return v !== undefined && v !== null && String(v).trim() !== '';
+        };
+        if (tiene('vTiger Total Compras')) conCompras++;
+        if (tiene('vTiger Fecha Última Compra') || tiene('vTiger Fecha Ultima Compra')) conFechas++;
+        if (tiene('Sede Asignada')) conSede++;
+        if (tiene('Origen Lead')) conOrigen++;
+        const tags = (c.tags || []).map(t => String(t).toLowerCase());
+        if (tags.includes('compro') || tags.includes('convertido') || tags.includes('cliente-vtiger')) conTagComprador++;
+        if (tags.includes('no-compro')) conTagNoCompro++;
+        if (String(c.phone || '').trim()) conTelefono++; else sinTelefono++;
+      }
+      const next = d.meta?.startAfter;
+      url = next ? `https://services.leadconnectorhq.com/contacts/?locationId=${loc}&limit=100&startAfter=${next}` : null;
+    }
+
+    const pct = n => leidos ? Math.round((n / leidos) * 100) : 0;
+    res.json({
+      success: true,
+      cuenta: 'EMPRESA',
+      rol: 'analitica macro (BI / postventa / customer service)',
+      contactosTotales: total,
+      camposTotales: campos.length,
+      camposRelevantes: relevantes,
+      muestra: {
+        leidos,
+        conTelefono: { n: conTelefono, pct: pct(conTelefono) },
+        sinTelefono: { n: sinTelefono, pct: pct(sinTelefono) },
+        conTotalCompras: { n: conCompras, pct: pct(conCompras) },
+        conFechaUltimaCompra: { n: conFechas, pct: pct(conFechas) },
+        conSedeAsignada: { n: conSede, pct: pct(conSede) },
+        conOrigenLead: { n: conOrigen, pct: pct(conOrigen) },
+        tagComprador: { n: conTagComprador, pct: pct(conTagComprador) },
+        tagNoCompro: { n: conTagNoCompro, pct: pct(conTagNoCompro) }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/api/curator/run', async (req, res) => {
   const { sede = 'BENAVIDES', mode = 'forward', limit = 20 } = req.body || {};
   try {
