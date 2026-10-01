@@ -22,7 +22,8 @@
  */
 
 import { queryVTiger } from './vtiger_api_service.js';
-import { sedeClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS } from './vtigerClient.js';
+import { sedeClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
+import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
 import { getActiveSedes } from '../config/index.js';
 import { syncVtigerContactDual, pickPhone } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
@@ -87,26 +88,66 @@ export async function runBuyersBackfill({
     let procesadosEnLote = 0;
 
     for (const sede of sedesObjetivo) {
-      const offset = estado.porSede?.[sede]?.offset || 0;
+      const cursorSede = estado.porSede?.[sede] || {};
+      const ultimoId = cursorSede.ultimoId || null;
+      const offset = cursorSede.offset || 0;
 
-      // [REGLAS] Sólo compradores, con la sede acotada. `ORDER BY id` es
-      // IMPRESCINDIBLE: sin un orden estable, el offset no avanza de forma
-      // confiable y el recorrido repetiría o saltaría registros.
-      const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${'spl_num_compras'} > 0${sedeClause(sede)} ORDER BY id LIMIT ${offset}, ${limite};`;
+      // ======================================================================
+      // [DEFECTO CRITICO CORREGIDO] PAGINACION POR KEYSET, NO POR OFFSET.
+      //
+      // ANTES: `ORDER BY id LIMIT ${offset}, ${limite}`.
+      // vTiger NO soporta bien el OFFSET grande: para devolver la pagina tiene que
+      // recorrer y DESCARTAR todas las filas anteriores. Con 36.629 compradores en
+      // Palacios, los offsets profundos superaban el timeout de 12 s
+      // (`VTIGER_TIMEOUT_MS`) y la consulta abortaba con "This operation was
+      // aborted" tras agotar los 3 intentos. Se registraron 8 fallos criticos
+      // VTIGER_QUERY_FAILED -- justo cuando el backfill avanzaba hacia el fondo de
+      // la cartera, que es cuando el offset es mas grande.
+      //
+      // AHORA: `WHERE id > ultimoId ORDER BY id LIMIT n`. Con un rango sobre `id`
+      // el motor salta directo por el indice y el costo es CONSTANTE sin importar
+      // la profundidad del recorrido. Es el mismo numero de filas en cada pagina,
+      // pero sin escanear lo ya recorrido.
+      //
+      // El cursor guarda `ultimoId` (clave estable) en lugar de solo el conteo.
+      // Compatibilidad: si el cursor viejo no tiene `ultimoId`, se hace UNA pagina
+      // por offset para no perder el avance y se migra al nuevo formato.
+      // ======================================================================
+      const filtroCursor = ultimoId
+        ? ` AND id > '${sanitizeForVtigerQuery(String(ultimoId), 20)}'`
+        : '';
+      const paginacion = ultimoId ? '' : `${offset}, `;
+      const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeClause(sede)}${filtroCursor} ORDER BY id LIMIT ${paginacion}${limite};`;
 
       let contactos = [];
       try {
-        contactos = await queryVTiger(q, sede);
+        // TIMEOUT AMPLIADO PARA EL RECORRIDO MASIVO.
+        // Se registraron 8 fallos criticos VTIGER_QUERY_FAILED ("This operation was
+        // aborted") en 42 segundos: vTiger respondio lento de forma transitoria y
+        // los 3 intentos de 12 s no alcanzaron. El backfill avanza por cursor, asi
+        // que una respuesta lenta NO debe abortar el trabajo: puede esperar mas.
+        // Con 30 s por intento x 5 intentos hay margen real para una lentitud pasajera.
+        contactos = await queryVTiger(q, sede, { timeoutMs: 30000, maxAttempts: 5 });
       } catch (err) {
         console.error(`[Buyers Backfill] [ERROR] Consulta fallida en ${sede}: ${err.message}`);
-        recordAuditEvent({ type: 'BUYERS_BACKFILL_QUERY_FAILED', severity: 'error', sede, message: err.message });
+        recordAuditEvent({
+          type: 'BUYERS_BACKFILL_QUERY_FAILED',
+          severity: 'error',
+          sede,
+          message: err.message,
+          // El cursor permite saber en que punto del recorrido fallo: con keyset
+          // un fallo NO depende de la profundidad, asi que si ocurre aqui es otra
+          // causa (red, sesion, carga del servidor).
+          ultimoId: ultimoId || null,
+          offset
+        });
         resumen.fallidos++;
         continue;
       }
 
       if (contactos.length === 0) {
-        estado.porSede[sede] = { ...(estado.porSede?.[sede] || {}), offset, completo: true, ultimaEjecucion: new Date().toISOString() };
-        console.log(`[Buyers Backfill] [${sede}] Cartera completada en offset ${offset}.`);
+        estado.porSede[sede] = { ...cursorSede, offset, completo: true, ultimaEjecucion: new Date().toISOString() };
+        console.log(`[Buyers Backfill] [${sede}] Cartera completada (ultimoId ${ultimoId || 'inicio'}).`);
         continue;
       }
 
@@ -129,7 +170,12 @@ export async function runBuyersBackfill({
         if (pausaMs > 0) await new Promise(res => setTimeout(res, pausaMs));
       }
 
+      // El cursor avanza por `id` (keyset): se guarda el ULTIMO id leido para que
+      // la proxima pagina pida `id > ultimoId`. `offset` se conserva solo como
+      // referencia informativa y para migrar cursores del formato anterior.
+      const nuevoUltimoId = contactos[contactos.length - 1]?.id || ultimoId;
       estado.porSede[sede] = {
+        ultimoId: nuevoUltimoId,
         offset: offset + contactos.length,
         ultimaEjecucion: new Date().toISOString(),
         ultimoLote: contactos.length,
@@ -137,7 +183,7 @@ export async function runBuyersBackfill({
       };
       procesadosEnLote += contactos.length;
       resumen.porSede[sede] = conteoSede;
-      console.log(`[Buyers Backfill] [${sede}] ${JSON.stringify(conteoSede)} (offset -> ${offset + contactos.length})`);
+      console.log(`[Buyers Backfill] [${sede}] ${JSON.stringify(conteoSede)} (cursor id -> ${nuevoUltimoId}, total leidos ${offset + contactos.length})`);
     }
 
     resumen.lotes++;
