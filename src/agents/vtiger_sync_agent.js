@@ -10,6 +10,7 @@ import { sedeClause, VTIGER_SEDES_VALIDAS } from '../services/vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { normalizeToE164, buildSanitizedGeoFields } from '../utils/geo_phone_sanitizer.js';
+import { getStateStore } from '../services/state/state_store.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -17,6 +18,85 @@ const HEADERS = GHL_HEADERS;
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ==============================================================================
+// [CURSOR DE SINCRONIZACION INVERSA] Estado persistente por sede
+// ==============================================================================
+// ANTES: el reverse sync usaba una VENTANA DE TIEMPO (`modifiedtime >= hace 4
+// minutos`) con `LIMIT 50` y SIN `ORDER BY`. Tres consecuencias medidas:
+//   1. El ciclo se desperdiciaba: en 4 min se modifican ~0 contactos, asi que el
+//      ciclo corria cada 3 min para procesar nada.
+//   2. Reprocesaba los mismos: una ventana de 4 min cada 3 min SIEMPRE solapa.
+//   3. Se desbordaba EN SILENCIO: sin ORDER BY, si se modificaban mas de 50
+//      contactos en la ventana se traian 50 al azar y el resto se PERDIA, porque
+//      el siguiente ciclo usaba una ventana nueva que ya no los alcanzaba. Hoy no
+//      ocurre (8 cambios en 30 min) pero ocurriria con una importacion o campana.
+//
+// AHORA: un CURSOR persistente por sede. Cada ciclo lee desde donde quedo, ordena
+// del mas viejo al mas nuevo y AVANZA. Si hay backlog lo drena; si esta al dia, no
+// hace nada. Una caida de vTiger no pierde cambios: el cursor no avanza y al volver
+// recupera todo.
+//
+// NOTA DE PARSER (verificado en vivo): vTiger NO admite `ORDER BY a, b` (error
+// "token ',' Unexpected COMMA"). Por eso el cursor es por `modifiedtime` y el
+// desempate de ids iguales se resuelve en memoria con `idsEnCursor`.
+// ==============================================================================
+const reverseCursorStore = getStateStore('reverse_sync_cursor');
+const CURSOR_KEY = 'cursor_v1';
+const CURSOR_PAGE_SIZE = 50;   // filas por consulta
+const CURSOR_MAX_PAGES = 20;   // tope de paginas por ciclo (drena sin bloquear)
+
+/** Campo de vTiger que marca la ultima modificacion del registro. */
+const VTIGER_FIELDS_MODIFIED = 'modifiedtime';
+
+const pad2 = n => String(n).padStart(2, '0');
+
+/** Formatea una fecha como la espera vTiger: 'YYYY-MM-DD HH:MM:SS' en UTC. */
+function formatoVtiger(d) {
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} `
+    + `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+}
+
+/** Lee el estado del cursor (o {}) sin fallar si el store no responde. */
+async function leerCursor() {
+  try {
+    const c = await reverseCursorStore.get(CURSOR_KEY, null);
+    return c && typeof c === 'object' ? c : {};
+  } catch (err) {
+    console.warn(`[Reverse Sync] [CURSOR-WARN] No se pudo leer el cursor: ${err.message}`);
+    return {};
+  }
+}
+
+/** Persiste el estado del cursor. Un fallo no debe tumbar el ciclo. */
+async function guardarCursor(estado) {
+  try {
+    await reverseCursorStore.set(CURSOR_KEY, estado);
+  } catch (err) {
+    console.warn(`[Reverse Sync] [CURSOR-WARN] No se pudo guardar el cursor: ${err.message}`);
+  }
+}
+
+/**
+ * Lee UNA pagina de contactos modificados desde el cursor de una sede,
+ * ordenada del mas antiguo al mas nuevo.
+ *
+ * RESTRICCION DE PARSER (verificado en vivo): vTiger NO admite `IS NOT NULL`
+ * ("token 'IS' Unexpected VALUE(IS)"). El filtro por fecha ES la condicion
+ * obligatoria; no hace falta una comprobacion de nulos porque `modifiedtime`
+ * siempre tiene valor en vTiger.
+ *
+ * @param {string} sede
+ * @param {string} desde  modifiedtime desde el que leer (obligatorio)
+ * @returns {Promise<Array>} filas
+ */
+async function fetchPaginaModificados(sede, desde, limite = CURSOR_PAGE_SIZE) {
+  // ORDER BY ASC es IMPRESCINDIBLE: garantiza que se procesen primero los cambios
+  // mas antiguos y que el cursor avance de forma monotona. Sin el, una pagina con
+  // mas filas que el limite perderia cambios.
+  const q = `SELECT * FROM Contacts WHERE ${VTIGER_FIELDS_MODIFIED} >= '${sanitizeForVtigerQuery(desde, 25)}'${sedeClause(sede)} ORDER BY ${VTIGER_FIELDS_MODIFIED} ASC LIMIT ${limite};`;
+  return queryVTiger(q, sede, { timeoutMs: 30000, maxAttempts: 4 });
 }
 
 let syncRateLimitBlockedUntil = 0;
@@ -89,95 +169,201 @@ async function findGhlContact(vContact) {
 }
 
 /**
- * Contactos de vTiger modificados desde `modifiedTimeStr`, **por sede**.
- *
- * [SEDE-LOCK — CORRECCIÓN DE INCIDENTE]
- * ANTES esta consulta era `SELECT * FROM Contacts WHERE modifiedtime >= '...'`
- * SIN cláusula de sede. Al imponer el gate de aislamiento en el borde de la API
- * (`assertTenantIsolation`), el gate la empezó a RECHAZAR con
- * `SEDE_LOCK_VIOLATION`: el Reverse Sync llevaba ~871 ciclos fallando, es decir
- * ~44 h sin sincronizar vTiger -> GHL. Los cambios de vTiger (incluidas ventas
- * nuevas) no llegaban a GHL, y el contacto no aparecía en el chat.
- *
- * La consulta correcta es UNA por sede, cada una con su filtro `cf_3451`.
+ * [REMOVIDO] `fetchModifiedContactsBySede` leia por VENTANA DE TIEMPO
+ * (`modifiedtime >= hace 4 min`) con `LIMIT 50` y SIN `ORDER BY`. Se sustituyo por
+ * `fetchPaginaModificados`, que lee desde un CURSOR persistente con `ORDER BY
+ * modifiedtime ASC`. Motivos medidos:
+ *   - La ventana de 4 min casi siempre traia 0 registros (en 30 min solo hubo 8
+ *     cambios en Palacios): el ciclo corria cada 3 min para no hacer nada.
+ *   - Una ventana de 4 min cada 3 min SIEMPRE solapa: reprocesaba los mismos.
+ *   - Sin `ORDER BY`, si se modificaban mas de 50 registros en la ventana se
+ *     traian 50 al azar y el resto se PERDIA en silencio.
+ * Se conserva la nota historica del incidente de Sede-Lock, que sigue siendo
+ * valida: la consulta DEBE llevar la clausula de sede (ahora lo hace
+ * `fetchPaginaModificados` via `sedeClause`).
  */
-async function fetchModifiedContactsBySede(modifiedTimeStr, limitPerSede = 50, sedes = null) {
-  const sedesObjetivo = (sedes && sedes.length ? sedes : getActiveSedes().map(s => s.sedeId))
-    .map(s => String(s).toUpperCase())
-    .filter(s => VTIGER_SEDES_VALIDAS.includes(s));
-
-  const acumulado = [];
-  for (const sede of sedesObjetivo) {
-    const safeTime = sanitizeForVtigerQuery(modifiedTimeStr, 25);
-    const q = `SELECT * FROM Contacts WHERE modifiedtime >= '${safeTime}'${sedeClause(sede)} LIMIT ${Math.min(Math.max(parseInt(limitPerSede, 10) || 50, 1), 200)};`;
-    try {
-      const filas = await queryVTiger(q, sede);
-      // [TRAZABILIDAD] El origen de cada registro queda marcado para el sync.
-      for (const f of (filas || [])) acumulado.push({ ...f, __sedeOrigen: sede });
-    } catch (err) {
-      // El error ya quedó auditado dentro de `query()`. Aquí no se silencia:
-      // se registra para que un fallo de sincronización sea VISIBLE.
-      console.error(`[Reverse Sync] [ERROR] Consulta de modificados falló para la sede ${sede}: ${err.message}`);
-      recordAuditEvent({
-        type: 'REVERSE_SYNC_QUERY_FAILED',
-        severity: 'error',
-        sede,
-        message: err.message
-      });
-    }
-  }
-  return acumulado;
-}
 
 /**
  * Demonio de Sincronización Inversa (Reverse Poller) 24/7.
- * Busca cambios en vTiger en los últimos X minutos y los refleja en GHL.
+ *
+ * [CURSOR] Lee desde el cursor persistente de cada sede, del cambio mas antiguo al
+ * mas nuevo, y AVANZA. Drena el backlog en varias paginas dentro del mismo ciclo.
+ * Ya no usa una ventana de tiempo: eso perdia cambios cuando habia mas de 50
+ * modificaciones en la ventana y reprocesaba siempre las mismas filas.
+ *
  * Aplica el DROP RULE: sin teléfono válido no se sincroniza y se audita.
+ *
+ * @param {number} [minutesLookback] Ya no define la ventana de lectura; se conserva
+ *        por compatibilidad de firma con los llamantes existentes.
  */
 export async function runVTigerToGHLPoller(minutesLookback = 4) {
   try {
-    // Calcular fecha en zona horaria UTC (vTiger suele trabajar en UTC o zona del servidor)
-    // Para asegurar margen de error, restamos 4 minutos.
-    const date = new Date(Date.now() - (minutesLookback * 60 * 1000));
-    // Formato MySQL: YYYY-MM-DD HH:MM:SS
-    const pad = n => n.toString().padStart(2, '0');
-    const modifiedTimeStr = `${date.getUTCFullYear()}-${pad(date.getUTCMonth()+1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+    const sedesObjetivo = getActiveSedes().map(s => s.sedeId);
 
-    // Consulta POR SEDE (Sede-Lock). Un fallo por sede no afecta a las demás.
-    const modifiedContacts = await fetchModifiedContactsBySede(modifiedTimeStr, 50);
+    const estadoCursor = await leerCursor();
+    // Techo de seguridad: no se leen registros con `modifiedtime` futuro (relojes
+    // desfasados entre vTiger y el servidor). Se deja 5 s de margen.
+    const techo = formatoVtiger(new Date(Date.now() - 5000));
 
-    if (!modifiedContacts || modifiedContacts.length === 0) return;
-    
-    console.log(`[Reverse Sync] [SYNC] ${modifiedContacts.length} contactos modificados en vTiger detectados en los últimos ${minutesLookback} mins. Sincronizando a GHL...`);
+    const resumenCiclo = {
+      sedes: {}, totalNuevos: 0, totalPaginas: 0, backlogRestante: false
+    };
 
-    let syncCount = 0;
-    let descartadosSinTelefono = 0;
-    let sinSede = 0;
+    for (const sede of sedesObjetivo) {
+      const previo = estadoCursor[sede] || {};
+      // [INICIALIZACION] En la primera corrida (sin cursor) se arranca desde una
+      // ventana corta hacia atras, NO desde el origen de los tiempos. Motivo: los
+      // cambios historicos ya los cubren el backfill de compradores y el puente de
+      // ventas; reprocesar anos de `modifiedtime` en el primer arranque saturaria
+      // vTiger y GHL sin aportar nada. La ventana inicial es configurable.
+      const ventanaInicialMin = Math.min(Math.max(parseInt(minutesLookback, 10) || 4, 1), 240);
+      let cursor = previo.modifiedtime
+        || formatoVtiger(new Date(Date.now() - ventanaInicialMin * 60 * 1000));
+      const primeraVez = !previo.modifiedtime;
+      // Ids ya procesados que comparten el `modifiedtime` del cursor. vTiger no
+      // admite desempatar por id en el ORDER BY, asi que las filas del mismo
+      // segundo se repiten entre paginas: aqui se descartan sin perder ninguna.
+      let idsEnCursor = new Set(Array.isArray(previo.ids) ? previo.ids : []);
 
-    for (const vContact of modifiedContacts) {
-      // [DROP RULE] El teléfono es el identificador único de sincronización.
-      const phoneDigits = normalizeToE164(vContact.mobile || vContact.phone || vContact.homephone || vContact.otherphone || '');
-      if (!phoneDigits) {
-        descartadosSinTelefono++;
-        recordAuditEvent({
-          type: 'REVERSE_SYNC_DROPPED_NO_PHONE',
-          severity: 'warn',
-          vTigerId: vContact.id || null,
-          nombre: `${vContact.firstname || ''} ${vContact.lastname || ''}`.trim().slice(0, 60),
-          sedeRegistro: vContact.cf_3451 || null,
-          reason: 'sin teléfono válido no se sincroniza (identificador único ausente)'
-        });
-        continue;
+      let paginas = 0;
+      let procesadosSede = 0;
+
+      for (let p = 0; p < CURSOR_MAX_PAGES; p++) {
+        let filas;
+        try {
+          filas = await fetchPaginaModificados(sede, cursor);
+        } catch (err) {
+          console.error(`[Reverse Sync] [ERROR] Lectura de modificados falló en ${sede}: ${err.message}`);
+          recordAuditEvent({
+            type: 'REVERSE_SYNC_QUERY_FAILED',
+            severity: 'error',
+            sede,
+            message: err.message,
+            cursor: cursor || null
+          });
+          break; // el cursor NO avanza: el proximo ciclo reintenta desde el mismo punto
+        }
+
+        // [AVANCE CUANDO NO HAY FILAS] Si la consulta no devuelve nada, el cursor
+        // avanza al TECHO (la hora actual). Sin este avance el cursor quedaria
+        // pegado consultando eternamente el mismo rango y nunca alcanzaria los
+        // cambios nuevos. No se pierde nada: si no hay filas, no habia cambios
+        // entre el cursor y el techo.
+        if (!filas || filas.length === 0) {
+          cursor = techo > cursor ? techo : cursor;
+          break;
+        }
+        paginas++;
+
+        for (const f of filas) {
+          // Se salta lo ya procesado de este mismo instante (sin perdida).
+          if (f.modifiedtime === cursor && idsEnCursor.has(String(f.id))) continue;
+          if (f.modifiedtime > techo) continue; // fuera de la ventana segura
+          await procesarContactoModificado({ ...f, __sedeOrigen: sede });
+          procesadosSede++;
+        }
+
+        // Avance del cursor. Se guarda el `modifiedtime` de la ULTIMA fila leida,
+        // con los ids de ese mismo instante para no reprocesarlos.
+        const ultima = filas[filas.length - 1];
+        const nuevoCursor = ultima.modifiedtime;
+        const idsMismoInstante = filas
+          .filter(f => f.modifiedtime === nuevoCursor)
+          .map(f => String(f.id));
+
+        if (nuevoCursor === cursor) {
+          // Mismo instante: se acumulan los ids para no repetirlos.
+          for (const id of idsMismoInstante) idsEnCursor.add(id);
+        } else {
+          cursor = nuevoCursor;
+          idsEnCursor = new Set(idsMismoInstante);
+        }
+
+        if (filas.length < CURSOR_PAGE_SIZE) break; // se alcanzo el presente
       }
 
-      // 1. Encontrar su par en GHL
-      const ghlContact = await findGhlContact(vContact);
-      if (!ghlContact) {
-        sinSede++;
-        continue; // No existe en GHL (o el registro no tiene sede válida)
-      }
+      estadoCursor[sede] = {
+        modifiedtime: cursor,
+        ids: Array.from(idsEnCursor).slice(-500), // tope: no crecer sin limite
+        ultimaEjecucion: new Date().toISOString(),
+        procesadosUltimoCiclo: procesadosSede,
+        paginasUltimoCiclo: paginas,
+        inicializado: true
+      };
 
-      // Sede del REGISTRO de vTiger: define la subcuenta destino (hermetismo).
+      resumenCiclo.sedes[sede] = { procesados: procesadosSede, paginas, cursor };
+      resumenCiclo.totalNuevos += procesadosSede;
+      resumenCiclo.totalPaginas += paginas;
+      if (paginas >= CURSOR_MAX_PAGES) resumenCiclo.backlogRestante = true;
+
+      if (primeraVez) {
+        console.log(`[Reverse Sync] [${sede}] Cursor inicializado en ${cursor} (no se recorre el historico: de eso se encarga el backfill).`);
+      } else if (procesadosSede > 0) {
+        console.log(`[Reverse Sync] [${sede}] ${procesadosSede} cambios sincronizados en ${paginas} pagina(s). Cursor -> ${cursor}`);
+      }
+    }
+
+    await guardarCursor(estadoCursor);
+
+    if (resumenCiclo.totalNuevos > 0 || resumenCiclo.backlogRestante) {
+      recordAuditEvent({
+        type: 'REVERSE_SYNC_CYCLE',
+        severity: 'info',
+        ...resumenCiclo
+      });
+    }
+    return resumenCiclo;
+  } catch (err) {
+    console.error('[Reverse Sync] [ERROR] Ciclo fallido:', err.message);
+    recordAuditEvent({ type: 'REVERSE_SYNC_CYCLE_FAILED', severity: 'error', message: err.message });
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Procesa UN contacto modificado: encuentra su par en GHL y lo actualiza.
+ * Se extrajo del bucle para que el poller pueda recorrer varias paginas con cursor.
+ */
+async function procesarContactoModificado(vContact) {
+  try {
+    // [DROP RULE] El teléfono es el identificador único de sincronización.
+    const phoneDigits = normalizeToE164(vContact.mobile || vContact.phone || vContact.homephone || vContact.otherphone || '');
+    if (!phoneDigits) {
+      recordAuditEvent({
+        type: 'REVERSE_SYNC_DROPPED_NO_PHONE',
+        severity: 'warn',
+        vTigerId: vContact.id || null,
+        nombre: `${vContact.firstname || ''} ${vContact.lastname || ''}`.trim().slice(0, 60),
+        sedeRegistro: vContact.cf_3451 || null,
+        reason: 'sin teléfono válido no se sincroniza (identificador único ausente)'
+      });
+      return { ok: false, reason: 'sin telefono' };
+    }
+    return await aplicarCambioEnGhl(vContact, phoneDigits);
+  } catch (err) {
+    console.error(`[Reverse Sync] [CONTACT-ERROR] ${vContact?.id}: ${err.message}`);
+    recordAuditEvent({
+      type: 'REVERSE_SYNC_CONTACT_FAILED',
+      severity: 'warn',
+      vTigerId: vContact?.id || null,
+      sedeRegistro: vContact?.cf_3451 || null,
+      message: err.message
+    });
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Replica en GHL el estado de un contacto modificado (logica original del poller,
+ * ahora por contacto en lugar de un bucle con ventana de tiempo).
+ */
+async function aplicarCambioEnGhl(vContact, phoneDigits) {
+  {
+    const ghlContact = await findGhlContact(vContact);
+    if (!ghlContact) return { ok: false, reason: 'sin par en GHL' };
+
+    {
+      // 1. Sede del REGISTRO de vTiger: define la subcuenta destino (hermetismo).
       const vSede = String(vContact.cf_3451 || vContact.__sedeOrigen || '').toUpperCase().trim();
       const targetLocId = ghlContact.locationId;
 
@@ -306,7 +492,6 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
         });
 
         if (updateRes.status === 200) {
-           syncCount++;
            console.log(`[Reverse Sync] [SUCCESS] Cliente ${vContact.firstname || ''} ${vContact.lastname || ''} sincronizado de vTiger a GHL exitosamente.`);
 
            // 6. Sincronizar Oportunidad en el Pipeline Unificado
@@ -330,16 +515,7 @@ export async function runVTigerToGHLPoller(minutesLookback = 4) {
       }
       
       await sleep(250); // Rate Limit Protection
+      return { ok: true, actualizado: true };
     }
-    
-    if (syncCount > 0) {
-      console.log(`[Reverse Sync] [COMPLETED] Ciclo completado. ${syncCount} contactos actualizados en GHL.`);
-    }
-    if (descartadosSinTelefono > 0 || sinSede > 0) {
-      console.log(`[Reverse Sync] [CYCLE] Descartados sin teléfono: ${descartadosSinTelefono} | Sin par en GHL o sin sede válida: ${sinSede}.`);
-    }
-
-  } catch (error) {
-    console.error(`[Reverse Sync Error]:`, error.message);
   }
 }
