@@ -132,7 +132,11 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
   try {
     if (global.apiCounters) global.apiCounters.ghl++;
     const priority = (caller === 'Radar' || caller === 'Router' || caller.includes('Webhook')) ? 'HIGH' : 'LOW';
-    const res = await tokenBucketQueue.enqueue(() => fetch(url, options), priority);
+    // [AISLAMIENTO POR SUBCUENTA] Se pasa la subcuenta para que cada location use
+    // su PROPIO cubo. Antes todas las sedes compartian una sola cola global y se
+    // serializaban entre si, usando menos del 10% del limite de GHL. La cuota de
+    // GHL es "per app per resource": cada location tiene su presupuesto aparte.
+    const res = await tokenBucketQueue.enqueue(() => fetch(url, options), priority, subaccount);
     
     // Telemetría nativa (No bloqueante, alimenta telemetry.db)
     const duration = Date.now() - startTime;
