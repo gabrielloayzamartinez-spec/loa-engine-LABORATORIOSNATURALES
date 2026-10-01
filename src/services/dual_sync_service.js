@@ -110,6 +110,13 @@ const CAMPOS_REQUERIDOS = {
 const fieldCache = new Map(); // locationId -> { nombreNormalizado: fieldId }
 
 /**
+ * Tiempo tras el cual se reintenta el descubrimiento de custom fields cuando el
+ * mapa quedo INCOMPLETO o vacio. Evita tanto la cache envenenada permanente
+ * (el defecto corregido) como martillar la API en cada contacto.
+ */
+const FIELDS_RETRY_MS = 5 * 60 * 1000;
+
+/**
  * Credenciales que GHL rechazó, por location: { locationId: statusHttp }.
  * Permite que el orquestador reporte una credencial inválida como causa raíz en
  * lugar de dejar que el fallo aparezca como un error genérico de upsert.
@@ -210,13 +217,41 @@ function elegirCampo(campos, alias) {
 
 /**
  * Obtiene el mapa { nombreLogico: fieldId } de una location.
- * Cachea el resultado: el descubrimiento cuesta 1 request por location por proceso.
+ *
+ * [DEFECTO CORREGIDO — CACHE ENVENENADA] Antes se cacheaba SIEMPRE el resultado,
+ * incluso el mapa vacio que queda tras un fallo de red o un 401/403/500:
+ *
+ *     } catch (err) { console.warn(...); }
+ *     fieldCache.set(locationId, mapa);   // <- se cachea aunque este vacio
+ *     return mapa;
+ *
+ * Como el hit de cache es incondicional, UNA sola respuesta fallida dejaba esa
+ * location SIN RESOLVER CAMPOS PARA TODA LA VIDA DEL PROCESO: `push()` descarta
+ * todo por `mapa[logico]` falsy y el upsert se reportaba `ok:true` con CERO campos
+ * personalizados. Es decir: degradacion total y silenciosa de la sincronizacion
+ * (tratamiento, fechas de compra, total de compras, canal, sexo, contacto No) en
+ * las 3 cuentas, sin un solo error visible.
+ *
+ * AHORA:
+ *  - Un mapa COMPLETO se cachea de forma permanente (el caso normal y barato).
+ *  - Un mapa INCOMPLETO o vacio NO se cachea de forma permanente: se reintenta
+ *    tras `FIELDS_RETRY_MS` (5 min), para que un fallo transitorio se recupere solo
+ *    sin martillar la API en cada contacto.
+ *  - La cobertura se audita para que la degradacion sea VISIBLE.
  *
  * @param {string} locationId
  * @param {object} headers
  */
 export async function resolveCustomFieldIds(locationId, headers) {
-  if (fieldCache.has(locationId)) return fieldCache.get(locationId);
+  const cacheado = fieldCache.get(locationId);
+  if (cacheado) {
+    const totalRequeridos = Object.keys(CAMPOS_REQUERIDOS).length;
+    const completo = Object.keys(cacheado).length >= totalRequeridos;
+    // Solo el mapa completo es definitivo. El parcial/vacio caduca y se reintenta.
+    if (completo || (Date.now() - (cacheado.__cacheadoEn || 0)) < FIELDS_RETRY_MS) {
+      return cacheado;
+    }
+  }
 
   const mapa = {};
   try {
@@ -262,7 +297,26 @@ export async function resolveCustomFieldIds(locationId, headers) {
     console.warn(`[Dual Sync] [FIELDS-WARN] Descubrimiento de campos falló: ${err.message}`);
   }
 
+  // [CACHE A PRUEBA DE FALLOS] Se marca la marca de tiempo y se audita la
+  // cobertura. Un mapa incompleto caduca y se reintenta; uno completo es definitivo.
+  const totalRequeridos = Object.keys(CAMPOS_REQUERIDOS).length;
+  const resueltos = Object.keys(mapa).length;
+  mapa.__cacheadoEn = Date.now();
   fieldCache.set(locationId, mapa);
+
+  if (resueltos < totalRequeridos) {
+    recordAuditEvent({
+      type: 'GHL_FIELDS_INCOMPLETE',
+      severity: resueltos === 0 ? 'critical' : 'warn',
+      locationId,
+      resueltos,
+      requeridos: totalRequeridos,
+      reason: resueltos === 0
+        ? 'no se resolvio NINGUN campo: el contacto se sincronizara sin datos personalizados. Se reintentara.'
+        : `cobertura parcial (${resueltos}/${totalRequeridos}): los campos faltantes se omitiran. Se reintentara.`
+    });
+  }
+
   return mapa;
 }
 

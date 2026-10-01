@@ -524,9 +524,6 @@ export async function processMasterContact(contactInput, options = {}) {
     for (const touch of distinctAdTouches) {
       if (touch.campaignTag) requiredTags.add(touch.campaignTag);
     }
-    for (const touch of filteredExplicitTouches) {
-      if (touch.campaignTag) requiredTags.add(touch.campaignTag);
-    }
 
     const finalTagsList = Array.from(requiredTags);
 
