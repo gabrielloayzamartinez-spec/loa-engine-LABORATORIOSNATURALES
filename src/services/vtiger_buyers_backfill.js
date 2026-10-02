@@ -24,13 +24,49 @@
 import { queryVTiger } from './vtiger_api_service.js';
 import { sedeClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
-import { getActiveSedes } from '../config/index.js';
+import { getActiveSedes, SEDES_GATEWAY } from '../config/index.js';
 import { syncVtigerContactDual, pickPhone } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { getStateStore } from './state/state_store.js';
+import { ghlFetch } from '../utils/ghl_http_client.js';
+import { tokenBucketQueue } from './token_bucket_queue.js';
 
 const backfillStore = getStateStore('buyers_backfill');
 const CURSOR_KEY = 'cursor_v1';
+
+/**
+ * [CONTADOR REAL DE CONTACTOS]
+ *
+ * POR QUE EXISTE: el backfill reportaba `creados: 0` aunque SI estaba creando
+ * contactos (medido en vivo: la cuenta de Palacios crecia +4 en 3 minutos). La
+ * causa es que `creados` depende del campo `new` de la respuesta del upsert, que
+ * no siempre viene, y del fallback `!existente`, que es fragil porque la busqueda
+ * por telefono de GHL tiene retraso de indexacion.
+ *
+ * El conteo de contactos de la subcuenta es la FUENTE DE VERDAD: no depende de lo
+ * que responda el upsert. Con el antes/despues se obtiene el avance real.
+ *
+ * @param {string} locationId
+ * @returns {Promise<number|null>} total de contactos, o null si no se pudo leer
+ */
+export async function contarContactosGhl(locationId) {
+  const sedeConf = Object.values(SEDES_GATEWAY).find(s => s?.ghl?.locationId === locationId);
+  const apiKey = sedeConf?.ghl?.apiKey;
+  if (!locationId || !apiKey) return null;
+  const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
+  try {
+    const r = await ghlFetch(
+      `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=1`,
+      { headers }, 1, 'Backfill-Conteo'
+    );
+    if (r.status !== 200) return null;
+    const d = await r.json();
+    const total = d?.meta?.total;
+    return typeof total === 'number' ? total : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Estado del backfill de compradores (para /api/health y diagnóstico). */
 export async function getBuyersBackfillStatus() {
@@ -70,19 +106,45 @@ export async function runBuyersBackfill({
   pausaMs = 300,
   sedes = null
 } = {}) {
-  const sedesObjetivo = (sedes && sedes.length ? sedes : getActiveSedes().map(s => s.sedeId))
+  const sedesSolicitadas = (sedes && sedes.length ? sedes : getActiveSedes().map(s => s.sedeId))
     .map(s => String(s).toUpperCase())
     .filter(s => VTIGER_SEDES_VALIDAS.includes(s));
 
-  if (sedesObjetivo.length === 0) {
+  if (sedesSolicitadas.length === 0) {
     console.warn('[Buyers Backfill] [SKIP] No hay sedes activas configuradas.');
     return { ok: false, reason: 'sin sedes activas' };
+  }
+
+  // [GUARDIAN DE CUOTA DIARIA] Se comprueba ANTES de empezar: si una subcuenta ya
+  // consumio su techo del dia, se excluye del ciclo (las demas siguen). Si NINGUNA
+  // tiene cupo, el ciclo se omite entero y se audita. Asi el backfill nunca compite
+  // por la cuota que necesita la atencion en vivo. GHL: 200,000/dia por location.
+  const sedesObjetivo = sedesSolicitadas.filter(s => tokenBucketQueue.hayCupoDeFondo(s));
+  if (sedesObjetivo.length === 0) {
+    const cuota = tokenBucketQueue.getCuotaDiaria();
+    recordAuditEvent({
+      type: 'BUYERS_BACKFILL_QUOTA_PAUSED',
+      severity: 'warn',
+      message: 'Cuota diaria agotada en todas las sedes objetivo: ciclo omitido para proteger la atencion en vivo.',
+      cuota
+    });
+    console.warn('[Buyers Backfill] [CUOTA] Techo diario alcanzado en las sedes objetivo: ciclo omitido.');
+    return { ok: false, reason: 'cuota diaria agotada', sedes: sedesSolicitadas, cuota };
   }
 
   const estado = await getBuyersBackfillStatus();
   const inicio = Date.now();
   const resumen = { lotes: 0, contactos: 0, creados: 0, actualizados: 0, descartados: 0, fallidos: 0, porSede: {} };
   const limite = Math.min(Math.max(parseInt(tamanoLote, 10) || 50, 1), 150);
+
+  // [CONTADOR REAL] Foto inicial de contactos por sede. El campo `new` del upsert
+  // no es fiable (ver contarContactosGhl), asi que el avance se mide por diferencia
+  // de conteo: es la unica cifra que refleja la realidad.
+  const conteoAntes = {};
+  for (const sede of sedesObjetivo) {
+    const loc = SEDES_GATEWAY[sede]?.ghl?.locationId;
+    if (loc) conteoAntes[sede] = await contarContactosGhl(loc);
+  }
 
   for (let lote = 0; lote < Math.min(Math.max(parseInt(maxLotes, 10) || 1, 1), 20); lote++) {
     let procesadosEnLote = 0;
@@ -217,6 +279,27 @@ export async function runBuyersBackfill({
     if (procesadosEnLote === 0) break; // nada más que recorrer
   }
 
+  // [CONTADOR REAL] Foto final y calculo del avance verdadero por sede.
+  const conteoDespues = {};
+  const creadosReales = {};
+  let totalCreadosReales = 0;
+  for (const sede of sedesObjetivo) {
+    const loc = SEDES_GATEWAY[sede]?.ghl?.locationId;
+    if (!loc) continue;
+    const n = await contarContactosGhl(loc);
+    conteoDespues[sede] = n;
+    if (typeof n === 'number' && typeof conteoAntes[sede] === 'number') {
+      const delta = n - conteoAntes[sede];
+      creadosReales[sede] = delta;
+      if (delta > 0) totalCreadosReales += delta;
+    }
+  }
+  estado.contactosGhl = conteoDespues;
+  estado.creadosReales = creadosReales;
+  await backfillStore.set(CURSOR_KEY, estado);
+
+  resumen.contactosGhl = conteoDespues;
+  resumen.creadosReales = creadosReales;
   resumen.ms = Date.now() - inicio;
   resumen.completo = estado.completo;
   recordAuditEvent({ type: 'BUYERS_BACKFILL_CYCLE', severity: resumen.fallidos > 0 ? 'warn' : 'info', ...resumen });

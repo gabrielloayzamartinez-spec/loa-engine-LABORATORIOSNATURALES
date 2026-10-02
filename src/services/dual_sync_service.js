@@ -1050,7 +1050,17 @@ export async function upsertWithHistoryProtection(payload, ctx = {}) {
     // inferia de la busqueda previa, que falla por el retraso de indexacion de
     // GHL: recien creado el contacto, la busqueda devuelve vacio y el motor
     // reportaba `created: true` en cada corrida aunque ya existiera.
-    const created = typeof data?.new === 'boolean' ? data.new : !existente;
+    //
+    // [ROBUSTEZ] Se comprueba tambien `contact.new` porque GHL ha anidado el dato
+    // dentro del objeto `contact` en algunas respuestas. Si no viene en ninguna de
+    // las dos formas, se cae al fallback por busqueda previa. El backfill ADEMAS
+    // mide el avance real por diferencia de conteo de contactos
+    // (`contarContactosGhl`), que no depende de esta respuesta.
+    const created = typeof data?.new === 'boolean'
+      ? data.new
+      : typeof data?.contact?.new === 'boolean'
+        ? data.contact.new
+        : !existente;
     return {
       ok: true,
       created,
