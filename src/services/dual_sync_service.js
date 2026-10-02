@@ -65,17 +65,21 @@ export function isCentralConfigured() {
  * normaliza (minusculas, sin acentos, sin puntuacion) en lugar de comparar literal.
  */
 const CAMPOS_REQUERIDOS = {
-  oficinaOrigen: ['oficina_origen', 'oficina origen', 'sede origen', 'v tiger sede tienda compra', 'sede asignada'],
-  totalCompras: ['v tiger total compras', 'total compras', 'numero de compras', 'num compras'],
-  fechaUltimaCompra: ['v tiger fecha ultima compra', 'fecha ultima compra', 'ultima compra'],
-  fechaPrimeraCompra: ['v tiger fecha primera compra', 'fecha primera compra'],
-  precioVenta: ['precio venta', 'v tiger precio venta', 'monto invertido'],
+  // [SIN PREFIJO "vTiger"] Decision de negocio: los campos en GHL se renombran a su
+  // nombre limpio. El alias LIMPIO va PRIMERO (maxima prioridad); el alias "v tiger"
+  // se conserva AL FINAL como respaldo durante la transicion, para que un campo que
+  // aun no se renombro siga resolviendo sin romper la sincronizacion.
+  oficinaOrigen: ['sede asignada', 'sede origen', 'oficina origen', 'oficina_origen', 'v tiger sede tienda compra'],
+  totalCompras: ['total compras', 'numero de compras', 'num compras', 'v tiger total compras'],
+  fechaUltimaCompra: ['fecha ultima compra', 'ultima compra', 'v tiger fecha ultima compra'],
+  fechaPrimeraCompra: ['fecha primera compra', 'v tiger fecha primera compra'],
+  precioVenta: ['precio venta', 'monto invertido', 'v tiger precio venta'],
   // La Cuenta Empresa expone campos comerciales mas ricos que las sedes
   // (verificado en vivo): el gasto historico acumulado del cliente.
-  totalHistorico: ['v tiger total historico gastado usd', 'total historico gastado', 'total historico'],
+  totalHistorico: ['total historico gastado', 'total historico', 'v tiger total historico gastado usd'],
   ultimaInteraccion: ['ultima interaccion'],
-  campanaOrigen: ['v tiger campana origen', 'utm campaign', 'campana origen', 'origen lead'],
-  idClienteVt: ['v tiger id cliente', 'id cliente', 'v tiger contact no'],
+  campanaOrigen: ['campana origen', 'utm campaign', 'origen lead', 'v tiger campana origen'],
+  idClienteVt: ['id cliente', 'id de cliente', 'v tiger id cliente'],
   // RELACION DE ORIGEN: vTiger ya la trae armada en `cf_3472` con el formato
   // SEDE-PROVEEDOR-CANAL-PADECIMIENTO (verificado identico en 20/20 contactos
   // de Palacios y en todos los de Benavides). Se lee directo, no se compone.
@@ -86,22 +90,22 @@ const CAMPOS_REQUERIDOS = {
   sexo: ['sexo', 'ssexo', 'genero', 'g nero'],
   // --- Campos de negocio que el comprador debe llevar completo ---
   proveedor: ['proveedor', 'v tiger proveedor'],
-  canalCaptacion: ['v tiger canal captacion', 'canal captacion', 'canal'],
-  tratamientoComprado: ['tratamiento comprado', 'v tiger tratamiento comprado', 'tratamiento'],
-  estadoComercial: ['v tiger estado comercial', 'estado comercial'],
+  canalCaptacion: ['canal captacion', 'canal', 'v tiger canal captacion'],
+  tratamientoComprado: ['tratamiento comprado', 'tratamiento', 'v tiger tratamiento comprado'],
+  estadoComercial: ['estado comercial', 'v tiger estado comercial'],
   // [IMPORTANTE - NO USAR "Estado de Compra"] Ese campo es DEL NEGOCIO y usa el
   // vocabulario Comprador / No Comprador, con el que ya estan construidas sus
   // Smart Lists. Escribir ahi la etapa de vTiger mezclaba dos vocabularios
   // incompatibles y ROMPIA los filtros: un cliente que si compro pero figuraba
   // como "EN LLAMADA" no aparecia al filtrar por "Comprador".
   // La etapa de vTiger va a su PROPIO campo para no contaminar el del negocio.
-  etapaComercial: ['v tiger etapa comercial', 'etapa comercial', 'v tiger estado venta'],
-  contactoNo: ['v tiger contact no', 'contact no', 'numero de contacto'],
-  asesorAsignado: ['v tiger asesor asignado', 'asesor asignado'],
-  fechaCreacion: ['v tiger fecha creacion', 'fecha creacion'],
-  anotacionesRedes: ['v tiger anotaciones redes', 'anotaciones redes'],
+  etapaComercial: ['etapa comercial', 'estado venta', 'v tiger etapa comercial', 'v tiger estado venta'],
+  contactoNo: ['contact no', 'numero de contacto', 'v tiger contact no'],
+  asesorAsignado: ['asesor asignado', 'v tiger asesor asignado'],
+  fechaCreacion: ['fecha creacion', 'v tiger fecha creacion'],
+  anotacionesRedes: ['anotaciones redes', 'v tiger anotaciones redes'],
   // Campo LARGE_TEXT que aloja el detalle de órdenes.
-  historialCompleto: ['v tiger historial completo', 'historial completo']
+  historialCompleto: ['historial completo', 'v tiger historial completo']
 };
 
 // ------------------------------------------------------------------------------
@@ -480,6 +484,42 @@ export function debeAvanzarFecha(valorVtiger, valorGhl) {
   const actual = parseFechaGhl(valorGhl);
   if (actual === null) return true;            // GHL no tiene el dato: se escribe
   return nuevo > actual;                       // sólo avanza, nunca retrocede
+}
+
+/**
+ * [REGLA DE MERGE — LA SEDE MAS RECIENTE GANA]
+ *
+ * En la CUENTA EMPRESA un mismo teléfono (una misma persona) puede haber comprado
+ * en DOS sedes. La Empresa es la cuenta de inteligencia: ahí el contacto debe ser
+ * UNO, con los datos de la sede cuya última compra es MAS RECIENTE.
+ *
+ * Este helper decide si el registro ENTRANTE es más antiguo que el que ya está en
+ * la Empresa. Si lo es, la sincronización de la Empresa se omite para no
+ * REBAJAR el dato de la sede más reciente (p. ej. no volver "Artritis" a un
+ * contacto que en la otra sede compró "Potencia" después).
+ *
+ * Las SUBCUENTAS DE SEDE NO participan de esta regla: cada una conserva su propio
+ * contacto aislado. El merge es EXCLUSIVO de la Empresa.
+ *
+ * @param {object|null} existenteCentral contacto actual en la Empresa
+ * @param {object} fieldsCentral          mapa de IDs resueltos de la Empresa
+ * @param {object} vContact               registro de vTiger entrante
+ * @returns {boolean} true si la Empresa ya tiene un dato MAS RECIENTE (no rebajar)
+ */
+export function sedeMasRecienteYaSincronizada(existenteCentral, fieldsCentral, vContact) {
+  const fechaVtiger = String(vContact.spl_fecha_ultima_compra || '').trim();
+  if (!fechaVtiger) return false; // sin fecha de compra no se puede comparar: se escribe
+  if (!existenteCentral || typeof existenteCentral !== 'object') return false;
+  if (!fieldsCentral?.fechaUltimaCompra) return false;
+
+  const campoId = fieldsCentral.fechaUltimaCompra;
+  const existente = (existenteCentral.customFields || []).find(f => f.id === campoId || f.key === campoId);
+  const fechaEmpresa = existente?.value ?? existente?.field_value;
+  if (!fechaEmpresa) return false; // la Empresa no tiene fecha aún: se escribe
+
+  // Si vTiger NO debe avanzar (es decir, es más antiguo o igual), la Empresa ya
+  // tiene un dato más reciente: se omite para no rebajarlo.
+  return !debeAvanzarFecha(fechaVtiger, fechaEmpresa);
 }
 
 /**
@@ -1099,33 +1139,48 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
     const fieldsCentral = await resolveCustomFieldIds(CENTRAL_LOCATION_ID, centralHeaders);
     const existenteCentral = await findContactByPhone(CENTRAL_LOCATION_ID, phone, centralHeaders);
 
-    const construido = buildUpsertPayloads(vContact, {
-      incluirHistorial: !existenteCentral,
-      fieldIdsCentral: fieldsCentral,
-      ghlExistenteCentral: existenteCentral
-    });
+    // [REGLA DE MERGE — LA SEDE MAS RECIENTE GANA]
+    // En la Empresa, si el mismo teléfono ya existe con una fecha de última compra
+    // MAS RECIENTE (de la otra sede), se omite el upsert para no rebajar el dato.
+    // Las sedes siguen su curso normal: esto sólo protege la cuenta de inteligencia.
+    if (sedeMasRecienteYaSincronizada(existenteCentral, fieldsCentral, vContact)) {
+      resultado.macro = { ok: true, skipped: true, reason: 'la sede mas reciente ya esta sincronizada en la Empresa' };
+      recordAuditEvent({
+        type: 'DUAL_SYNC_MACRO_OLDER_SEDE_SKIPPED',
+        severity: 'info',
+        vTigerId: vContact.id,
+        sede: sedeId,
+        reason: 'la Empresa ya tiene una fecha de ultima compra mas reciente (de otra sede): no se rebaja'
+      });
+    } else {
+      const construido = buildUpsertPayloads(vContact, {
+        incluirHistorial: !existenteCentral,
+        fieldIdsCentral: fieldsCentral,
+        ghlExistenteCentral: existenteCentral
+      });
 
-    resultado.macro = await upsertWithHistoryProtection(construido.macro, {
-      headers: centralHeaders,
-      existente: existenteCentral,
-      tagsNuevas: construido.tagsNuevas
-    });
+      resultado.macro = await upsertWithHistoryProtection(construido.macro, {
+        headers: centralHeaders,
+        existente: existenteCentral,
+        tagsNuevas: construido.tagsNuevas
+      });
 
-    // [DEFECTO CORREGIDO] El audit leia `construido.macro` (el PAYLOAD) en vez de
-    // `resultado.macro` (el RESULTADO del upsert). El payload no tiene `ok`, asi
-    // que la condicion caia SIEMPRE en MACRO_FAIL: el sistema reportaba 335
-    // fallos consecutivos hacia la Cuenta Empresa aunque el upsert funcionara.
-    // Ademas `status` y `error` salian `undefined`, de modo que el audit no
-    // registraba el motivo real y era imposible diagnosticar la credencial.
-    recordAuditEvent({
-      type: resultado.macro?.ok ? 'DUAL_SYNC_MACRO_OK' : 'DUAL_SYNC_MACRO_FAIL',
-      severity: resultado.macro?.ok ? 'info' : 'error',
-      vTigerId: vContact.id,
-      sede: sedeId,
-      created: Boolean(resultado.macro?.created),
-      status: resultado.macro?.status ?? null,
-      error: resultado.macro?.error ? String(resultado.macro.error).slice(0, 200) : null
-    });
+      // [DEFECTO CORREGIDO] El audit leia `construido.macro` (el PAYLOAD) en vez de
+      // `resultado.macro` (el RESULTADO del upsert). El payload no tiene `ok`, asi
+      // que la condicion caia SIEMPRE en MACRO_FAIL: el sistema reportaba 335
+      // fallos consecutivos hacia la Cuenta Empresa aunque el upsert funcionara.
+      // Ademas `status` y `error` salian `undefined`, de modo que el audit no
+      // registraba el motivo real y era imposible diagnosticar la credencial.
+      recordAuditEvent({
+        type: resultado.macro?.ok ? 'DUAL_SYNC_MACRO_OK' : 'DUAL_SYNC_MACRO_FAIL',
+        severity: resultado.macro?.ok ? 'info' : 'error',
+        vTigerId: vContact.id,
+        sede: sedeId,
+        created: Boolean(resultado.macro?.created),
+        status: resultado.macro?.status ?? null,
+        error: resultado.macro?.error ? String(resultado.macro.error).slice(0, 200) : null
+      });
+    }
   } else {
     console.log('[Dual Sync] [MACRO-SKIP] Cuenta Empresa no configurada (GHL_LOCATION_ID_CENTRAL / GHL_API_KEY_CENTRAL ausentes). Se sincroniza solo la sede.');
   }
