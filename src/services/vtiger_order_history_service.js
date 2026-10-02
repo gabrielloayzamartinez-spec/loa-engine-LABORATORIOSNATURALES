@@ -289,19 +289,47 @@ export async function writeOrderHistoryField(contactId, valor, headers, fieldId)
  * Escribe VARIOS custom fields en el contacto con UNA sola llamada.
  * Se usa para el enriquecimiento de la ultima orden (Fase 3 + 4): una sola
  * escritura en lugar de una por campo, para no multiplicar las llamadas a GHL.
+ *
+ * Ademas acepta campos NATIVOS (address1, postalCode) en `native`, que se escriben
+ * a nivel superior del payload del contacto (no dentro de customFields): GHL ya
+ * trae esos campos estandar y son filtrables en Smart Lists sin crear nada nuevo.
  */
-export async function writeContactFields(contactId, campos = [], headers) {
-  if (!contactId || !campos.length) return { ok: false, skipped: true, reason: 'sin campos' };
+export async function writeContactFields(contactId, campos = [], headers, native = {}) {
+  if (!contactId || (!campos.length && !Object.keys(native).length)) {
+    return { ok: false, skipped: true, reason: 'sin campos' };
+  }
   try {
+    const body = { customFields: campos };
+    for (const [k, v] of Object.entries(native)) body[k] = v;
     const res = await ghlFetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
       method: 'PUT',
       headers,
-      body: JSON.stringify({ customFields: campos })
+      body: JSON.stringify(body)
     }, 1, 'Order History');
-    return { ok: res.status === 200, status: res.status, escritos: campos.length };
+    return { ok: res.status === 200, status: res.status, escritos: campos.length + Object.keys(native).length };
   } catch (err) {
     return { ok: false, status: 0, error: err.message };
   }
+}
+
+/**
+ * [FASE 3 — DIRECCION A CAMPOS ESTANDAR]
+ * Construye los campos NATIVOS de direccion de envio desde la ultima orden.
+ * La orden guarda la direccion REAL de entrega (cf_870 = calle, cf_872 = codigo
+ * postal), que es la que importa para customer service y logistica. Se mapea a los
+ * campos estandar de GHL (address1, postalCode), que ya existen y son filtrables.
+ * Ciudad y estado NO se tocan aqui: ya los escribe el dual_sync desde el area code.
+ *
+ * @param {object} ultimaOrden orden normalizada (la mas reciente)
+ * @returns {object} { address1, postalCode } (solo los que tengan valor)
+ */
+export function buildOrderAddressFields(ultimaOrden = {}) {
+  const native = {};
+  const dir = String(ultimaOrden.direccion || '').trim();
+  const zip = String(ultimaOrden.zip || '').trim();
+  if (dir) native.address1 = dir;
+  if (zip && /^\d{5}(-\d{4})?$/.test(zip)) native.postalCode = zip;
+  return native;
 }
 
 /**
@@ -560,8 +588,9 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
     // [FASE 3 + 4] Enriquecimiento con los datos de la ULTIMA orden como campos
     // filtrables + sexo rescatado de la orden. Una sola escritura multi-campo.
     const enrichment = buildOrderEnrichmentFields(normalizadas[0], fields);
-    const enrique = enrichment.length
-      ? await writeContactFields(contactoId, enrichment, sedeHeaders)
+    const addressNative = buildOrderAddressFields(normalizadas[0]);
+    const enrique = (enrichment.length || Object.keys(addressNative).length)
+      ? await writeContactFields(contactoId, enrichment, sedeHeaders, addressNative)
       : { ok: false, skipped: true, reason: 'sin campos de enriquecimiento resueltos' };
 
     resultado.operativa = { contactId: contactoId, nota, campo, enrique };
@@ -610,8 +639,9 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
       // Asi la Empresa refleja la sede MAS RECIENTE de forma natural.
       const fieldsCentral = await resolveCustomFieldIds(CENTRAL_LOCATION_ID, centralHeaders);
       const enrichmentGlobal = buildOrderEnrichmentFields(normGlobal[0], fieldsCentral);
-      const enriqueMacro = enrichmentGlobal.length
-        ? await writeContactFields(centralContactId, enrichmentGlobal, centralHeaders)
+      const addressGlobal = buildOrderAddressFields(normGlobal[0]);
+      const enriqueMacro = (enrichmentGlobal.length || Object.keys(addressGlobal).length)
+        ? await writeContactFields(centralContactId, enrichmentGlobal, centralHeaders, addressGlobal)
         : { ok: false, skipped: true, reason: 'sin campos de enriquecimiento resueltos' };
 
       resultado.macro = { contactId: centralContactId, nota: notaGlobal, ordenes: normGlobal.length, enrique: enriqueMacro };
