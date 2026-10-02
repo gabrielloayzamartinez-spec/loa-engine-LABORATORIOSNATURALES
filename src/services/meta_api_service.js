@@ -404,6 +404,7 @@ export async function verificarCredencialMeta(sedeId) {
     let expiraEn = null;
     let diasRestantes = null;
     let alerta = null;
+    let recomendacion = null;
     try {
       const appId = SEDES_GATEWAY?.[sede]?.meta?.appId;
       const appSecret = SEDES_GATEWAY?.[sede]?.meta?.appSecret;
@@ -414,6 +415,14 @@ export async function verificarCredencialMeta(sedeId) {
         const info = dDbg.data;
         if (info && !dDbg.error) {
           tipoToken = info.type || null;
+          // [TOKEN PERMANENTE] Un token de USUARIO PERSONAL siempre vence (~60 dias) y
+          // ademas muere si esa persona cierra sesion o cambia su contraseña: es la
+          // causa de que la atribucion se caiga cada ~2 meses. La solucion definitiva
+          // es un token de USUARIO DEL SISTEMA (Business Manager), que se puede
+          // generar SIN caducidad (expires_at = 0) porque no depende de una persona.
+          if (tipoToken === 'USER') {
+            recomendacion = 'token de USUARIO PERSONAL: vence en ~60 dias y muere si esa persona cierra sesion o cambia su contraseña. Migrar a un token de USUARIO DEL SISTEMA (Business Manager) con caducidad NUNCA para no renovar nunca mas.';
+          }
           const expMs = info.expires_at ? info.expires_at * 1000 : 0;
           if (expMs > 0) {
             const d = new Date(expMs);
@@ -440,6 +449,8 @@ export async function verificarCredencialMeta(sedeId) {
       detalle = 'token valido pero SIN el permiso pages_messaging: no podra leer los mensajes ni su referral.';
     } else if (alerta) {
       detalle = `credencial valida pero ${alerta}: renovar ANTES de que la atribucion se pierda en silencio.`;
+    } else if (recomendacion) {
+      detalle = `credencial valida, alcanza ${paginas} pagina(s). ATENCION: ${recomendacion}`;
     } else if (paginas !== null && paginas > 0) {
       detalle = `credencial valida, alcanza ${paginas} pagina(s)`;
     }
@@ -458,6 +469,8 @@ export async function verificarCredencialMeta(sedeId) {
       expiraEn,
       diasRestantes,
       alerta,
+      recomendacion,
+      permanente: expiraEn === 'permanente',
       detalle
     };
   } catch (err) {
