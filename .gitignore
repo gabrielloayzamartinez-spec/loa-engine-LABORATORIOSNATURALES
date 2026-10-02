@@ -64,3 +64,6 @@ vtiger_bridge/checkpoint.db
 
 # Logs de auditoria (runtime, no versionar)
 logs/
+
+# Temporales de Office/Word (~$archivo)
+~\$*
