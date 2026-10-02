@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOA Engine - Analisis General del Desarrollo</title>
+<style>
+  :root { --azul:#1a3a5c; --acento:#2e7d9a; --gris:#f5f7fa; --borde:#d8e0e8; }
+  * { box-sizing:border-box; }
+  body { font-family:'Segoe UI',Calibri,Arial,sans-serif; line-height:1.65; color:#222;
+         max-width:1000px; margin:0 auto; padding:40px 32px; background:#fff; }
+  h1 { color:var(--azul); font-size:2em; border-bottom:3px solid var(--acento); padding-bottom:12px; margin-top:8px; }
+  h2 { color:var(--azul); font-size:1.45em; margin-top:38px; border-bottom:1px solid var(--borde); padding-bottom:6px; }
+  h3 { color:var(--acento); font-size:1.15em; margin-top:26px; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; font-size:0.92em; }
+  th { background:var(--azul); color:#fff; text-align:left; padding:9px 11px; font-weight:600; }
+  td { padding:8px 11px; border-bottom:1px solid var(--borde); vertical-align:top; }
+  tr:nth-child(even) td { background:var(--gris); }
+  code { background:var(--gris); padding:2px 6px; border-radius:4px; font-family:Consolas,monospace; font-size:0.9em; color:#b03060; }
+  pre { background:#1e2a38; color:#e8eef4; padding:14px 16px; border-radius:6px; overflow-x:auto; }
+  pre code { background:none; color:inherit; padding:0; }
+  blockquote { border-left:4px solid var(--acento); background:var(--gris); margin:16px 0; padding:12px 18px; border-radius:0 6px 6px 0; }
+  blockquote p { margin:6px 0; }
+  hr { border:none; border-top:1px solid var(--borde); margin:30px 0; }
+  ul,ol { margin:10px 0 10px 22px; }
+  li { margin:5px 0; }
+  @media print { body { padding:0; max-width:none; } h2 { page-break-after:avoid; } table { page-break-inside:avoid; } }
+</style>
+</head>
+<body>
+<h1>LOA ENGINE — ANÁLISIS GENERAL DEL DESARROLLO</h1>
+<blockquote><p><strong>Documento de comunicación del trabajo de fondo</strong></p><p>Sistema de orquestación vTiger CRM → GoHighLevel para Laboratorios Naturales</p><p>Período analizado: ~2 meses de desarrollo (agosto – octubre 2026)</p><p>Estado: <strong>en operación controlada — sincronización masiva en curso</strong></p></blockquote>
+<hr>
+<h2>1. RESUMEN EJECUTIVO</h2>
+<h3>Qué es</h3>
+<p>El <strong>LOA Engine</strong> es un orquestador central (un "pulpo") desplegado en la nube que <strong>conecta dos sistemas que no se hablan entre sí</strong>:</p>
+<ul><li><strong>vTiger CRM</strong> → donde vive la verdad comercial: compras, montos, órdenes, logística, padecimientos.</li><li><strong>GoHighLevel (GHL)</strong> → donde trabaja el equipo: chats, asesores, embudos, campañas.</li></ul>
+<p>El motor <strong>lee vTiger y espeja la realidad comercial en GHL</strong>, de forma automática, aislada por sede y en tiempo real.</p>
+<h3>Por qué existe</h3>
+<p>Sin el motor, el equipo comercial <strong>trabaja a ciegas</strong>: cuando un cliente escribe por Messenger, el asesor <strong>no sabe</strong> si ese cliente ya compró, cuánto compró, de qué sede viene, qué producto tomó, ni si hay una orden en camino.</p>
+<p><strong>El motor resuelve eso en 0.2 segundos</strong>, en el momento en que el asesor obtiene el teléfono.</p>
+<h3>El problema de fondo que se está resolviendo</h3>
+<table><thead><tr><th>Situación encontrada</th><th>Magnitud real</th></tr></thead><tbody>
+<tr><td>Compradores de Palacios que <strong>no existían</strong> en su subcuenta de GHL</td><td><strong>98% faltaba</strong></td></tr>
+<tr><td>Contactos históricos por sincronizar</td><td><strong>41,879 compradores</strong></td></tr>
+<tr><td>Base total que la Cuenta Empresa debe reflejar</td><td><strong>407,032 contactos</strong></td></tr>
+<tr><td>Campos comerciales que faltaban crear/renombrar</td><td><strong>27 campos por cuenta</strong></td></tr>
+<tr><td>Sincronización de compras → GHL</td><td><strong>funcionando</strong> (526 ciclos verificados)</td></tr>
+</tbody></table>
+<h3>Por qué se pide esperar antes de operar al 100%</h3>
+<p>Porque <strong>una migración de 41,879 compradores no se hace "encendiendo un botón"</strong>: cada contacto debe:</p>
+<ol><li>Consultarse en vTiger respetando el aislamiento de sede</li><li>Resolverse contra GHL por <strong>teléfono</strong> (el único identificador válido)</li><li>Escribir <strong>27 campos comerciales</strong> + historial de órdenes + datos de compra</li><li>Aplicar reglas de gobernanza (no contaminar sedes, no escribir en el CRM)</li></ol>
+<p><strong>Operar antes de terminar esta carga es operar con datos incompletos</strong> — exactamente el problema que el motor vino a resolver.</p>
+<hr>
+<h2>2. LA META (visión del sistema)</h2>
+<h3>Arquitectura de tres niveles</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│                    LOA ENGINE (orquestador)                 │
+│              "el pulpo" — Render, 24/7, autónomo            │
+└─────────────────────────────────────────────────────────────┘
+              │                    │                    │
+              ▼                    ▼                    ▼
+      ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+      │  PALACIOS    │    │  BENAVIDES   │    │   EMPRESA    │
+      │  (sede)      │    │  (sede)      │    │  (BI/análisis)│
+      ├──────────────┤    ├──────────────┤    ├──────────────┤
+      │ Solo SU data │    │ Solo SU data │    │ TODA la data │
+      │ Trabajo      │    │ Trabajo      │    │ Dashboards   │
+      │ comercial    │    │ comercial    │    │ Inteligencia │
+      │ Embudos,     │    │ Embudos,     │    │ Métricas de  │
+      │ asesores,    │    │ asesores,    │    │ ambas sedes  │
+      │ remarketing  │    │ remarketing  │    │              │
+      └──────────────┘    └──────────────┘    └──────────────┘
+           AISLADAS            AISLADAS          UNIFICADA</code></pre>
+<h3>Los dos roles (decisión de negocio)</h3>
+<table><thead><tr><th></th><th><strong>Subcuentas de SEDE</strong></th><th><strong>Cuenta EMPRESA</strong></th></tr></thead><tbody>
+<tr><td><strong>Rol</strong></td><td>Trinchera comercial</td><td>Inteligencia / BI</td></tr>
+<tr><td><strong>Ve</strong></td><td>Solo su propia sede</td><td>Todas las sedes</td></tr>
+<tr><td><strong>Sirve para</strong></td><td>Chats, embudos, asesores, remarketing</td><td>Dashboards, analítica, dirección</td></tr>
+<tr><td><strong>Aislamiento</strong></td><td><strong>Hermético</strong> — un asesor de Benavides jamás ve una compra de Palacios</td><td><strong>Unificado</strong> — visión global</td></tr>
+<tr><td><strong>Regla de conflicto</strong></td><td>No aplica</td><td><strong>La sede más reciente gana</strong></td></tr>
+</tbody></table>
+<hr>
+<h2>3. ARQUITECTURA DEL SISTEMA</h2>
+<h3>Flujo de datos</h3>
+<pre><code>   vTiger CRM                          LOA ENGINE                        GoHighLevel
+  (solo lectura)                     (orquestador)                      (trinchera)
+        │                                   │                                 │
+        │  1. Consulta por teléfono         │                                 │
+        │     con filtro de sede            │                                 │
+        ├──────────────────────────────────►│                                 │
+        │                                   │  2. Resuelve sede, proveedor,   │
+        │                                   │     tratamiento, campaña        │
+        │                                   │                                 │
+        │                                   │  3. Escribe 27 campos           │
+        │                                   ├────────────────────────────────►│
+        │                                   │                                 │
+        │                                   │  4. Historial de órdenes        │
+        │                                   ├────────────────────────────────►│
+        │                                   │                                 │
+        │                                   │  5. Mueve oportunidad a Ganado  │
+        │                                   ├────────────────────────────────►│
+        │                                   │                                 │
+        │  ◄──────── NUNCA SE ESCRIBE ──────┤                                 │
+        │         (regla innegociable)      │                                 │</code></pre>
+<h3>Los 3 principios de diseño</h3>
+<p><strong>1. vTiger es un sensor de SOLO LECTURA.</strong></p>
+<p>El motor ve y oye, <strong>jamás altera</strong>. Está impuesto en el código en <strong>3 capas</strong> (método HTTP, operación API, sentencia SQL), no solo documentado. Cualquier intento se audita como violación crítica.</p>
+<p><strong>2. El TELÉFONO es el único factor de vinculación.</strong></p>
+<p>No se usa nombre, ni email, ni ID. Solo el teléfono de 10 dígitos (formato USA/NANP). Es el identificador que el asesor <strong>sí puede obtener</strong> en el chat.</p>
+<p><strong>3. Cada sede es un tentáculo hermético.</strong></p>
+<p>Cada subcuenta tiene su propio token, su propio embudo, sus propios campos. <strong>Cero contaminación cruzada.</strong> Un <code>locationId</code> no reconocido <strong>se rechaza</strong> en vez de caer por accidente en otra sede.</p>
+<hr>
+<h2>4. INVENTARIO DE LO CONSTRUIDO</h2>
+<h3>Dimensión del sistema</h3>
+<table><thead><tr><th>Área</th><th>Archivos</th><th>Líneas</th><th>Qué contiene</th></tr></thead><tbody>
+<tr><td><strong>Servicios</strong></td><td>20</td><td>7,507</td><td>Núcleo: sync, API, colas, atribución, auditoría</td></tr>
+<tr><td><strong>Agentes</strong></td><td>10</td><td>3,675</td><td>Router de chat, NLP clínico, procesador maestro</td></tr>
+<tr><td><strong>Tests</strong></td><td>14</td><td>3,059</td><td>Suites de regresión y gobernanza</td></tr>
+<tr><td><strong>Scripts</strong></td><td>27</td><td>3,267</td><td>Herramientas operativas y de corrección</td></tr>
+<tr><td><strong>Utils</strong></td><td>8</td><td>1,245</td><td>Saneado, geolocalización, teléfono, reintentos</td></tr>
+<tr><td><strong>Config</strong></td><td>4</td><td>900</td><td>Secretos, sedes, routing, pipelines</td></tr>
+<tr><td><strong>TOTAL</strong></td><td><strong>88</strong></td><td><strong>~21,950</strong></td><td></td></tr>
+</tbody></table>
+<h3>Los servicios clave</h3>
+<table><thead><tr><th>Servicio</th><th>Líneas</th><th>Responsabilidad</th></tr></thead><tbody>
+<tr><td><code>dual_sync_service.js</code></td><td>1,223</td><td><strong>Corazón del sistema.</strong> Sincroniza cada contacto a sede + Empresa</td></tr>
+<tr><td><code>vtigerClient.js</code></td><td>821</td><td>Cliente vTiger con candado de solo-lectura y aislamiento de sede</td></tr>
+<tr><td><code>vtiger_order_history_service.js</code></td><td>597</td><td>Historial de órdenes + datos de compra como campos</td></tr>
+<tr><td><code>ad_attribution_engine.js</code></td><td>539</td><td>Atribución publicitaria (de qué anuncio vino el lead)</td></tr>
+<tr><td><code>meta_api_service.js</code></td><td>493</td><td>Integración Meta Graph API + validación de credenciales</td></tr>
+<tr><td><code>learning_brain.js</code></td><td>485</td><td>Memoria que aprende qué producto corresponde a qué síntoma</td></tr>
+<tr><td><code>vtiger_api_service.js</code></td><td>441</td><td>Búsqueda de contactos por teléfono (respuesta 0.2s)</td></tr>
+<tr><td><code>contact_collision_service.js</code></td><td>430</td><td>Resolución de colisiones de contacto</td></tr>
+<tr><td><code>token_bucket_queue.js</code></td><td>167</td><td>Control de tasa por subcuenta (límite de GHL)</td></tr>
+<tr><td><code>audit_logger.js</code></td><td>123</td><td>Log de auditoría estructurado (JSONL)</td></tr>
+</tbody></table>
+<h3>Los agentes clave</h3>
+<table><thead><tr><th>Agente</th><th>Líneas</th><th>Responsabilidad</th></tr></thead><tbody>
+<tr><td><code>chat_router_agent.js</code></td><td>1,226</td><td>Enruta cada chat: sede, proveedor, tratamiento, atribución</td></tr>
+<tr><td><code>master_processor.js</code></td><td>739</td><td>Procesa el contacto maestro (multi-toque)</td></tr>
+<tr><td><code>vtiger_sync_agent.js</code></td><td>488</td><td>Sincronización inversa vTiger → GHL (ventas nuevas)</td></tr>
+<tr><td><code>nlp_symptom_engine.js</code></td><td>453</td><td>Motor de síntomas: deduce el producto del lenguaje</td></tr>
+<tr><td><code>master_batch_runner.js</code></td><td>221</td><td>Ejecución por lotes</td></tr>
+</tbody></table>
+<h3>Las suites de prueba (garantía de calidad)</h3>
+<table><thead><tr><th>Suite</th><th>Qué blinda</th></tr></thead><tbody>
+<tr><td><code>test_audit_engine.js</code></td><td><strong>29 reglas protocolares</strong> (bloquea el deploy si fallan)</td></tr>
+<tr><td><code>test_dual_upsert.js</code></td><td>212 aserciones — el corazón del sync</td></tr>
+<tr><td><code>test_sede_governance.js</code></td><td>69 aserciones — aislamiento de sedes</td></tr>
+<tr><td><code>test_security_hardening.js</code></td><td>57 — saneado y anti-inyección</td></tr>
+<tr><td><code>test_sede_isolation.js</code></td><td>Aislamiento multi-tenant</td></tr>
+<tr><td><code>test_order_history.js</code></td><td>51 — historial de órdenes</td></tr>
+<tr><td><code>test_contact_collision.js</code></td><td>Colisiones de contacto</td></tr>
+<tr><td><code>test_cooldown_mudanza.js</code></td><td>Tiempos de gracia en mudanzas</td></tr>
+<tr><td><code>test_doble_ingreso.js</code></td><td>Reingresos publicitarios</td></tr>
+<tr><td><code>test_ingress_filter.js</code></td><td>Filtro de entrada</td></tr>
+<tr><td><code>test_queue_policy.js</code></td><td>Política de colas</td></tr>
+<tr><td><code>test_clinical_vocabulary.js</code></td><td>Vocabulario clínico canónico</td></tr>
+<tr><td><code>test_curador_bidireccional.js</code></td><td>Curador bidireccional</td></tr>
+<tr><td><code>test_commercial_engine.js</code></td><td>Verdad comercial</td></tr>
+</tbody></table>
+<hr>
+<h2>5. LOS PROBLEMAS DIFÍCILES QUE SE RESOLVIERON</h2>
+<p>Esta es la sección del <strong>trabajo de fondo</strong>. Cada uno de estos fue un bug real, encontrado en producción, que rompía silenciosamente el negocio.</p>
+<h3>5.1. La pérdida silenciosa de ventas por un nombre mal escrito</h3>
+<p><strong>El síntoma:</strong> las ventas de testosterona desaparecían sin rastro.</p>
+<p><strong>La causa:</strong> <code>vtiger_sync_agent.js</code> emitía <code>'Tetosterona'</code> (como lo escribe vTiger), pero el cerebro solo acepta <code>'Potencia'</code>. La validación era <code>if (!treatments.includes(treatment)) return;</code> <strong>sin log</strong>. Cada venta de testosterona que entraba por el agente inverso <strong>se descartaba sin dejar rastro</strong>.</p>
+<p><strong>La solución:</strong> una única fuente de verdad (<code>domain/clinical_vocabulary.js</code>) consumida por <strong>6 módulos</strong>. Ya no puede haber discrepancias.</p>
+<p><strong>Impacto:</strong> se recuperó la capacidad de aprender de <strong>todos</strong> los tratamientos. Además se descubrió que <code>Hongos</code> y <code>Gummies</code> <strong>no existían</strong> en el catálogo: era imposible que aprendieran, <strong>para siempre</strong>.</p>
+<hr>
+<h3>5.2. Fuga de datos entre sedes (el riesgo más grave del negocio)</h3>
+<p><strong>El síntoma:</strong> compras, montos y fechas de una sede aparecían en la subcuenta de <strong>otra sede</strong>. Un asesor de Benavides podía ver una compra de Palacios.</p>
+<p><strong>La causa:</strong> 5 bugs independientes:</p>
+<ol><li><code>getSalesHistory()</code> se llamaba <strong>sin sede</strong></li><li><code>evaluateCommercialTruth()</code> <strong>no recibía la sede</strong></li><li><code>fetchRecentConfirmedSales()</code> leía la base <strong>completa</strong></li><li>Se asumía <code>PALACIOS</code> cuando la ubicación no se resolvía</li><li>La búsqueda por teléfono era <strong>global</strong> y se filtraba después</li></ol>
+<p><strong>La solución:</strong> <strong>Sede-Lock</strong> (toda consulta se parametriza por sede) + <strong>Sede-Shield</strong> (si el historial es de otra sede, se invisibiliza por completo). La puerta única es <code>evaluateCommercialTruth()</code>, y si la sede no coincide, el registro <strong>se trata como inexistente</strong> (fail-closed).</p>
+<p><strong>Impacto:</strong> confidencialidad multisede garantizada. Blindado por 69 aserciones.</p>
+<hr>
+<h3>5.3. La regla de solo-lectura que estaba escrita pero NO impuesta</h3>
+<p><strong>El hallazgo:</strong> el candado de aislamiento solo verificaba que existiera <code>cf_3451</code>, así que:</p>
+<pre><code>DELETE FROM Contacts WHERE cf_3451 = 'PALACIOS'</code></pre>
+<p><strong>pasaba como "consulta válida"</strong>. La regla de oro ("nunca escribir en el CRM") estaba <strong>documentada pero no impuesta</strong>.</p>
+<p><strong>La solución:</strong> candado en <strong>3 capas</strong> dentro del único punto de salida al CRM:</p>
+<ul><li>Método HTTP: bloquea <code>PUT</code>, <code>PATCH</code>, <code>DELETE</code></li><li>Operación API: allow-list (<code>query</code>, <code>getchallenge</code>, <code>login</code>)</li><li>Sentencia SQL: bloquea todo lo que no empiece por <code>SELECT</code> + verbos peligrosos</li></ul>
+<p><strong>Impacto:</strong> una escritura al CRM es ahora <strong>estructuralmente imposible</strong>. Todo intento se audita como violación crítica.</p>
+<hr>
+<h3>5.4. Los límites del parser de vTiger (cada uno causó un bug silencioso)</h3>
+<p>Se descubrieron <strong>5 restricciones no documentadas</strong> de la API de vTiger:</p>
+<table><thead><tr><th>#</th><th>Límite</th><th>Bug que causaba</th></tr></thead><tbody>
+<tr><td>1</td><td><strong>Sin paréntesis</strong> en el <code>WHERE</code></td><td><code>Syntax Error: PARENOPEN</code></td></tr>
+<tr><td>2</td><td><strong>Sin <code>WHERE 1=1</code></strong></td><td><code>Permission to access 1 attribute denied</code></td></tr>
+<tr><td>3</td><td><code>cf_3451</code> <strong>no existe</strong> en <code>SalesOrder</code></td><td>La consulta rompía</td></tr>
+<tr><td>4</td><td><code>cf_noticias</code> <strong>denegado</strong> para el rol de API</td><td>Fallo silencioso</td></tr>
+<tr><td>5</td><td><code>contactid</code> <strong>no es el vínculo</strong></td><td>El correcto es <code>contact_id</code></td></tr>
+</tbody></table>
+<p><strong>Impacto:</strong> se documentaron y se blindaron. Un <code>catch</code> que devuelve <code>[]</code> convierte cualquier error en "no hay datos" — y el motor <strong>deja de aprender en silencio</strong>.</p>
+<hr>
+<h3>5.5. El "GHL Central" que había que matar</h3>
+<p><strong>El riesgo:</strong> existía un hub central que <strong>ruteaba leads</strong>, gestionaba chats y asignaba asesores. Eso contradecía el aislamiento por sede.</p>
+<p><strong>La solución:</strong> se <strong>purgó por completo</strong> (<code>SEDES_GATEWAY.CENTRAL</code>, <code>isUniversalCentral</code>, <code>allowActiveRouting</code>). Hoy la Empresa <strong>solo analiza, no rutea</strong>. Si alguien propone "enrutar desde la Central", está reintroduciendo el hub deprecado.</p>
+<hr>
+<h3>5.6. El mismo teléfono, dos personas en vTiger</h3>
+<p><strong>El problema:</strong> un mismo número puede tener <strong>dos registros</strong> en vTiger (uno por sede), y el motor podía confundirlos.</p>
+<p><strong>La solución:</strong> <code>findVTigerContact(ghlContact, targetSede)</code> filtra con <code>AND cf_3451 = '&lt;SEDE&gt;'</code>. <strong>Probado en vivo</strong> con el caso Adolfo (<code>2094148820</code>): para Benavides resuelve su registro <code>12x2816276</code>, para Palacios <code>12x2817133</code>, sin sobreescrituras cruzadas.</p>
+<hr>
+<h3>5.7. La atribución publicitaria que se perdía sin avisar</h3>
+<p><strong>El problema:</strong> la atribución de anuncios (de qué campaña vino el lead) se perdía sin dejar rastro. El código tenía:</p>
+<pre><code>} catch (vErr) {
+  // Continuar con NLP si vTiger no responde    ← se traga el error
+}</code></pre>
+<p><strong>El hallazgo clave:</strong> en migraciones históricas, el campo de campaña de vTiger (<code>cf_3472</code>, ej. <code>PALACIOS-ERNESTO-...</code>) fue <strong>mapeado por error</strong> al campo de "ID de Anuncio" de GHL. Así, el campo de Ad ID contenía <strong>texto</strong>, no un ID numérico.</p>
+<p><strong>La solución:</strong></p>
+<ul><li><code>isValidMetaAdId()</code> valida estrictamente <code>/^\d{8,25}$/</code></li><li>Recuperación del Ad ID real desde vTiger (<code>cf_2850</code>)</li><li>Purga automática de valores inválidos</li><li>Caso real: se recuperó <code>120226588408570607</code> y se actualizó la campaña real vía Meta Graph API</li></ul>
+<hr>
+<h3>5.8. La caché que envenenaba los campos para siempre</h3>
+<p><strong>El problema:</strong> si la resolución de campos de GHL fallaba una vez, se cacheaba un <strong>mapa vacío</strong> de forma <strong>permanente</strong> → pérdida silenciosa de campos para siempre.</p>
+<p><strong>La solución:</strong> solo se cachean mapas <strong>completos</strong>. Los incompletos se reintentan cada 5 minutos y se auditan (<code>GHL_FIELDS_INCOMPLETE</code>).</p>
+<hr>
+<h3>5.9. El bucle muerto que hacía fallar todo el procesamiento</h3>
+<p><strong>El problema:</strong> <code>master_processor.js</code> referenciaba una variable <strong>inexistente</strong> (<code>filteredExplicitTouches</code>), lo que lanzaba un <code>ReferenceError</code> que era <strong>tragado por un try/catch</strong>. Resultado: <code>processMasterContact</code> <strong>siempre devolvía <code>{success:false}</code></strong>.</p>
+<p><strong>La solución:</strong> se eliminó el bucle duplicado (el original ya hacía el trabajo).</p>
+<hr>
+<h3>5.10. Las carreras del cursor (dos procesos, un cursor)</h3>
+<p><strong>El problema:</strong> el scheduler (cada 180s) y el webhook llamaban <strong>al mismo tiempo</strong> a la sincronización inversa, corrompiendo el cursor.</p>
+<p><strong>La solución:</strong> guarda de solapamiento (<code>reverseSyncCorriendo</code>) con liberación en <code>finally</code>. <strong>Verificado:</strong> 1 ejecuta, 2 se saltan.</p>
+<hr>
+<h3>5.11. La Empresa que se congelaba (encontrado hoy, con datos reales)</h3>
+<p><strong>El síntoma (detectado en las métricas de producción):</strong></p>
+<pre><code>DUAL_SYNC_SEDE_OK ................. 526
+DUAL_SYNC_MACRO_OLDER_SEDE_SKIPPED  518   ← 98% OMITIDAS
+DUAL_SYNC_MACRO_OK ................   8</code></pre>
+<p><strong>La causa:</strong> la regla de merge ("la sede más reciente gana") usaba <code>&lt;=</code>, así que <strong>también omitía cuando la fecha era igual</strong> (el mismo contacto re-sincronizado). La Cuenta Empresa <strong>quedaba congelada</strong> y nunca recibía los campos nuevos.</p>
+<p><strong>La solución:</strong> comparación <strong>estricta</strong> (<code>&lt;</code>). Solo se protege contra un dato <strong>realmente más antiguo</strong>; si es igual, se escribe y se refrescan los campos.</p>
+<hr>
+<h3>5.12. El ritmo de las APIs (el "thundering herd")</h3>
+<p><strong>El problema:</strong> las sedes reintentaban <strong>sincronizadas</strong>, saturando vTiger y provocando timeouts (190 abortos).</p>
+<p><strong>La solución:</strong></p>
+<ul><li>Semáforo de concurrencia (<code>VTIGER_MAX_CONCURRENT=3</code>)</li><li>Login "single-flight" (una sola autenticación compartida)</li><li>Backoff exponencial <strong>con jitter</strong> (para desincronizar los reintentos)</li><li>Cola por subcuenta con <strong>cubetas independientes</strong> (cada sede tiene su propio reloj)</li></ul>
+<hr>
+<h2>6. LAS REGLAS INNEGOCIABLES (gobernanza)</h2>
+<p>Estas reglas están <strong>impuestas en el código</strong>, no solo documentadas:</p>
+<table><thead><tr><th>#</th><th>Regla</th><th>Dónde se impone</th></tr></thead><tbody>
+<tr><td>1</td><td><strong>vTiger es SOLO LECTURA</strong> — no se escribe, modifica ni inyecta</td><td>3 capas en <code>vtigerClient.js</code></td></tr>
+<tr><td>2</td><td><strong>El teléfono es el único factor</strong> de vinculación</td><td><code>pickPhone</code> / <code>normalizeToE164</code></td></tr>
+<tr><td>3</td><td><strong>Solo COMPRADORES migran</strong> (<code>spl_num_compras &gt; 0</code>)</td><td><code>SOLO_COMPRADORES</code> en <code>dual_sync_service.js</code></td></tr>
+<tr><td>4</td><td><strong>Sede-Lock</strong> — toda consulta lleva su sede</td><td><code>sedeClause()</code> + gate en <code>query()</code></td></tr>
+<tr><td>5</td><td><strong>Sede-Shield</strong> — cero rastro de ventas ajenas</td><td><code>evaluateCommercialTruth()</code></td></tr>
+<tr><td>6</td><td><strong>Fail-closed</strong> — sede no resoluble = se aborta</td><td><code>resolveSedeContext</code></td></tr>
+<tr><td>7</td><td><strong>La Empresa no rutea</strong> — solo analiza</td><td>Purga del hub central</td></tr>
+<tr><td>8</td><td><strong>Jerarquía de configuración</strong> (columnas → nombre de campaña → proveedor → fanpage default)</td><td><code>routing_tables.js</code></td></tr>
+</tbody></table>
+<h3>Jerarquía de atribución (de mayor a menor prioridad)</h3>
+<pre><code>1. COLUMNAS del nombre de campaña   (la config vive a nivel de campaña)
+2. NOMBRE DE CAMPAÑA               (César→CLICK2RING, InHouse→IN_HOUSE, Ernesto→ERNESTO)
+3. PROVEEDOR del anuncio
+4. FANPAGE por defecto de la sede</code></pre>
+<hr>
+<h2>7. ESTADO ACTUAL MEDIDO (evidencia real)</h2>
+<blockquote><p>Datos tomados de producción (<code>/api/audit/log</code>, <code>/api/health</code>, <code>/api/empresa/diagnostico</code>)</p></blockquote>
+<h3>Volumen</h3>
+<table><thead><tr><th>Métrica</th><th>Valor</th></tr></thead><tbody>
+<tr><td>Contactos en la Cuenta Empresa</td><td><strong>407,032</strong></td></tr>
+<tr><td>Compradores por sincronizar</td><td><strong>41,879</strong> (Palacios 36,629 + Benavides 5,250)</td></tr>
+<tr><td>Campos personalizados en Empresa</td><td><strong>45</strong></td></tr>
+<tr><td>Campos requeridos por sede</td><td><strong>27/27 resueltos</strong> ✅</td></tr>
+</tbody></table>
+<h3>Eventos de auditoría (1,801 registrados)</h3>
+<table><thead><tr><th>Evento</th><th>Cantidad</th><th>Significado</th></tr></thead><tbody>
+<tr><td><code>DUAL_SYNC_SEDE_OK</code></td><td>526</td><td>Contactos sincronizados a su sede ✅</td></tr>
+<tr><td><code>ORDER_HISTORY_SEDE_OK</code></td><td>524</td><td>Historiales de órdenes publicados ✅</td></tr>
+<tr><td><code>DUAL_SYNC_MACRO_OLDER_SEDE_SKIPPED</code></td><td>518</td><td>Regla de merge activa (ya corregida)</td></tr>
+<tr><td><code>SEDE_SHIELD_BLOCKED</code></td><td>94</td><td><strong>Aislamiento funcionando</strong> — datos ajenos bloqueados 🛡️</td></tr>
+<tr><td><code>SYSTEM_MESSAGE_DROPPED</code></td><td>62</td><td>Mensajes de sistema filtrados</td></tr>
+<tr><td><code>GHL_FIELDS_INCOMPLETE</code></td><td>27</td><td>Detección de cobertura parcial</td></tr>
+<tr><td><code>REVERSE_SYNC_CYCLE</code></td><td>21</td><td>Ciclos de sincronización inversa</td></tr>
+<tr><td><code>DUAL_SYNC_MACRO_OK</code></td><td>8</td><td>Actualizaciones a la Empresa</td></tr>
+</tbody></table>
+<h3>Garantía de calidad</h3>
+<table><thead><tr><th>Control</th><th>Resultado</th></tr></thead><tbody>
+<tr><td>Reglas protocolares</td><td><strong>29/29 al 100%</strong></td></tr>
+<tr><td>Suites de prueba</td><td><strong>13 en verde</strong></td></tr>
+<tr><td>Aserciones totales</td><td><strong>700+</strong></td></tr>
+<tr><td>Gate de despliegue</td><td><code>preflight</code> offline <strong>&lt; 5 s</strong></td></tr>
+</tbody></table>
+<hr>
+<h2>8. POR QUÉ AÚN NO SE OPERA AL 100%</h2>
+<h3>Lo que YA funciona</h3>
+<p>✅ Sincronización de compradores → sede (526 ciclos)</p>
+<p>✅ Historial de órdenes + datos de compra como campos filtrables</p>
+<p>✅ Aislamiento de sedes (94 datos ajenos bloqueados)</p>
+<p>✅ Atribución publicitaria (Meta Ad ID → campaña)</p>
+<p>✅ Regla de merge en la Empresa</p>
+<p>✅ 27/27 campos por sede</p>
+<p>✅ Detección de credenciales vencidas</p>
+<h3>Lo que FALTA para operar al 100%</h3>
+<table><thead><tr><th>#</th><th>Pendiente</th><th>Por qué importa</th><th>Responsable</th></tr></thead><tbody>
+<tr><td>1</td><td><strong>Carga masiva completa</strong> (41,879 compradores)</td><td>Sin esto, la base está incompleta — el 98% faltaba</td><td>Motor (en curso)</td></tr>
+<tr><td>2</td><td><strong>Token Meta permanente</strong> (Usuario del Sistema)</td><td>Hoy el token es personal y vence cada ~60 días → <strong>la atribución se cae en silencio</strong></td><td>Requiere permiso de PÁGINA (no solo ads)</td></tr>
+<tr><td>3</td><td><strong>Campos de compra en la Empresa</strong></td><td>Los 6 campos de atención no se crearon (decisión: innecesarios para BI)</td><td>Decidido — no aplica</td></tr>
+<tr><td>4</td><td><strong>Acelerar la cola</strong> (<code>GHL_QUEUE_INTERVAL_MS=150</code>)</td><td>Reduce la carga de ~3 días a ~15 horas (4.67×)</td><td>Variable en Render</td></tr>
+<tr><td>5</td><td><strong>Smart Lists y Dashboards</strong></td><td>Se configuran manualmente en GHL una vez que los datos estén</td><td>Usuario + motor</td></tr>
+</tbody></table>
+<h3>El argumento central para "aguantar"</h3>
+<blockquote><p><strong>No se puede operar con datos incompletos.</strong></p><p></p><p>El motor existe precisamente porque el <strong>98% de los compradores de Palacios no estaba en su subcuenta</strong>. Operar ahora significaría que los asesores sigan trabajando sin ver el historial de compra de sus clientes — <strong>el problema exacto que se está resolviendo</strong>.</p><p></p><p>Terminar la carga es lo que convierte a GHL en una herramienta <strong>confiable</strong> para el equipo, en vez de una base a medias.</p></blockquote>
+<h3>El riesgo de NO terminar</h3>
+<table><thead><tr><th>Si se opera ahora</th><th>Si se termina primero</th></tr></thead><tbody>
+<tr><td>Asesores sin historial de compra</td><td>Cada cliente con su compra visible</td></tr>
+<tr><td>Empresa sin métricas reales</td><td>Dashboards confiables</td></tr>
+<tr><td>Atribución publicitaria incompleta</td><td>De qué anuncio vino cada venta</td></tr>
+<tr><td>Datos de compra en notas (no filtrables)</td><td>Smart Lists por estado, pago, producto</td></tr>
+</tbody></table>
+<hr>
+<h2>9. HOJA DE RUTA</h2>
+<h3>Corto plazo (esta semana)</h3>
+<ol><li>⏳ <strong>Completar la carga masiva</strong> de 41,879 compradores</li><li>⬜ <strong>Activar</strong> <code>GHL_QUEUE_INTERVAL_MS=150</code> (acelera 4.67×)</li><li>⬜ <strong>Migrar a token permanente</strong> de Meta (Usuario del Sistema)</li><li>⬜ <strong>Validar</strong> que los 27 campos se escriben en las 3 cuentas</li></ol>
+<h3>Mediano plazo</h3>
+<ol><li>⬜ <strong>6 Pipelines por producto</strong> (Artritis, Testosterona, Diabetes, Hongos, Gastro, Gummies)</li><li>⬜ <strong>Smart Lists</strong> por sede y Empresa</li><li>⬜ <strong>Dashboards</strong> de inteligencia (Empresa)</li><li>⬜ <strong>Reporte de atribución</strong> (% de leads con ID de Meta resuelto vs DESCONOCIDO)</li></ol>
+<h3>Largo plazo</h3>
+<ol><li>⬜ Sedes Roosevelt y Piura (en standby)</li><li>⬜ Matriz de proveedores completa</li><li>⬜ Telemetría de mudanzas y blindajes</li></ol>
+<hr>
+<h2>10. ANEXOS</h2>
+<h3>A. Cuentas configuradas</h3>
+<table><thead><tr><th>Cuenta</th><th>Location ID</th><th>Rol</th></tr></thead><tbody>
+<tr><td><strong>PALACIOS</strong></td><td><code>5NqOaPYqWyIw2FPBfoRg</code></td><td>Sede comercial</td></tr>
+<tr><td><strong>BENAVIDES</strong></td><td><code>QXcNBK6XCgpQaZ81Z8pv</code></td><td>Sede comercial</td></tr>
+<tr><td><strong>EMPRESA</strong></td><td><code>ATPYNnsfZ1W8sd6WgWIV</code></td><td>Inteligencia / BI</td></tr>
+<tr><td>ROOSEVELT</td><td><em>(standby)</em></td><td>Sede futura</td></tr>
+<tr><td>PIURA</td><td><em>(standby)</em></td><td>Sede futura</td></tr>
+</tbody></table>
+<h3>B. Vocabulario clínico (mapeo oficial)</h3>
+<table><thead><tr><th>vTiger (<code>cf_2610</code>)</th><th>Interno / producto</th></tr></thead><tbody>
+<tr><td>Artritis</td><td>Artritis</td></tr>
+<tr><td>Tetosterona</td><td><strong>Potencia</strong></td></tr>
+<tr><td>Diabetes</td><td>Diabetes</td></tr>
+<tr><td>Hongos</td><td>Hongos</td></tr>
+<tr><td>Gastro</td><td>Gastritis</td></tr>
+<tr><td>Gummies</td><td>Colageno</td></tr>
+</tbody></table>
+<h3>C. Campos comerciales por contacto (27)</h3>
+<p>Compra (total, fechas, monto, histórico) · Sexo · Proveedor · Etapa comercial · Asesor asignado · Fecha de creación · Contact No · ID Cliente · Origen del lead · Campaña · Canal de captación · Tratamiento comprado · Estado comercial · Anotaciones de redes · Historial completo · Estado de entrega · Conformidad · Forma de pago · Transportista · Tracking · Último producto · Sede asignada</p>
+<h3>D. Comandos operativos</h3>
+<pre><code>npm run preflight      # Gate de despliegue (secretos + 29 reglas, &lt;5s, offline)
+npm run verify:boot    # Smoke test de la malla de rutas
+npm test               # Suite offline completa (no toca APIs)
+node src/tests/test_audit_engine.js   # Reglas protocolares</code></pre>
+<h3>E. Glosario</h3>
+<table><thead><tr><th>Término</th><th>Significado</th></tr></thead><tbody>
+<tr><td><strong>Sede-Lock</strong></td><td>Toda consulta se parametriza por sede; sin sede válida se aborta</td></tr>
+<tr><td><strong>Sede-Shield</strong></td><td>Cero rastro de ventas de otra sede</td></tr>
+<tr><td><strong>Mudanza</strong></td><td>Traslado legítimo de un lead de una sede a otra (con tiempos de gracia)</td></tr>
+<tr><td><strong>Tiempo de gracia</strong></td><td>96h (prospecto) / 720h (cliente) de protección de cartera</td></tr>
+<tr><td><strong>Cerebro</strong></td><td>Memoria que aprende qué producto corresponde a qué síntoma</td></tr>
+<tr><td><strong>Merge</strong></td><td>Regla de la Empresa: la sede más reciente gana</td></tr>
+<tr><td><strong>Comprador</strong></td><td>Contacto con <code>spl_num_compras &gt; 0</code> (único que migra)</td></tr>
+</tbody></table>
+<hr>
+<h2>CONCLUSIÓN</h2>
+<p>El LOA Engine es un sistema de <strong>~21,950 líneas</strong> que resuelve un problema concreto y medible: <strong>hacer que el equipo comercial vea en GHL la verdad que vive en vTiger</strong>, sin contaminar sedes, sin escribir en el CRM y sin perder atribución.</p>
+<p>En ~2 meses se construyeron <strong>88 módulos</strong>, se resolvieron <strong>12 problemas críticos</strong> que rompían el negocio en silencio, y se creó una <strong>red de seguridad de 700+ aserciones</strong> que impide que cualquier cambio futuro degrade el sistema.</p>
+<p><strong>El trabajo de fondo no es "conectar dos sistemas". Es garantizar que los datos sean correctos, aislados, completos y verificables</strong> — porque sobre esos datos el equipo comercial toma decisiones y cobra.</p>
+<hr>
+<p><em>Documento generado a partir del análisis del repositorio y de métricas reales de producción.</em></p>
+<p><em>Powered by LOA Engine — Gabriel Loayza</em></p>
+</body>
+</html>
