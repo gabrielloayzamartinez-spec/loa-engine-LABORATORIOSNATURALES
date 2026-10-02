@@ -365,12 +365,50 @@ export async function verificarCredencialMeta(sedeId) {
     const dMe = await rMe.json();
     if (dMe.error) {
       const code = dMe.error.code;
+      const subcode = dMe.error.error_subcode || dMe.error.subcode || null;
+      // [DIAGNOSTICO PRECISO] Cuando /me falla NO se puede saber POR QUE con ese
+      // error solo. debug_token (que si funciona con un token invalido) revela la
+      // causa exacta: tipo de token, fecha de vencimiento y motivo. Sin esto el
+      // operador solo veia "token invalido" y no sabia si renovar, pedir permisos
+      // o cambiar de tipo de token.
+      let diagnostico = null;
+      try {
+        const appId = SEDES_GATEWAY?.[sede]?.meta?.appId;
+        const appSecret = SEDES_GATEWAY?.[sede]?.meta?.appSecret;
+        if (appId && appSecret) {
+          const rDbg = await fetch(`${GRAPH_BASE}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`);
+          const dDbg = await rDbg.json();
+          const i = dDbg.data;
+          if (i) {
+            diagnostico = {
+              isValido: i.is_valid,
+              tipoToken: i.type || null,
+              aplicacion: i.application || null,
+              emitido: i.issued_at ? new Date(i.issued_at * 1000).toISOString().slice(0, 10) : null,
+              expiraEn: i.expires_at ? new Date(i.expires_at * 1000).toISOString().slice(0, 10) : 'permanente',
+              diasVencido: i.expires_at && i.expires_at * 1000 < Date.now()
+                ? Math.abs(Math.round((Date.now() - i.expires_at * 1000) / 86400000)) : null,
+              accesoADatosHasta: i.data_access_expires_at ? new Date(i.data_access_expires_at * 1000).toISOString().slice(0, 10) : null,
+              motivoMeta: i.error?.message || null,
+              subcodigo: i.error?.subcode || null,
+              permisosOtorgados: Array.isArray(i.scopes) ? i.scopes : null
+            };
+          }
+        }
+      } catch (e) { /* el diagnostico es un extra, no debe romper el veredicto */ }
+
+      const causa = diagnostico?.subcodigo === 467
+        ? 'la SESION DE LA PERSONA se cerro (la persona que genero el token salio de Facebook). Un token de usuario personal muere asi.'
+        : diagnostico?.diasVencido
+          ? `el token VENCIO hace ${diagnostico.diasVencido} dias.`
+          : 'el token fue revocado o es invalido.';
+
       const detalle = code === 190
-        ? 'token INVALIDO o expirado (code 190): el usuario cerro sesion o el token vencio. RENOVAR.'
+        ? `token INVALIDO (code 190): ${causa} RENOVAR${diagnostico?.tipoToken === 'USER' ? ' y migrar a un token de USUARIO DEL SISTEMA (caducidad NUNCA)' : ''}.`
         : code === 102
           ? 'token de sesion invalido (code 102): renovar'
           : `error de Meta (code ${code}): ${String(dMe.error.message || '').slice(0, 120)}`;
-      return { sede, configurada: true, valida: false, status: code, detalle };
+      return { sede, configurada: true, valida: false, status: code, subcodigo: subcode, diagnostico, detalle };
     }
 
     // 2. Paginas alcanzables: es lo que decide si hay atribucion o no
