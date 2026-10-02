@@ -502,10 +502,18 @@ export function debeAvanzarFecha(valorVtiger, valorGhl) {
  * en DOS sedes. La Empresa es la cuenta de inteligencia: ahí el contacto debe ser
  * UNO, con los datos de la sede cuya última compra es MAS RECIENTE.
  *
- * Este helper decide si el registro ENTRANTE es más antiguo que el que ya está en
- * la Empresa. Si lo es, la sincronización de la Empresa se omite para no
- * REBAJAR el dato de la sede más reciente (p. ej. no volver "Artritis" a un
+ * Este helper decide si el registro ENTRANTE es ESTRICTAMENTE más antiguo que el
+ * que ya está en la Empresa. Si lo es, la sincronización de la Empresa se omite para
+ * no REBAJAR el dato de la sede más reciente (p. ej. no volver "Artritis" a un
  * contacto que en la otra sede compró "Potencia" después).
+ *
+ * [CORRECCION IMPORTANTE] La comparación es ESTRICTA (`<`), NO `<=`. Con `<=` se
+ * omitía también cuando la fecha era IGUAL, es decir, al re-sincronizar el MISMO
+ * contacto. Medido en producción: 518 de 526 sincronizaciones a la Empresa se
+ * omitían, así que la Empresa quedaba CONGELADA y nunca recibía los campos nuevos
+ * (Sexo, Proveedor, Etapa Comercial, Asesor Asignado). Ahora sólo se protege contra
+ * un dato realmente más antiguo; si la fecha es igual, se ESCRIBE y se refrescan
+ * los campos.
  *
  * Las SUBCUENTAS DE SEDE NO participan de esta regla: cada una conserva su propio
  * contacto aislado. El merge es EXCLUSIVO de la Empresa.
@@ -526,9 +534,13 @@ export function sedeMasRecienteYaSincronizada(existenteCentral, fieldsCentral, v
   const fechaEmpresa = existente?.value ?? existente?.field_value;
   if (!fechaEmpresa) return false; // la Empresa no tiene fecha aún: se escribe
 
-  // Si vTiger NO debe avanzar (es decir, es más antiguo o igual), la Empresa ya
-  // tiene un dato más reciente: se omite para no rebajarlo.
-  return !debeAvanzarFecha(fechaVtiger, fechaEmpresa);
+  // Sólo se omite si el registro entrante es ESTRICTAMENTE más antiguo. Si la fecha
+  // es IGUAL (mismo contacto re-sincronizado en una corrección o al rellenar campos
+  // nuevos), se escribe para no dejar la Empresa congelada.
+  const nuevo = parseFechaGhl(fechaVtiger);
+  const actual = parseFechaGhl(fechaEmpresa);
+  if (nuevo === null || actual === null) return false;
+  return nuevo < actual;
 }
 
 /**

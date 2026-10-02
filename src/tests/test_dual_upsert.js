@@ -552,7 +552,7 @@ const fieldsC = { fechaUltimaCompra: ID_FECHA };
 
 assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), fieldsC, { spl_fecha_ultima_compra: '2023-03-01' }) === true, 'Empresa 2024, entra 2023 -> OMITE (no rebaja)');
 assert(sedeMasRecienteYaSincronizada(emp('2023-03-01'), fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === false, 'Empresa 2023, entra 2024 -> ESCRIBE (avanza)');
-assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === true, 'Misma fecha -> OMITE (no pisa)');
+assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === false, 'Misma fecha -> ESCRIBE (no congela la Empresa: refresca campos nuevos)');
 assert(sedeMasRecienteYaSincronizada({ customFields: [] }, fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === false, 'Empresa sin fecha -> ESCRIBE');
 assert(sedeMasRecienteYaSincronizada(null, fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === false, 'Sin contacto en Empresa -> ESCRIBE');
 assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), fieldsC, { spl_fecha_ultima_compra: '' }) === false, 'vTiger sin fecha -> no compara (ESCRIBE)');
