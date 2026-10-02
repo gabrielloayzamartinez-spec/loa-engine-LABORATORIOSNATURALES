@@ -159,6 +159,38 @@ async function runTests() {
   const breaker404 = getBreakersStatus()['test:404-negocio'];
   assert(breaker404?.state !== 'OPEN', `El circuito permanece utilizable ante 404 (estado: ${breaker404?.state})`);
 
+  // ---------------------------------------------------------------------------
+  // TEST 7: [GUARDIAN DE CUOTA DIARIA] aislamiento por subcuenta y conteo
+  // ---------------------------------------------------------------------------
+  console.log('\n[TEST 7] Guardian de cuota diaria por subcuenta');
+  const { tokenBucketQueue } = await import('../services/token_bucket_queue.js');
+
+  // Cada subcuenta arranca con cupo de fondo y su propio contador aislado.
+  assert(tokenBucketQueue.hayCupoDeFondo('PALACIOS') === true, 'Palacios arranca con cupo de fondo');
+  assert(tokenBucketQueue.hayCupoDeFondo('BENAVIDES') === true, 'Benavides arranca con cupo de fondo');
+
+  const antes = tokenBucketQueue.getCuotaDiaria();
+  const palaciosAntes = antes.PALACIOS?.consumidas || 0;
+  const benavidesAntes = antes.BENAVIDES?.consumidas || 0;
+
+  // Encolar 3 tareas SOLO en Palacios.
+  await Promise.all([
+    tokenBucketQueue.enqueue(async () => 'a', 'LOW', 'PALACIOS'),
+    tokenBucketQueue.enqueue(async () => 'b', 'LOW', 'PALACIOS'),
+    tokenBucketQueue.enqueue(async () => 'c', 'LOW', 'PALACIOS')
+  ]);
+  await new Promise(r => setTimeout(r, 2500));
+
+  const despues = tokenBucketQueue.getCuotaDiaria();
+  const palaciosDespues = despues.PALACIOS?.consumidas || 0;
+  const benavidesDespues = despues.BENAVIDES?.consumidas || 0;
+
+  assert(palaciosDespues > palaciosAntes, `Palacios contabiliza su consumo (${palaciosAntes} -> ${palaciosDespues})`);
+  assert(benavidesDespues === benavidesAntes, `Benavides NO se contamina con el consumo de Palacios (${benavidesAntes} -> ${benavidesDespues})`);
+  assert(typeof despues.PALACIOS?.techo === 'number' && despues.PALACIOS.techo > 0, `El techo diario esta definido (${despues.PALACIOS?.techo})`);
+  assert(despues.PALACIOS?.limiteGhl === 200000, 'Se declara el limite oficial de GHL (200,000/dia)');
+  assert(despues.PALACIOS?.techo < despues.PALACIOS?.limiteGhl, 'El techo del guardian DEJA margen bajo el limite de GHL');
+
   console.log('\n==========================================================');
   console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
   console.log('==========================================================\n');

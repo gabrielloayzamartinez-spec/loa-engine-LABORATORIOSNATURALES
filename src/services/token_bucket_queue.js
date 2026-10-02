@@ -24,8 +24,30 @@
  * ==============================================================================
  */
 
-/** Ritmo por subcuenta. 700 ms => ~85 requests por ventana de 10 s (limite 100). */
+/** Ritmo por subcuenta. 700 ms => ~14.3 requests por ventana de 10 s (limite 100). */
 const DEFAULT_INTERVAL_MS = 700;
+
+/**
+ * [GUARDIAN DE CUOTA DIARIA]
+ *
+ * GHL permite 200.000 requests por DIA y por location. La cola ya protegia la
+ * RAFAGA (100 req / 10 s), pero NO habia ninguna guarda para el techo DIARIO: un
+ * backfill agresivo podia agotar la cuota del dia y con ella la atencion en vivo
+ * de los asesores (los webhooks tambien consumen esa misma cuota).
+ *
+ * Este guardia cuenta las peticiones de cada subcuenta en una ventana de 24 h y:
+ *   - deja pasar SIEMPRE la via rapida (HIGH: webhooks, radar, router en vivo);
+ *   - FRENA la via de fondo (LOW: backfill, curador) al acercarse al techo.
+ *
+ * Umbral por defecto: 150.000 (75% del limite), elegido para dejar ~50.000
+ * peticiones de margen a la operacion en vivo. Configurable con
+ * GHL_DAILY_QUOTA_GUARD.
+ */
+const DAILY_QUOTA_GUARD = (() => {
+  const n = parseInt(process.env.GHL_DAILY_QUOTA_GUARD || '', 10);
+  return Number.isFinite(n) && n > 0 ? n : 150000;
+})();
+const VENTANA_DIARIA_MS = 24 * 60 * 60 * 1000;
 
 class SubaccountBucket {
   constructor(subaccount, { intervalMs = DEFAULT_INTERVAL_MS, highPriorityDelayMs = 150 } = {}) {
@@ -37,12 +59,35 @@ class SubaccountBucket {
     this.lowPriorityQueue = [];
     this.isProcessing = false;
 
+    // [GUARDIAN DE CUOTA] Contador de la ventana de 24 h.
+    this.dailyCount = 0;
+    this.dailyWindowStart = Date.now();
+    this.dailyBlocked = 0; // cuantas tareas de fondo se frenaron por cuota
+
     this.stats = {
       highPriorityProcessed: 0,
       lowPriorityProcessed: 0,
       totalWaitMs: 0,
       lastProcessedAt: null
     };
+  }
+
+  /** Reinicia la ventana diaria si ya pasaron 24 h. */
+  rotarVentanaSiCorresponde() {
+    if (Date.now() - this.dailyWindowStart >= VENTANA_DIARIA_MS) {
+      this.dailyCount = 0;
+      this.dailyWindowStart = Date.now();
+      this.dailyBlocked = 0;
+    }
+  }
+
+  /**
+   * ¿Queda cupo diario para trabajo DE FONDO?
+   * La via rapida (HIGH) nunca se frena: la atencion en vivo tiene prioridad.
+   */
+  hayCupoDeFondo() {
+    this.rotarVentanaSiCorresponde();
+    return this.dailyCount < DAILY_QUOTA_GUARD;
   }
 
   async sleep(ms) {
@@ -78,6 +123,7 @@ class SubaccountBucket {
           } catch (err) {
             item.reject(err);
           }
+          this.dailyCount++; // [GUARDIAN] la via rapida tambien consume cuota
           this.stats.lastProcessedAt = new Date().toISOString();
           await this.sleep(this.highPriorityDelayMs);
           continue;
@@ -93,6 +139,7 @@ class SubaccountBucket {
           } catch (err) {
             item.reject(err);
           }
+          this.dailyCount++;
           this.stats.lastProcessedAt = new Date().toISOString();
           await this.sleep(this.intervalMs);
         }
@@ -104,6 +151,8 @@ class SubaccountBucket {
 
   getMetrics() {
     const total = this.stats.highPriorityProcessed + this.stats.lowPriorityProcessed;
+    this.rotarVentanaSiCorresponde();
+    const pct = DAILY_QUOTA_GUARD > 0 ? Number(((this.dailyCount / DAILY_QUOTA_GUARD) * 100).toFixed(1)) : 0;
     return {
       subaccount: this.subaccount,
       intervalMs: this.intervalMs,
@@ -112,7 +161,16 @@ class SubaccountBucket {
       highQueueLength: this.highPriorityQueue.length,
       lowQueueLength: this.lowPriorityQueue.length,
       isProcessing: this.isProcessing,
-      lastProcessedAt: this.stats.lastProcessedAt
+      lastProcessedAt: this.stats.lastProcessedAt,
+      // [GUARDIAN DE CUOTA DIARIA]
+      cuotaDiaria: {
+        consumidas: this.dailyCount,
+        techo: DAILY_QUOTA_GUARD,
+        limiteGhl: 200000,
+        porcentaje: pct,
+        quedaCupoDeFondo: this.hayCupoDeFondo(),
+        ventanaIniciadaEn: new Date(this.dailyWindowStart).toISOString()
+      }
     };
   }
 }
@@ -143,6 +201,29 @@ class TokenBucketQueuePool {
    */
   enqueue(taskFn, priority = 'LOW', subaccount = 'GENERAL') {
     return this.bucketFor(subaccount).enqueue(taskFn, priority);
+  }
+
+  /**
+   * [GUARDIAN DE CUOTA DIARIA] ¿Queda cupo de fondo en esta subcuenta?
+   * El trabajo de fondo (backfill) lo consulta ANTES de arrancar un ciclo: si la
+   * subcuenta ya consumio su techo del dia, el ciclo se OMITE en lugar de competir
+   * por la cuota que necesita la atencion en vivo.
+   *
+   * Se comprueba EN LA FUENTE (no descartando tareas ya encoladas) para no perder
+   * contactos: el cursor del backfill avanza al ultimo id del lote, asi que una
+   * tarea descartada a mitad de lote se saltaria ese contacto para siempre.
+   */
+  hayCupoDeFondo(subaccount = 'GENERAL') {
+    return this.bucketFor(subaccount).hayCupoDeFondo();
+  }
+
+  /** Consumo diario por subcuenta (para /api/health y diagnostico). */
+  getCuotaDiaria() {
+    const out = {};
+    for (const [key, b] of this.buckets.entries()) {
+      out[key] = b.getMetrics().cuotaDiaria;
+    }
+    return out;
   }
 
   /** Metricas agregadas + desglose por subcuenta. */

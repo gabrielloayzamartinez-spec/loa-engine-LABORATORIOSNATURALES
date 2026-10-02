@@ -450,7 +450,12 @@ app.get('/api/health', (req, res) => {
     infrastructure: {
       queue: queueStatus,
       breakers: getBreakersStatus(),
-      audit: getAuditMetrics()
+      audit: getAuditMetrics(),
+      // [GUARDIAN DE CUOTA DIARIA] Consumo de GHL por subcuenta en la ventana de
+      // 24 h. GHL permite 200,000/dia por location; el trabajo de fondo se frena
+      // al llegar a GHL_DAILY_QUOTA_GUARD (por defecto 150,000, 75%) para no
+      // quedarse sin cuota para la atencion en vivo.
+      cuotaDiaria: tokenBucketQueue.getCuotaDiaria()
     },
     timestamp: new Date().toISOString()
   });
@@ -1642,16 +1647,31 @@ export function registerBackgroundSchedulers() {
     getBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // nada pendiente
-        return runOrderHistoryBackfill({ tamanoLote: 25, maxLotes: 2, pausaMs: 400 });
+        // [RITMO RECALIBRADO] Antes 25x2 cada 30 min = 100/hora. Ahora 50x2 cada
+        // 15 min = 400/hora, para acompanar al backfill de compradores (600/hora)
+        // sin saturar: el historial hace ~3 llamadas por contacto.
+        return runOrderHistoryBackfill({ tamanoLote: 50, maxLotes: 2, pausaMs: 250 });
       })
       .catch(err => console.error('[Order Backfill] Error en ciclo programado:', err.message))
       .finally(() => { orderHistoryCorriendo = false; });
-  }, 30 * 60 * 1000));
+  }, 15 * 60 * 1000));
 
   // [BACKFILL DE COMPRADORES] Cierra la brecha historica de la cartera.
-  // Cada 15 min avanza 2 lotes de 20 contactos por sede (40 por ciclo). El cursor
-  // persiste en el StateStore, asi que el avance sobrevive a un redeploy y cada
-  // ciclo AVANZA en lugar de reprocesar los mismos contactos recientes.
+  //
+  // [RITMO MEDIDO Y RECALIBRADO] Antes: 2 lotes de 20 por sede cada 15 min = 160
+  // contactos/hora. Medido en produccion: ~80/hora reales, es decir ~19 DIAS para
+  // los 36,629 compradores de Palacios. La cola de GHL a 700 ms permite ~857
+  // contactos/hora por sede (se usaba menos del 10% de la capacidad), asi que el
+  // limite NO era la API: era la configuracion.
+  //
+  // Ahora: 2 lotes de 50 por sede cada 10 min = 600 contactos/hora por sede.
+  //   - Cuota de rafaga: 600 x ~6 llamadas = 3,600/h = 1.0 req/s = 70% de la cola (700 ms)
+  //   - Cuota diaria: 14,400 contactos/dia x 6 = 86,400 llamadas = 43% del limite
+  //     de 200,000/dia por location. DEJA MARGEN para la atencion en vivo.
+  //   - El Guardian de Cuota (token_bucket_queue) ademas pausa el ciclo si la
+  //     subcuenta se acerca a su techo diario.
+  //
+  // El cursor persiste en el StateStore: cada ciclo AVANZA en lugar de reprocesar.
   let buyersBackfillCorriendo = false;
   timers.push(setInterval(() => {
     if (buyersBackfillCorriendo) {
@@ -1662,13 +1682,13 @@ export function registerBackgroundSchedulers() {
     getBuyersBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // cartera ya recorrida por completo
-        return runBuyersBackfill({ tamanoLote: 20, maxLotes: 2, pausaMs: 300 });
+        return runBuyersBackfill({ tamanoLote: 50, maxLotes: 2, pausaMs: 200 });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
       .finally(() => { buyersBackfillCorriendo = false; });
-  }, 15 * 60 * 1000));
+  }, 10 * 60 * 1000));
 
-  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s, order-history 1800s, buyers-backfill 900s).`);
+  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s, order-history 900s, buyers-backfill 600s).`);
   return timers;
 }
 
