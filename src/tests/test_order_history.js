@@ -16,6 +16,7 @@
 
 import {
   normalizeOrder, sortOrdersDesc, buildOrderHistoryNote, buildOrderHistoryField,
+  buildOrderEnrichmentFields, buildOrderAddressFields,
   MARCADOR_NOTA
 } from '../services/vtiger_order_history_service.js';
 
@@ -57,8 +58,10 @@ const ordenCruda = {
   cf_876: 'COLUMBUS',
   cf_1053: 'Ohio',
   cf_872: '43204',
+  cf_870: '329 S TERRACE AVE',
   cf_902: 'Tarjeta de Credito',
   cf_912: 'SQUARE',
+  cf_862: 'Hombre',
   comment: '<p>Pedido <b>verificado</b> por telefono</p>'
 };
 
@@ -75,6 +78,7 @@ assert(o.guia === '9405511699000396289341', `Extrae la guía de USPS del enlace 
 assert(o.estadoEntrega === 'ENTREGADA', 'Extrae el estado de entrega');
 assert(o.formaPago === 'Tarjeta de Credito', 'Extrae la forma de pago');
 assert(o.procesadorPago === 'SQUARE', 'Extrae el procesador de pago');
+assert(o.sexo === 'Hombre', '[FASE 4] Extrae el sexo de la orden (cf_862), que es donde vTiger lo guarda');
 assert(!o.notas.includes('<'), 'Limpia el HTML de las notas');
 
 // Robustez ante datos vacíos
@@ -142,6 +146,36 @@ assert(JSON.parse(buildOrderHistoryField([])).total === 0, 'Sin órdenes el camp
 const sinFecha = normalizeOrder({ salesorder_no: 'G-1' });
 assert(sinFecha.fecha === '', 'Una orden sin fecha no rompe el ordenamiento');
 assert(sortOrdersDesc([sinFecha]).length === 1, 'El ordenamiento tolera fechas vacías');
+
+// ------------------------------------------------------------------------------
+// 6. [FASE 3 + 4] ENRIQUECIMIENTO DE LA ÚLTIMA ORDEN COMO CAMPOS FILTRABLES
+// ------------------------------------------------------------------------------
+console.log('\n[TEST 6] Enriquecimiento: datos de compra + sexo como campos filtrables');
+const fieldIds = {
+  estadoEntrega: 'ID_ENTREGA', conformidad: 'ID_CONF', formaPago: 'ID_PAGO',
+  transportista: 'ID_TRANSP', tracking: 'ID_TRACK', ultimoProducto: 'ID_PROD', sexo: 'ID_SEXO'
+};
+const enrich = buildOrderEnrichmentFields(o, fieldIds);
+assert(enrich.length === 7, `Genera 7 campos de enriquecimiento (${enrich.length})`);
+assert(enrich.find(c => c.id === 'ID_ENTREGA')?.field_value === 'ENTREGADA', 'Escribe el estado de entrega');
+assert(enrich.find(c => c.id === 'ID_CONF')?.field_value === 'CONFORME', 'Escribe la conformidad');
+assert(enrich.find(c => c.id === 'ID_PAGO')?.field_value === 'Tarjeta de Credito', 'Escribe la forma de pago');
+assert(enrich.find(c => c.id === 'ID_TRACK')?.field_value === '9405511699000396289341', 'Escribe el tracking');
+assert(enrich.find(c => c.id === 'ID_PROD')?.field_value === 'ALFA-L-179', 'Escribe el último producto');
+assert(enrich.find(c => c.id === 'ID_SEXO')?.field_value === 'Hombre', 'Escribe el sexo rescatado de la orden');
+
+// Sin IDs resueltos NO se escribe nada (fail-safe)
+const enrichVacio = buildOrderEnrichmentFields(o, {});
+assert(enrichVacio.length === 0, 'Sin IDs resueltos no se generan campos (evita escribir con id undefined)');
+
+// [FASE 3] Direccion a campos estandar
+const addr = buildOrderAddressFields(o);
+assert(addr.address1 === '329 S TERRACE AVE', 'Mapea la direccion de entrega al campo nativo address1');
+assert(addr.postalCode === '43204', 'Mapea el codigo postal al campo nativo postalCode');
+const addrSinZip = buildOrderAddressFields({ direccion: '123 MAIN ST', zip: 'XYZ' });
+assert(addrSinZip.address1 === '123 MAIN ST' && addrSinZip.postalCode === undefined, 'Un zip invalido no se escribe (solo se valida 5 o 5+4 digitos)');
+const addrVacio = buildOrderAddressFields({});
+assert(Object.keys(addrVacio).length === 0, 'Sin direccion ni zip no se genera nada');
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);

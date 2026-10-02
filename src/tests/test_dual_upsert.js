@@ -22,7 +22,8 @@ import {
   partitionFields, mergeTagsPreservingStatus, esCampoHistorialProtegido,
   CAMPOS_HISTORIAL_PROTEGIDOS, TAGS_ESTATUS_PROTEGIDAS, isCentralConfigured,
   syncVtigerContactDual, SOLO_COMPRADORES, esRegistroComprador,
-  limpiarNombre, buildNombreFields, parseFechaGhl, debeAvanzarFecha
+  limpiarNombre, buildNombreFields, parseFechaGhl, debeAvanzarFecha,
+  sedeMasRecienteYaSincronizada
 } from '../services/dual_sync_service.js';
 import { normalizeToE164, hasValidPhone, splitCityAndState, buildSanitizedGeoFields, isUsStateCode, isNanpValid, explainPhoneRejection } from '../utils/geo_phone_sanitizer.js';
 import { SEDES_GATEWAY } from '../config/index.js';
@@ -540,6 +541,22 @@ assert(enviaCampo([], 'F2') === true, 'La fecha de PRIMERA compra también se es
 assert(enviaCampo([{ id: 'T1', value: '1' }], 'T1') === true, 'El contador de compras avanza (1 -> 3)');
 assert(enviaCampo([{ id: 'T1', value: '9' }], 'T1') === false, 'El contador no retrocede (9 -> 3 se omite)');
 assert(enviaCampo([{ id: 'I1', value: '12x1' }], 'I1') === true, 'Un campo no comparable (id de cliente) se envía igual');
+
+// ------------------------------------------------------------------------------
+// [REGLA DE MERGE] La sede más reciente gana en la Empresa
+// ------------------------------------------------------------------------------
+console.log('\n[TEST 14] Regla de merge: la sede más reciente gana (solo Empresa)');
+const ID_FECHA = 'ID_FECHA_ULTIMA';
+const emp = (fechaGhl) => ({ customFields: [{ id: ID_FECHA, value: fechaGhl }] });
+const fieldsC = { fechaUltimaCompra: ID_FECHA };
+
+assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), fieldsC, { spl_fecha_ultima_compra: '2023-03-01' }) === true, 'Empresa 2024, entra 2023 -> OMITE (no rebaja)');
+assert(sedeMasRecienteYaSincronizada(emp('2023-03-01'), fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === false, 'Empresa 2023, entra 2024 -> ESCRIBE (avanza)');
+assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === true, 'Misma fecha -> OMITE (no pisa)');
+assert(sedeMasRecienteYaSincronizada({ customFields: [] }, fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === false, 'Empresa sin fecha -> ESCRIBE');
+assert(sedeMasRecienteYaSincronizada(null, fieldsC, { spl_fecha_ultima_compra: '2024-05-01' }) === false, 'Sin contacto en Empresa -> ESCRIBE');
+assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), fieldsC, { spl_fecha_ultima_compra: '' }) === false, 'vTiger sin fecha -> no compara (ESCRIBE)');
+assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), { fechaUltimaCompra: '' }, { spl_fecha_ultima_compra: '2023-01-01' }) === false, 'Sin ID de campo resuelto -> no puede comparar (ESCRIBE)');
 
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
