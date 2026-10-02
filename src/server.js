@@ -17,7 +17,7 @@
 // ------------------------------------------------------------------------------
 // IMPORTS DEL RUNTIME (la malla HTTP vive en app.js; los side effects, aquí)
 // ------------------------------------------------------------------------------
-import { app, stats, runExpressAssignment, registerQueueProcessors, registerBackgroundSchedulers, startCentralCredentialCheck } from './app.js';
+import { app, stats, runExpressAssignment, registerQueueProcessors, registerBackgroundSchedulers, startCentralCredentialCheck, startMetaCredentialCheck } from './app.js';
 import { learningBrain } from './services/learning_brain.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes, getOperationalSedes, getActiveSedes } from './config/sedes_gateway.js';
@@ -192,6 +192,11 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   // bloquear el arranque). Expone el veredicto en /api/health: un PIT revocado
   // esta "presente" pero no autentica, y eso antes solo se descubria en los logs.
   startCentralCredentialCheck();
+
+  // Prueba REAL de las credenciales de Meta por sede. Un token vencido (error 190)
+  // deja la atribucion publicitaria en 'DESCONOCIDO' en silencio: sin token no se
+  // puede traducir el Ad ID a campaña, conjunto de anuncios ni nombre de anuncio.
+  startMetaCredentialCheck();
 });
 
 // ==========================================

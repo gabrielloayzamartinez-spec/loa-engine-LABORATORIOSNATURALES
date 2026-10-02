@@ -333,6 +333,98 @@ export async function testMetaConnection() {
 }
 
 /**
+ * [VALIDACION REAL DE CREDENCIAL META, POR SEDE]
+ *
+ * POR QUE EXISTE: el health reportaba `meta: {isConfigured: true}` calculado como
+ * `Boolean(process.env.META_ACCESS_TOKEN_*)`. Eso comprueba que la VARIABLE exista,
+ * NO que el token sirva: con los dos tokens vencidos (error 190) el panel seguia
+ * diciendo "configurado", y la atribucion publicitaria se perdia en silencio.
+ *
+ * QUE VALIDA, ademas de la autenticacion:
+ *  - `type`: si el token es de USUARIO o de PAGINA. En este negocio los anuncios son
+ *    de terceros (Click2Ring y otros proveedores), asi que la atribucion NO depende
+ *    de la cuenta publicitaria: depende del TOKEN DE PAGINA, que es el que puede leer
+ *    las conversaciones y con ellas el `referral.ad_id` del mensaje.
+ *  - `paginas`: cuantas paginas alcanza el token. Si es 0, NO podra leer mensajes,
+ *    y sin mensajes no hay `referral` -> la atribucion queda en 'DESCONOCIDO'.
+ *  - `permisos`: los scopes realmente otorgados, con foco en `pages_messaging`.
+ *
+ * @param {string} sedeId 'PALACIOS' | 'BENAVIDES' | ...
+ * @returns {Promise<object>} veredicto con motivo
+ */
+export async function verificarCredencialMeta(sedeId) {
+  const sede = String(sedeId || '').toUpperCase().trim();
+  const token = SEDES_GATEWAY?.[sede]?.meta?.accessToken;
+  if (!token) {
+    return { sede, configurada: false, valida: null, detalle: 'sin token configurado' };
+  }
+
+  try {
+    // 1. Autenticacion basica
+    const rMe = await fetch(`${GRAPH_BASE}/me?fields=id,name&access_token=${token}`);
+    const dMe = await rMe.json();
+    if (dMe.error) {
+      const code = dMe.error.code;
+      const detalle = code === 190
+        ? 'token INVALIDO o expirado (code 190): el usuario cerro sesion o el token vencio. RENOVAR.'
+        : code === 102
+          ? 'token de sesion invalido (code 102): renovar'
+          : `error de Meta (code ${code}): ${String(dMe.error.message || '').slice(0, 120)}`;
+      return { sede, configurada: true, valida: false, status: code, detalle };
+    }
+
+    // 2. Paginas alcanzables: es lo que decide si hay atribucion o no
+    let paginas = null;
+    let nombresPaginas = [];
+    try {
+      const rPag = await fetch(`${GRAPH_BASE}/me/accounts?fields=id,name&limit=25&access_token=${token}`);
+      const dPag = await rPag.json();
+      if (!dPag.error && Array.isArray(dPag.data)) {
+        paginas = dPag.data.length;
+        nombresPaginas = dPag.data.map(p => p.name).slice(0, 8);
+      }
+    } catch (e) { /* no critico */ }
+
+    // 3. Permisos realmente otorgados (util para detectar falta de pages_messaging)
+    let permisos = null;
+    try {
+      const rPer = await fetch(`${GRAPH_BASE}/me/permissions?access_token=${token}`);
+      const dPer = await rPer.json();
+      if (!dPer.error && Array.isArray(dPer.data)) {
+        permisos = dPer.data.filter(p => p.status === 'granted').map(p => p.permission);
+      }
+    } catch (e) { /* no critico */ }
+
+    const tieneMessaging = Array.isArray(permisos) ? permisos.includes('pages_messaging') : null;
+    const sinPaginas = paginas === 0;
+
+    let detalle = 'credencial valida';
+    if (sinPaginas) {
+      detalle = 'token valido pero NO alcanza ninguna pagina: sin acceso a conversaciones no habra referral (atribucion en DESCONOCIDO). Asignar paginas al usuario del sistema.';
+    } else if (tieneMessaging === false) {
+      detalle = 'token valido pero SIN el permiso pages_messaging: no podra leer los mensajes ni su referral.';
+    } else if (paginas !== null && paginas > 0) {
+      detalle = `credencial valida, alcanza ${paginas} pagina(s)`;
+    }
+
+    return {
+      sede,
+      configurada: true,
+      valida: !sinPaginas && tieneMessaging !== false,
+      status: 200,
+      usuarioMeta: dMe.name || dMe.id,
+      paginasAlcanzadas: paginas,
+      nombresPaginas,
+      tieneMessaging,
+      permisos: permisos ? permisos.slice(0, 12) : null,
+      detalle
+    };
+  } catch (err) {
+    return { sede, configurada: true, valida: null, detalle: `no se pudo verificar: ${err.message}` };
+  }
+}
+
+/**
  * 6. Patrullero Directo de Meta (Inbox Scanner)
  * Identifica mensajes duplicados directamente en el origen que GHL pueda haber omitido.
  */

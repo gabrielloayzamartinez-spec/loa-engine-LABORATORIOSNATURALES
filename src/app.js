@@ -34,6 +34,55 @@ import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
  */
 let centralCredentialStatus = { verificado: false, detalle: 'aun no verificado' };
 
+/**
+ * [VERIFICACION REAL DE CREDENCIALES META, POR SEDE]
+ *
+ * El health reportaba `meta: {isConfigured}` calculado como Boolean(env), que solo
+ * comprueba que la VARIABLE exista. Con los dos tokens vencidos (error 190) el panel
+ * seguia diciendo "configurado" mientras la atribucion publicitaria se perdia en
+ * silencio: sin token no hay campaña, ni conjunto de anuncios, ni nombre de anuncio,
+ * y el canal caia a 'DESCONOCIDO'.
+ *
+ * Corre en segundo plano (el health debe seguir siendo SIN I/O) cada 30 min, porque
+ * los tokens de Meta se invalidan solos y hay que detectarlo rapido.
+ */
+let metaCredentialsStatus = { verificado: false, detalle: 'aun no verificado' };
+
+async function ejecutarVerificacionMeta() {
+  try {
+    const { verificarCredencialMeta } = await import('./services/meta_api_service.js');
+    const sedes = getActiveSedes().map(s => s.sedeId);
+    const porSede = {};
+    for (const sede of sedes) {
+      porSede[sede] = await verificarCredencialMeta(sede);
+    }
+    const invalidas = Object.entries(porSede).filter(([, v]) => v.valida === false).map(([k]) => k);
+    metaCredentialsStatus = {
+      verificado: true,
+      ts: new Date().toISOString(),
+      todasValidas: invalidas.length === 0,
+      invalidas,
+      porSede
+    };
+    if (invalidas.length > 0) {
+      console.error(`[Health] [CREDENCIAL META] Tokens invalidos en: ${invalidas.join(', ')}. La atribucion publicitaria se perdera (canal DESCONOCIDO).`);
+      for (const s of invalidas) {
+        console.error(`[Health] [CREDENCIAL META] ${s}: ${porSede[s].detalle}`);
+      }
+    }
+  } catch (err) {
+    metaCredentialsStatus = { verificado: false, detalle: err.message };
+  }
+}
+
+/** Lanza la verificacion de credenciales Meta en segundo plano. */
+function startMetaCredentialCheck(intervaloMs = 30 * 60 * 1000) {
+  ejecutarVerificacionMeta();
+  const t = setInterval(ejecutarVerificacionMeta, intervaloMs);
+  if (t.unref) t.unref();
+  return t;
+}
+
 /** Lanza la verificacion de credencial en segundo plano (no bloquea el arranque). */
 function startCentralCredentialCheck(intervaloMs = 15 * 60 * 1000) {
   const ejecutar = () => {
@@ -390,7 +439,14 @@ app.get('/api/health', (req, res) => {
       rol: 'analitica macro (sin ruteo ni chats)',
       credencial: centralCredentialStatus
     },
-    meta: metaConnectionStatus,
+    meta: {
+      // Presencia de la variable (comprobacion barata, no implica validez).
+      isConfigured: Boolean(metaConnectionStatus?.isConfigured),
+      // [VEREDICTO REAL] Prueba contra la API de Meta por sede: validez del token,
+      // paginas alcanzadas y permiso `pages_messaging`. Un token vencido deja la
+      // atribucion publicitaria en 'DESCONOCIDO' sin ningun otro sintoma.
+      credenciales: metaCredentialsStatus
+    },
     infrastructure: {
       queue: queueStatus,
       breakers: getBreakersStatus(),
@@ -1621,5 +1677,5 @@ export function registerBackgroundSchedulers() {
 // EXPORT: la malla HTTP no abre puertos por sí sola.
 // El puerto lo abre src/server.js (runtime) o los smoke tests lo omiten.
 // ==========================================
-export { app, stats, processedContactTimestamps, runExpressAssignment, fetchWithRetry, registerQueueProcessors, startCentralCredentialCheck };
+export { app, stats, processedContactTimestamps, runExpressAssignment, fetchWithRetry, registerQueueProcessors, startCentralCredentialCheck, startMetaCredentialCheck };
 export default app;
