@@ -395,6 +395,41 @@ export async function verificarCredencialMeta(sedeId) {
       }
     } catch (e) { /* no critico */ }
 
+    // 4. [FASE 6] Tipo de token y fecha de expiracion (debug_token).
+    // Un token de USUARIO expira en ~60 dias; uno de USUARIO DEL SISTEMA puede ser
+    // permanente (expires_at = 0). Sin esta comprobacion, la atribucion se muere en
+    // silencio cuando vence el token y nadie se entera hasta que los leads salen
+    // sin campaña, conjunto ni anuncio.
+    let tipoToken = null;
+    let expiraEn = null;
+    let diasRestantes = null;
+    let alerta = null;
+    try {
+      const appId = SEDES_GATEWAY?.[sede]?.meta?.appId;
+      const appSecret = SEDES_GATEWAY?.[sede]?.meta?.appSecret;
+      if (appId && appSecret) {
+        const appToken = `${appId}|${appSecret}`;
+        const rDbg = await fetch(`${GRAPH_BASE}/debug_token?input_token=${token}&access_token=${appToken}`);
+        const dDbg = await rDbg.json();
+        const info = dDbg.data;
+        if (info && !dDbg.error) {
+          tipoToken = info.type || null;
+          const expMs = info.expires_at ? info.expires_at * 1000 : 0;
+          if (expMs > 0) {
+            const d = new Date(expMs);
+            expiraEn = d.toISOString().slice(0, 10);
+            diasRestantes = Math.round((expMs - Date.now()) / 86400000);
+            if (diasRestantes <= 15) {
+              alerta = diasRestantes <= 0 ? 'token VENCIDO' : `renovar en ${diasRestantes} dias`;
+            }
+          } else {
+            expiraEn = 'permanente';
+            diasRestantes = null;
+          }
+        }
+      }
+    } catch (e) { /* no critico */ }
+
     const tieneMessaging = Array.isArray(permisos) ? permisos.includes('pages_messaging') : null;
     const sinPaginas = paginas === 0;
 
@@ -403,6 +438,8 @@ export async function verificarCredencialMeta(sedeId) {
       detalle = 'token valido pero NO alcanza ninguna pagina: sin acceso a conversaciones no habra referral (atribucion en DESCONOCIDO). Asignar paginas al usuario del sistema.';
     } else if (tieneMessaging === false) {
       detalle = 'token valido pero SIN el permiso pages_messaging: no podra leer los mensajes ni su referral.';
+    } else if (alerta) {
+      detalle = `credencial valida pero ${alerta}: renovar ANTES de que la atribucion se pierda en silencio.`;
     } else if (paginas !== null && paginas > 0) {
       detalle = `credencial valida, alcanza ${paginas} pagina(s)`;
     }
@@ -417,6 +454,10 @@ export async function verificarCredencialMeta(sedeId) {
       nombresPaginas,
       tieneMessaging,
       permisos: permisos ? permisos.slice(0, 12) : null,
+      tipoToken,
+      expiraEn,
+      diasRestantes,
+      alerta,
       detalle
     };
   } catch (err) {

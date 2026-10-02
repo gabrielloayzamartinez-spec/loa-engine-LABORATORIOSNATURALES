@@ -105,7 +105,16 @@ const CAMPOS_REQUERIDOS = {
   fechaCreacion: ['fecha creacion', 'v tiger fecha creacion'],
   anotacionesRedes: ['anotaciones redes', 'v tiger anotaciones redes'],
   // Campo LARGE_TEXT que aloja el detalle de órdenes.
-  historialCompleto: ['historial completo', 'v tiger historial completo']
+  historialCompleto: ['historial completo', 'v tiger historial completo'],
+  // --- [FASE 3] Datos de la ULTIMA orden como campos FILTRABLES (customer service
+  // y remarketing). Hoy viven solo dentro de la nota de texto, por eso no se podian
+  // filtrar en Smart Lists. Se publican desde la ultima orden del contacto.
+  estadoEntrega: ['estado de entrega', 'v tiger estado de entrega'],
+  conformidad: ['conformidad', 'v tiger conformidad'],
+  formaPago: ['forma de pago', 'metodo de pago', 'v tiger forma de pago'],
+  transportista: ['transportista', 'v tiger transportista'],
+  tracking: ['tracking', 'numero de guia', 'guia de envio', 'v tiger tracking'],
+  ultimoProducto: ['ultimo producto', 'v tiger ultimo producto', 'v tiger ultima compra producto']
 };
 
 // ------------------------------------------------------------------------------

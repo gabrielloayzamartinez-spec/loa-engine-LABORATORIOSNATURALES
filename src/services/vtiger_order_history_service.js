@@ -147,6 +147,9 @@ export function normalizeOrder(o = {}) {
     direccion: o.cf_870 || '',
     formaPago: o.cf_902 || '',
     procesadorPago: o.cf_912 || '',
+    // [FASE 4] SEXO: vTiger lo guarda en la ORDEN (cf_862 = Hombre/Mujer/TERCER),
+    // NO en el contacto. Aqui se rescata para publicarlo al campo Sexo del contacto.
+    sexo: o.cf_862 || '',
     notas: String(o.comment || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)
   };
 }
@@ -280,6 +283,54 @@ export async function writeOrderHistoryField(contactId, valor, headers, fieldId)
   } catch (err) {
     return { ok: false, status: 0, error: err.message };
   }
+}
+
+/**
+ * Escribe VARIOS custom fields en el contacto con UNA sola llamada.
+ * Se usa para el enriquecimiento de la ultima orden (Fase 3 + 4): una sola
+ * escritura en lugar de una por campo, para no multiplicar las llamadas a GHL.
+ */
+export async function writeContactFields(contactId, campos = [], headers) {
+  if (!contactId || !campos.length) return { ok: false, skipped: true, reason: 'sin campos' };
+  try {
+    const res = await ghlFetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ customFields: campos })
+    }, 1, 'Order History');
+    return { ok: res.status === 200, status: res.status, escritos: campos.length };
+  } catch (err) {
+    return { ok: false, status: 0, error: err.message };
+  }
+}
+
+/**
+ * [FASE 3 + 4] Construye los custom fields de la ULTIMA orden para publicarlos como
+ * campos FILTRABLES. Hoy esos datos viven solo dentro de la nota de texto, por eso
+ * no se podian usar en Smart Lists. Se publican:
+ *   - estado de entrega, conformidad, forma de pago, transportista, tracking
+ *   - ultimo producto (para remarketing)
+ *   - sexo (rescatado de la orden cf_862, que es donde vTiger lo guarda)
+ *
+ * @param {object} ultimaOrden orden normalizada (la mas reciente)
+ * @param {object} fieldIds     mapa { logico: fieldId } ya resuelto de la location
+ * @returns {Array} custom fields listos para el PUT
+ */
+export function buildOrderEnrichmentFields(ultimaOrden = {}, fieldIds = {}) {
+  const campos = [];
+  const push = (logico, valor) => {
+    const id = fieldIds[logico];
+    const v = valor === undefined || valor === null ? '' : String(valor).trim();
+    if (id && v) campos.push({ id, field_value: v });
+  };
+  push('estadoEntrega', ultimaOrden.estadoEntrega);
+  push('conformidad', ultimaOrden.conformidad);
+  push('formaPago', ultimaOrden.formaPago);
+  push('transportista', ultimaOrden.transportista);
+  push('tracking', ultimaOrden.guia);
+  push('ultimoProducto', ultimaOrden.producto);
+  push('sexo', ultimaOrden.sexo);
+  return campos;
 }
 
 /**
@@ -506,7 +557,14 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
       ? await writeOrderHistoryField(contactoId, buildOrderHistoryField(normalizadas), sedeHeaders, historialFieldId)
       : { ok: false, error: 'campo de historial no presente en esta location' };
 
-    resultado.operativa = { contactId: contactoId, nota, campo };
+    // [FASE 3 + 4] Enriquecimiento con los datos de la ULTIMA orden como campos
+    // filtrables + sexo rescatado de la orden. Una sola escritura multi-campo.
+    const enrichment = buildOrderEnrichmentFields(normalizadas[0], fields);
+    const enrique = enrichment.length
+      ? await writeContactFields(contactoId, enrichment, sedeHeaders)
+      : { ok: false, skipped: true, reason: 'sin campos de enriquecimiento resueltos' };
+
+    resultado.operativa = { contactId: contactoId, nota, campo, enrique };
     recordAuditEvent({
       type: nota.ok ? 'ORDER_HISTORY_SEDE_OK' : 'ORDER_HISTORY_SEDE_FAIL',
       severity: nota.ok ? 'info' : 'warn',
@@ -515,7 +573,8 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
       ordenes: normalizadas.length,
       notaActualizada: Boolean(nota.updated),
       notaCreada: Boolean(nota.created),
-      status: nota.status
+      status: nota.status,
+      camposEnriquecidos: enrichment.length
     });
   } else {
     resultado.operativa = { contactId: null, reason: 'el contacto no existe en la subcuenta de la sede' };
@@ -545,7 +604,17 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
         buildOrderHistoryNote(nombre, normGlobal, 'GLOBAL (todas las sedes)'),
         centralHeaders
       );
-      resultado.macro = { contactId: centralContactId, nota: notaGlobal, ordenes: normGlobal.length };
+
+      // [FASE 3 + 4] Enriquecimiento GLOBAL: la ultima orden entre TODAS las sedes
+      // dicta el estado de entrega, forma de pago, producto y sexo en la Empresa.
+      // Asi la Empresa refleja la sede MAS RECIENTE de forma natural.
+      const fieldsCentral = await resolveCustomFieldIds(CENTRAL_LOCATION_ID, centralHeaders);
+      const enrichmentGlobal = buildOrderEnrichmentFields(normGlobal[0], fieldsCentral);
+      const enriqueMacro = enrichmentGlobal.length
+        ? await writeContactFields(centralContactId, enrichmentGlobal, centralHeaders)
+        : { ok: false, skipped: true, reason: 'sin campos de enriquecimiento resueltos' };
+
+      resultado.macro = { contactId: centralContactId, nota: notaGlobal, ordenes: normGlobal.length, enrique: enriqueMacro };
     } else {
       resultado.macro = { contactId: null, reason: 'el contacto no existe en la Cuenta Empresa' };
     }
