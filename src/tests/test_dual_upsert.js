@@ -558,6 +558,18 @@ assert(sedeMasRecienteYaSincronizada(null, fieldsC, { spl_fecha_ultima_compra: '
 assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), fieldsC, { spl_fecha_ultima_compra: '' }) === false, 'vTiger sin fecha -> no compara (ESCRIBE)');
 assert(sedeMasRecienteYaSincronizada(emp('2024-05-01'), { fechaUltimaCompra: '' }, { spl_fecha_ultima_compra: '2023-01-01' }) === false, 'Sin ID de campo resuelto -> no puede comparar (ESCRIBE)');
 
+// ------------------------------------------------------------------------------
+// [4 SEDES] Roosevelt y Piura reconocidas y espejables solo a la Empresa
+// ------------------------------------------------------------------------------
+console.log('\n[TEST 15] Las 4 sedes de vTiger se reconocen (Roosevelt/Piura incluidas)');
+assert(resolveSedeFromVtiger({ cf_3451: 'PALACIOS' }) === 'PALACIOS', 'Palacios se resuelve');
+assert(resolveSedeFromVtiger({ cf_3451: 'BENAVIDES' }) === 'BENAVIDES', 'Benavides se resuelve');
+assert(resolveSedeFromVtiger({ cf_3451: 'ROOSEVELT' }) === 'ROOSEVELT', 'Roosevelt se resuelve como sede valida (espejable a Empresa)');
+assert(resolveSedeFromVtiger({ cf_3451: 'PIURA' }) === 'PIURA', 'Piura se resuelve como sede valida (espejable a Empresa)');
+assert(typeof SEDES_GATEWAY.ROOSEVELT === 'object' && SEDES_GATEWAY.ROOSEVELT.sedeId === 'ROOSEVELT', 'Roosevelt existe en el gateway');
+assert(typeof SEDES_GATEWAY.PIURA === 'object' && SEDES_GATEWAY.PIURA.sedeId === 'PIURA', 'Piura existe en el gateway');
+assert(typeof SEDES_GATEWAY.ROOSEVELT.isConfigured === 'boolean' && typeof SEDES_GATEWAY.PIURA.isConfigured === 'boolean', 'Roosevelt y Piura declaran su estado de configuracion (isConfigured)');
+
 console.log('\n==========================================================');
 console.log(` [METRICS] ${passed} pasadas, ${failed} fallidas`);
 console.log('==========================================================\n');
