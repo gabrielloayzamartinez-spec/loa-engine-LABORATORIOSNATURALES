@@ -25,6 +25,7 @@ import { getVtigerConfigStatus, getVtigerGateMetrics } from './services/vtigerCl
 import { readSecret } from './config/secrets.js';
 import { isCentralConfigured } from './services/dual_sync_service.js';
 import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
+import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa } from './services/empresa_data_audit.js';
 
 /**
  * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
@@ -1497,6 +1498,39 @@ app.get('/api/empresa/diagnostico', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * AUDITORÍA DE DUPLICADOS en la Cuenta Empresa (solo lectura).
+ * Escanea N páginas (100 contactos cada una) y reporta teléfonos con 2+ contactos.
+ * @query paginas {number} páginas a revisar (por defecto 5, tope 50)
+ */
+app.get('/api/empresa/auditoria', async (req, res) => {
+  const paginas = parseInt(req.query.paginas || '5', 10);
+  try {
+    const r = await auditarDuplicadosEmpresa({ paginas });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * DEPURACIÓN DE DUPLICADOS en la Cuenta Empresa.
+ * Conserva el contacto más reciente de cada teléfono y elimina el resto.
+ * MODO SECO por defecto (ejecutar=false): solo reporta. Para borrar, ejecutar=true.
+ * @query paginas {number}
+ * @query ejecutar {boolean}
+ */
+app.post('/api/empresa/depurar', async (req, res) => {
+  const paginas = parseInt(req.query.paginas || '5', 10);
+  const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
+  try {
+    const r = await depurarDuplicadosEmpresa({ paginas, ejecutar });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
