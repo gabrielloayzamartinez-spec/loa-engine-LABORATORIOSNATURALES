@@ -110,7 +110,7 @@ import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes } from './config/sedes_gateway.js';
 import { getQueue, getQueueStatus, JOBS, QUEUES } from './services/queue/durable_queue.js';
 import { getBreakersStatus } from './utils/circuit_breaker.js';
-import { hydrateAllStores } from './services/state/state_store.js';
+import { hydrateAllStores, PERSISTENCE_DRIVER as STATE_DRIVER_CONFIGURADO } from './services/state/state_store.js';
 import { hydrateCursorStates } from './services/curador_bidireccional_service.js';
 const app = express();
 app.use(express.json());
@@ -1549,6 +1549,40 @@ app.post('/api/empresa/depurar-sin-telefono', async (req, res) => {
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * DIAGNÓSTICO DE PERSISTENCIA.
+ *
+ * Confirma sobre QUÉ almacén está montado cada StateStore. Es la verificación
+ * definitiva de que el progreso (cursores del backfill, curador, learning brain)
+ * sobrevive a un redeploy:
+ *   - driver 'postgres' -> durable (Render puede reiniciar sin perder progreso)
+ *   - driver 'file'     -> archivo en disco EFÍMERO: se borra en cada redeploy
+ *   - driver 'memory'   -> solo en RAM
+ *
+ * `configuredDriver` es lo que pide el entorno (PERSISTENCE_DRIVER); si dice
+ * 'postgres' pero el driver real es 'file', hubo degradación (revisar
+ * DATABASE_URL o `degradeReason`).
+ */
+app.get('/api/state/status', async (req, res) => {
+  try {
+    const stores = await hydrateAllStores();
+    const durables = stores.filter(s => s?.driver === 'postgres').length;
+    res.json({
+      success: true,
+      configuredDriver: STATE_DRIVER_CONFIGURADO,
+      storesDurables: durables,
+      storesTotales: stores.length,
+      persistenciaDurable: durables > 0 && durables === stores.length,
+      aviso: STATE_DRIVER_CONFIGURADO === 'postgres'
+        ? 'Esperando driver postgres en todos los stores. Si alguno dice file, hubo degradacion.'
+        : 'PERSISTENCE_DRIVER no es postgres: el progreso se pierde en cada redeploy.',
+      stores
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
