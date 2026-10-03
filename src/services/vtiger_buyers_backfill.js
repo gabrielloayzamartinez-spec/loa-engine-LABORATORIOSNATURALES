@@ -24,8 +24,7 @@
 import { queryVTiger } from './vtiger_api_service.js';
 import { sedeClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
-import { getActiveSedes, SEDES_GATEWAY } from '../config/index.js';
-import { syncVtigerContactDual, pickPhone } from './dual_sync_service.js';
+import { SEDES_GATEWAY } from '../config/index.js';import { syncVtigerContactDual, pickPhone } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { getStateStore } from './state/state_store.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
@@ -106,29 +105,37 @@ export async function runBuyersBackfill({
   pausaMs = 300,
   sedes = null
 } = {}) {
-  const sedesSolicitadas = (sedes && sedes.length ? sedes : getActiveSedes().map(s => s.sedeId))
+  // [LAS 4 SEDES] Se recorren TODAS las sedes presentes en vTiger (PALACIOS,
+  // BENAVIDES, ROOSEVELT, PIURA), no solo las "activas". Roosevelt y Piura estan
+  // en standby (sin subcuenta GHL propia), pero sus compradores DEBEN espejarse a
+  // la Cuenta Empresa para que sea la copia fiel y medible de vTiger.
+  const sedesSolicitadas = (sedes && sedes.length ? sedes : [...VTIGER_SEDES_VALIDAS])
     .map(s => String(s).toUpperCase())
     .filter(s => VTIGER_SEDES_VALIDAS.includes(s));
 
   if (sedesSolicitadas.length === 0) {
-    console.warn('[Buyers Backfill] [SKIP] No hay sedes activas configuradas.');
-    return { ok: false, reason: 'sin sedes activas' };
+    console.warn('[Buyers Backfill] [SKIP] No hay sedes configuradas.');
+    return { ok: false, reason: 'sin sedes' };
   }
 
-  // [GUARDIAN DE CUOTA DIARIA] Se comprueba ANTES de empezar: si una subcuenta ya
-  // consumio su techo del dia, se excluye del ciclo (las demas siguen). Si NINGUNA
-  // tiene cupo, el ciclo se omite entero y se audita. Asi el backfill nunca compite
-  // por la cuota que necesita la atencion en vivo. GHL: 200,000/dia por location.
-  const sedesObjetivo = sedesSolicitadas.filter(s => tokenBucketQueue.hayCupoDeFondo(s));
+  // [GUARDIAN DE CUOTA DIARIA] Se comprueba ANTES de empezar. Toda sede escribe a
+  // la EMPRESA (ademas de a su propia subcuenta cuando la tiene), asi que se
+  // verifica el cupo de LA SEDE y de LA EMPRESA: si cualquiera se acerco a su
+  // techo del dia, esa sede se excluye del ciclo. Si NINGUNA tiene cupo, el ciclo
+  // se omite y se audita. GHL: 200,000/dia por location.
+  const empresaConCupo = tokenBucketQueue.hayCupoDeFondo('EMPRESA');
+  const sedesObjetivo = sedesSolicitadas.filter(s =>
+    tokenBucketQueue.hayCupoDeFondo(s) && empresaConCupo
+  );
   if (sedesObjetivo.length === 0) {
     const cuota = tokenBucketQueue.getCuotaDiaria();
     recordAuditEvent({
       type: 'BUYERS_BACKFILL_QUOTA_PAUSED',
       severity: 'warn',
-      message: 'Cuota diaria agotada en todas las sedes objetivo: ciclo omitido para proteger la atencion en vivo.',
+      message: 'Cuota diaria agotada en todas las sedes objetivo o en la Empresa: ciclo omitido para proteger la atencion en vivo.',
       cuota
     });
-    console.warn('[Buyers Backfill] [CUOTA] Techo diario alcanzado en las sedes objetivo: ciclo omitido.');
+    console.warn('[Buyers Backfill] [CUOTA] Techo diario alcanzado: ciclo omitido.');
     return { ok: false, reason: 'cuota diaria agotada', sedes: sedesSolicitadas, cuota };
   }
 

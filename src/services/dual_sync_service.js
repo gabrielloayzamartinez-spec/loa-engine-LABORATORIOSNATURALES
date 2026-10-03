@@ -1138,15 +1138,21 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
     return { ok: false, skipped: true, reason: 'sede no reconocida' };
   }
 
-  // La sede debe estar configurada (PIT + Location ID)
-  if (SEDES_GATEWAY[sedeId].isConfigured === false) {
+  // La sede debe estar registrada en el gateway (para conocer su identidad), pero
+  // puede NO tener subcuenta GHL propia todavía (Roosevelt/Piura). En ese caso NO
+  // se descarta el contacto: se espeja SOLO hacia la Cuenta Empresa, que es la
+  // copia fiel de vTiger para medicion. Solo se omite si ADEMAS la Empresa no esta
+  // configurada (no habria ningun destino).
+  const sedeSinSubcuenta = SEDES_GATEWAY[sedeId].isConfigured === false;
+  if (sedeSinSubcuenta && !isCentralConfigured()) {
     recordAuditEvent({
       type: 'DUAL_SYNC_DROPPED_SEDE_UNCONFIGURED',
       severity: 'error',
       vTigerId: vContact.id || null,
-      sede: sedeId
+      sede: sedeId,
+      reason: 'sede sin credenciales y Empresa no configurada: sin destino'
     });
-    return { ok: false, skipped: true, reason: `sede ${sedeId} sin credenciales` };
+    return { ok: false, skipped: true, reason: `sede ${sedeId} sin credenciales y Empresa no configurada` };
   }
 
   const resultado = { ok: true, phone, sedeId, macro: null, operativa: null, contactId: null };
@@ -1217,55 +1223,70 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
   }
 
   // ====== LLAMADA 2: OPERATIVA (subcuenta de la sede) ======
-  const sedeLocId = SEDES_GATEWAY[sedeId].ghl.locationId;
-  const fieldsSede = await resolveCustomFieldIds(sedeLocId, sedeHeaders);
-  const existenteSede = await findContactByPhone(sedeLocId, phone, sedeHeaders);
+  // Si la sede NO tiene subcuenta propia (Roosevelt/Piura), se omite este paso:
+  // el contacto ya quedo espejado en la Empresa (LLAMADA 1) y no hay otro destino
+  // comercial. No es un fallo: es el flujo "solo Empresa".
+  if (sedeSinSubcuenta) {
+    resultado.operativa = { ok: true, skipped: true, reason: 'sede sin subcuenta propia: espejada solo a la Empresa' };
+    recordAuditEvent({
+      type: 'DUAL_SYNC_MACRO_ONLY_SEDE',
+      severity: 'info',
+      vTigerId: vContact.id,
+      sede: sedeId,
+      reason: 'sede sin subcuenta GHL: sincronizada solo a la Cuenta Empresa'
+    });
+  } else {
+    const sedeLocId = SEDES_GATEWAY[sedeId].ghl.locationId;
+    const fieldsSede = await resolveCustomFieldIds(sedeLocId, sedeHeaders);
+    const existenteSede = await findContactByPhone(sedeLocId, phone, sedeHeaders);
 
-  const construidoSede = buildUpsertPayloads(vContact, {
-    incluirHistorial: !existenteSede,
-    fieldIdsSede: fieldsSede,
-    ghlExistenteSede: existenteSede
-  });
+    const construidoSede = buildUpsertPayloads(vContact, {
+      incluirHistorial: !existenteSede,
+      fieldIdsSede: fieldsSede,
+      ghlExistenteSede: existenteSede
+    });
 
-  resultado.operativa = await upsertWithHistoryProtection(construidoSede.operativa, {
-    headers: sedeHeaders,
-    existente: existenteSede,
-    tagsNuevas: construidoSede.tagsNuevas
-  });
-  resultado.contactId = resultado.operativa.contactId;
-  resultado.created = resultado.operativa.created;
+    resultado.operativa = await upsertWithHistoryProtection(construidoSede.operativa, {
+      headers: sedeHeaders,
+      existente: existenteSede,
+      tagsNuevas: construidoSede.tagsNuevas
+    });
+    resultado.contactId = resultado.operativa.contactId;
+    resultado.created = resultado.operativa.created;
 
-  recordAuditEvent({
-    type: resultado.operativa.ok ? 'DUAL_SYNC_SEDE_OK' : 'DUAL_SYNC_SEDE_FAIL',
-    severity: resultado.operativa.ok ? 'info' : 'error',
-    vTigerId: vContact.id,
-    sede: sedeId,
-    locationId: sedeLocId,
-    created: resultado.operativa.created,
-    status: resultado.operativa.status,
-    error: resultado.operativa.error,
-    historialProtegido: resultado.operativa.tagsPreservadas
-  });
+    recordAuditEvent({
+      type: resultado.operativa.ok ? 'DUAL_SYNC_SEDE_OK' : 'DUAL_SYNC_SEDE_FAIL',
+      severity: resultado.operativa.ok ? 'info' : 'error',
+      vTigerId: vContact.id,
+      sede: sedeId,
+      locationId: sedeLocId,
+      created: resultado.operativa.created,
+      status: resultado.operativa.status,
+      error: resultado.operativa.error,
+      historialProtegido: resultado.operativa.tagsPreservadas
+    });
+  }
 
   // ====== PASO 3: HISTORIAL DE COMPRAS (detalle de órdenes) ======
   // Se ejecuta DESPUÉS de crear/actualizar el contacto: el historial necesita que
   // el contacto ya exista para poder encontrar su id por teléfono.
   // [INTEGRACIÓN] Sin este paso, el puente de ventas creaba el contacto pero NO
   // publicaba el detalle de sus compras: quedaba como resumen sin desglose.
+  // Para sedes sin subcuenta propia, el historial se publica SOLO a la Empresa.
   // Import dinámico para evitar dependencia circular (el módulo de historial
   // importa utilidades de este servicio).
-  if (resultado.operativa.ok) {
+  if (resultado.operativa.ok || (sedeSinSubcuenta && resultado.macro?.ok)) {
     try {
       const { syncContactOrderHistory } = await import('./vtiger_order_history_service.js');
       // Se pasan los ids que devolvió el upsert: evita depender del índice de
       // búsqueda de GHL, que tarda en reflejar un contacto recién creado.
       const historial = await syncContactOrderHistory({
         vContact,
-        contactIdSede: resultado.operativa.contactId,
+        contactIdSede: sedeSinSubcuenta ? null : resultado.operativa.contactId,
         contactIdMacro: resultado.macro?.contactId || null
       });
       resultado.historial = {
-        ok: Boolean(historial?.operativa?.nota?.ok),
+        ok: Boolean(historial?.operativa?.nota?.ok || historial?.macro?.nota?.ok),
         ordenes: historial?.ordenes || 0,
         motivo: historial?.skipped ? historial.reason : null
       };
@@ -1283,9 +1304,14 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
   // encontraba `r.ok` y contaba TODO contacto sincronizado como FALLIDO.
   // El criterio de exito es la SUBCUENTA DE LA SEDE (el destino comercial);
   // la Cuenta Empresa es enriquecimiento y su fallo no invalida el alta.
-  resultado.ok = Boolean(resultado.operativa?.ok);
+  // EXCEPCION: para sedes sin subcuenta propia, el exito lo define la EMPRESA.
+  resultado.ok = sedeSinSubcuenta
+    ? Boolean(resultado.macro?.ok)
+    : Boolean(resultado.operativa?.ok);
   resultado.skipped = false;
-  resultado.created = Boolean(resultado.operativa?.created);
+  resultado.created = sedeSinSubcuenta
+    ? Boolean(resultado.macro?.created)
+    : Boolean(resultado.operativa?.created);
   return resultado;
 }
 
