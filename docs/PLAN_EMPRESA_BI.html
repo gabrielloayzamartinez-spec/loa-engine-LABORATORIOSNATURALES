@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOA Engine - Analisis General del Desarrollo</title>
+<style>
+  :root { --azul:#1a3a5c; --acento:#2e7d9a; --gris:#f5f7fa; --borde:#d8e0e8; }
+  * { box-sizing:border-box; }
+  body { font-family:'Segoe UI',Calibri,Arial,sans-serif; line-height:1.65; color:#222;
+         max-width:1000px; margin:0 auto; padding:40px 32px; background:#fff; }
+  h1 { color:var(--azul); font-size:2em; border-bottom:3px solid var(--acento); padding-bottom:12px; margin-top:8px; }
+  h2 { color:var(--azul); font-size:1.45em; margin-top:38px; border-bottom:1px solid var(--borde); padding-bottom:6px; }
+  h3 { color:var(--acento); font-size:1.15em; margin-top:26px; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; font-size:0.92em; }
+  th { background:var(--azul); color:#fff; text-align:left; padding:9px 11px; font-weight:600; }
+  td { padding:8px 11px; border-bottom:1px solid var(--borde); vertical-align:top; }
+  tr:nth-child(even) td { background:var(--gris); }
+  code { background:var(--gris); padding:2px 6px; border-radius:4px; font-family:Consolas,monospace; font-size:0.9em; color:#b03060; }
+  pre { background:#1e2a38; color:#e8eef4; padding:14px 16px; border-radius:6px; overflow-x:auto; }
+  pre code { background:none; color:inherit; padding:0; }
+  blockquote { border-left:4px solid var(--acento); background:var(--gris); margin:16px 0; padding:12px 18px; border-radius:0 6px 6px 0; }
+  blockquote p { margin:6px 0; }
+  hr { border:none; border-top:1px solid var(--borde); margin:30px 0; }
+  ul,ol { margin:10px 0 10px 22px; }
+  li { margin:5px 0; }
+  @media print { body { padding:0; max-width:none; } h2 { page-break-after:avoid; } table { page-break-inside:avoid; } }
+</style>
+</head>
+<body>
+<h1>PLAN MAESTRO — SUBCUENTA "EMPRESA"</h1>
+<h2>Centro de Medición, Evaluación y Gestión Estructurada (Copia Fiel de vTiger)</h2>
+<blockquote><p><strong>Versión:</strong> 1.0 · <strong>Estado:</strong> sincronización de 4 sedes implementada, pendiente de deploy</p><p><strong>Objetivo prioridad 1:</strong> Empresa = espejo de vTiger para medir y decidir, sin operar.</p></blockquote>
+<hr>
+<h2>1. CONCEPTO (qué es y qué NO es la Empresa)</h2>
+<table><thead><tr><th></th><th>SÍ</th><th>NO</th></tr></thead><tbody>
+<tr><td><strong>Rol</strong></td><td>Medición, evaluación, gestión</td><td>Atención comercial</td></tr>
+<tr><td><strong>Chats</strong></td><td>CERO chats</td><td>❌ no rutea, no asigna asesores</td></tr>
+<tr><td><strong>Redes</strong></td><td>sin integración</td><td>❌ no conecta FB/IG/WhatsApp</td></tr>
+<tr><td><strong>Datos</strong></td><td>copia fiel de vTiger (4 sedes)</td><td>❌ no captura leads externos</td></tr>
+<tr><td><strong>Salida</strong></td><td>Smart Lists + Dashboard + SMS interno</td><td>❌ no automatizaciones sociales</td></tr>
+</tbody></table>
+<p><strong>Regla de oro:</strong> la Empresa <strong>solo lee</strong> el espejo que produce el motor. Es el "tablero de control" del negocio.</p>
+<hr>
+<h2>2. ESTADO DE SINCRONIZACIÓN (las 4 sedes)</h2>
+<table><thead><tr><th>Sede</th><th>Compradores en vTiger</th><th>Subcuenta propia</th><th>Espejo a Empresa</th></tr></thead><tbody>
+<tr><td><strong>PALACIOS</strong></td><td>✅ (36,629)</td><td>✅ Sí</td><td>✅ Sí</td></tr>
+<tr><td><strong>BENAVIDES</strong></td><td>✅ (5,250)</td><td>✅ Sí</td><td>✅ Sí</td></tr>
+<tr><td><strong>ROOSEVELT</strong></td><td>✅</td><td>❌ No (standby)</td><td>✅ <strong>Sí — solo a Empresa</strong></td></tr>
+<tr><td><strong>PIURA</strong></td><td>✅</td><td>❌ No (standby)</td><td>✅ <strong>Sí — solo a Empresa</strong></td></tr>
+</tbody></table>
+<p><strong>Cambio implementado</strong> (commit <code>2389901</code>): Roosevelt y Piura ya <strong>no se descartan</strong> — se espejan <strong>solo a la Empresa</strong>. El criterio de éxito se toma de la Empresa cuando la sede no tiene subcuenta propia.</p>
+<p><strong>Pendiente:</strong> desplegar en Render para que aplique.</p>
+<hr>
+<h2>3. ESTRUCTURA DE ETIQUETAS / PROCESOS (fiel a vTiger)</h2>
+<p>El motor ya inyecta etiquetas que son la <strong>copia fiel del proceso de vTiger</strong>:</p>
+<table><thead><tr><th>Etiqueta</th><th>Qué representa (de vTiger)</th></tr></thead><tbody>
+<tr><td><code>sede-palacios</code> / <code>sede-benavides</code> / <code>sede-roosevelt</code> / <code>sede-piura</code></td><td>La sede (<code>cf_3451</code>)</td></tr>
+<tr><td><code>producto-artritis</code> / <code>producto-potencia</code> / <code>producto-diabetes</code> / <code>producto-hongos</code> / <code>producto-gastro</code> / <code>producto-colageno</code></td><td>El tratamiento (<code>cf_2610</code>)</td></tr>
+<tr><td><code>compro</code> / <code>no-compro</code></td><td>Si es comprador (<code>spl_num_compras &gt; 0</code>)</td></tr>
+<tr><td><code>proveedor-click2ring</code> / <code>proveedor-ernesto</code> / <code>proveedor-in-house</code></td><td>El proveedor (<code>cf_2572</code>)</td></tr>
+<tr><td><code>con-telefono</code> / <code>sin-telefono</code></td><td>Si tiene teléfono válido</td></tr>
+<tr><td><code>mudanza-de-sede</code> / <code>doble-ingreso-publicitario</code></td><td>Procesos de reingreso/mudanza</td></tr>
+</tbody></table>
+<p><strong>Acción:</strong> estas etiquetas ya existen y el motor las escribe. Las Smart Lists pueden <strong>segmentar por ellas</strong> directamente (sin crear campos nuevos).</p>
+<hr>
+<h2>4. SMART LISTS (Paso 1 prioritario)</h2>
+<blockquote><p>GHL <strong>no tiene API pública</strong> para crearlas — se arman en la UI. Aquí está el diseño exacto, listo para copiar.</p></blockquote>
+<h3>A. Base (todo medible desde aquí)</h3>
+<table><thead><tr><th>Lista</th><th>Filtro</th></tr></thead><tbody>
+<tr><td><code>EMP · Todos los compradores</code></td><td><code>Total Compras</code> <strong>&gt;</strong> <code>0</code></td></tr>
+<tr><td><code>EMP · Sede Palacios</code></td><td><code>Sede Asignada</code> <strong>=</strong> <code>PALACIOS</code></td></tr>
+<tr><td><code>EMP · Sede Benavides</code></td><td><code>Sede Asignada</code> <strong>=</strong> <code>BENAVIDES</code></td></tr>
+<tr><td><code>EMP · Sede Roosevelt</code></td><td><code>Sede Asignada</code> <strong>=</strong> <code>ROOSEVELT</code></td></tr>
+<tr><td><code>EMP · Sede Piura</code></td><td><code>Sede Asignada</code> <strong>=</strong> <code>PIURA</code></td></tr>
+</tbody></table>
+<h3>B. 🎯 MEDICIÓN DE VENTAS DE LA QUINCENA (15 días) POR SEDE</h3>
+<p><strong>Este es el entregable clave.</strong> Una lista por sede, independiente:</p>
+<table><thead><tr><th>Lista</th><th>Filtro</th></tr></thead><tbody>
+<tr><td><code>EMP · 15na Palacios</code></td><td><code>Sede Asignada</code> <strong>=</strong> <code>PALACIOS</code> <strong>Y</strong> <code>Fecha Ultima Compra</code> <strong>en los últimos</strong> <code>15 días</code></td></tr>
+<tr><td><code>EMP · 15na Benavides</code></td><td><code>Sede Asignada</code> <strong>=</strong> <code>BENAVIDES</code> <strong>Y</strong> <code>Fecha Ultima Compra</code> <strong>en los últimos</strong> <code>15 días</code></td></tr>
+<tr><td><code>EMP · 15na Roosevelt</code></td><td><code>Sede Asignada</code> <strong>=</strong> <code>ROOSEVELT</code> <strong>Y</strong> <code>Fecha Ultima Compra</code> <strong>en los últimos</strong> <code>15 días</code></td></tr>
+<tr><td><code>EMP · 15na Piura</code></td><td><code>Sede Asignada</code> <strong>=</strong> <code>PIURA</code> <strong>Y</strong> <code>Fecha Ultima Compra</code> <strong>en los últimos</strong> <code>15 días</code></td></tr>
+</tbody></table>
+<p><em>(Opcional, más fino: también por proveedor dentro de la quincena, ej. <code>EMP · 15na Palacios C2R</code> = sede + proveedor + 15 días.)</em></p>
+<h3>C. Por comportamiento de compra</h3>
+<table><thead><tr><th>Lista</th><th>Filtro</th></tr></thead><tbody>
+<tr><td><code>EMP · Compra reciente (7 días)</code></td><td><code>Fecha Ultima Compra</code> <strong>en los últimos</strong> <code>7 días</code></td></tr>
+<tr><td><code>EMP · Recompra vencida (30-90 días)</code></td><td><code>Fecha Ultima Compra</code> <strong>entre</strong> <code>30</code> y <code>90</code> días atrás</td></tr>
+<tr><td><code>EMP · Alto valor (&gt;500)</code></td><td><code>Total Historico Gastado USD</code> <strong>&gt;</strong> <code>500</code></td></tr>
+<tr><td><code>EMP · Recompradores</code></td><td><code>Total Compras</code> <strong>&gt;</strong> <code>1</code></td></tr>
+</tbody></table>
+<h3>D. Por producto / tratamiento</h3>
+<table><thead><tr><th>Lista</th><th>Filtro</th></tr></thead><tbody>
+<tr><td><code>EMP · Producto Artritis</code></td><td><code>Tratamiento comprado</code> <strong>contiene</strong> <code>Artritis</code></td></tr>
+<tr><td><code>EMP · Producto Potencia</code></td><td><code>Tratamiento comprado</code> <strong>contiene</strong> <code>Potencia</code></td></tr>
+<tr><td><code>EMP · Producto Diabetes</code></td><td><code>Tratamiento comprado</code> <strong>contiene</strong> <code>Diabetes</code></td></tr>
+<tr><td><code>EMP · Producto Hongos</code></td><td><code>Tratamiento comprado</code> <strong>contiene</strong> <code>Hongos</code></td></tr>
+<tr><td><code>EMP · Producto Gastro</code></td><td><code>Tratamiento comprado</code> <strong>contiene</strong> <code>Gastritis</code></td></tr>
+<tr><td><code>EMP · Producto Colageno</code></td><td><code>Tratamiento comprado</code> <strong>contiene</strong> <code>Colageno</code></td></tr>
+</tbody></table>
+<h3>E. Por proveedor (evaluación de performance)</h3>
+<table><thead><tr><th>Lista</th><th>Filtro</th></tr></thead><tbody>
+<tr><td><code>EMP · Proveedor Click2Ring</code></td><td><code>Proveedor</code> <strong>=</strong> <code>CLICK2RING</code></td></tr>
+<tr><td><code>EMP · Proveedor Ernesto</code></td><td><code>Proveedor</code> <strong>=</strong> <code>ERNESTO</code></td></tr>
+<tr><td><code>EMP · Proveedor In House</code></td><td><code>Proveedor</code> <strong>=</strong> <code>IN_HOUSE</code></td></tr>
+</tbody></table>
+<h3>F. Por etiqueta (copia fiel de vTiger)</h3>
+<table><thead><tr><th>Lista</th><th>Filtro (etiqueta)</th></tr></thead><tbody>
+<tr><td><code>EMP · Compradores (etiqueta)</code></td><td>etiqueta <code>compro</code></td></tr>
+<tr><td><code>EMP · Mudanzas</code></td><td>etiqueta <code>mudanza-de-sede</code></td></tr>
+<tr><td><code>EMP · Doble ingreso publicitario</code></td><td>etiqueta <code>doble-ingreso-publicitario</code></td></tr>
+</tbody></table>
+<hr>
+<h2>5. DASHBOARD INTERNO (conectado a las listas)</h2>
+<p>En la <strong>misma subcuenta Empresa</strong> → Dashboards → Nuevo. Widgets sugeridos:</p>
+<table><thead><tr><th>Widget</th><th>Tipo</th><th>Fuente</th></tr></thead><tbody>
+<tr><td><strong>Total compradores</strong></td><td>Número</td><td>lista <code>EMP · Todos los compradores</code></td></tr>
+<tr><td><strong>Ventas de la quincena por sede</strong></td><td>Barras</td><td>listas <code>EMP · 15na *</code></td></tr>
+<tr><td><strong>Distribución por producto</strong></td><td>Pastel</td><td>listas de producto</td></tr>
+<tr><td><strong>Distribución por proveedor</strong></td><td>Pastel</td><td>listas de proveedor</td></tr>
+<tr><td><strong>Valor histórico total</strong></td><td>Número</td><td>suma de <code>Total Historico Gastado USD</code></td></tr>
+<tr><td><strong>Compras por mes</strong></td><td>Línea</td><td><code>Fecha Ultima Compra</code> agrupado por mes</td></tr>
+<tr><td><strong>Recompra (mes actual)</strong></td><td>Número</td><td><code>Total Compras</code> &gt; 1 y <code>Fecha Ultima Compra</code> en el mes</td></tr>
+</tbody></table>
+<p><strong>El dashboard lee las Smart Lists</strong> — por eso las listas van primero.</p>
+<hr>
+<h2>6. PIPELINES / WORKFLOWS (gestión empresarial)</h2>
+<p>Para la Empresa (que no opera), el pipeline es de <strong>gestión</strong>, no de venta:</p>
+<table><thead><tr><th>Pipeline/Workflow</th><th>Propósito</th></tr></thead><tbody>
+<tr><td><strong>WF: Detección de recompra vencida</strong></td><td>Cuando un cliente cumple 30 días sin comprar → dispara recordatorio (SMS interno)</td></tr>
+<tr><td><strong>WF: Alerta de alto valor</strong></td><td>Contacto con <code>Total Historico</code> &gt; 500 → etiqueta <code>vip</code> para seguimiento</td></tr>
+<tr><td><strong>WF: Mudanza de sede</strong></td><td>Ante etiqueta <code>mudanza-de-sede</code> → registro de auditoría</td></tr>
+</tbody></table>
+<blockquote><p><strong>Nota:</strong> los workflows de GHL se configuran en la UI (Automations). Aquí se definen los disparadores y condiciones, no el código.</p></blockquote>
+<hr>
+<h2>7. SMS (canal interno)</h2>
+<p>El SMS es una función <strong>nativa de GHL</strong> (no requiere código del motor):</p>
+<ul><li><strong>Configuración:</strong> Settings → Phone Numbers → SMS (o el proveedor A2P 10DLC que tengas contratado).</li><li><strong>Uso previsto:</strong> notificaciones internas de gestión (recompra vencida, alertas de alto valor), <strong>no</strong> campañas sociales.</li><li><strong>El motor no bloquea SMS:</strong> es independiente de la sincronización.</li></ul>
+<p><strong>Acción manual en GHL:</strong> activar/verificar el número SMS de la subcuenta Empresa.</p>
+<hr>
+<h2>8. LIMPIEZA DE DATOS (sin basura)</h2>
+<p>La Empresa tiene ~407,000 contactos históricos (parte anterior al motor). Plan de limpieza:</p>
+<table><thead><tr><th>Paso</th><th>Qué se limpia</th><th>Método</th></tr></thead><tbody>
+<tr><td>1</td><td>Duplicados (mismo teléfono)</td><td>Auditoría + merge por teléfono</td></tr>
+<tr><td>2</td><td>Campos viejos "vTiger X"</td><td>Ya renombrados (IDs preservados)</td></tr>
+<tr><td>3</td><td>Contactos sin dato comercial</td><td>Identificar (leads sueltos) vs compradores</td></tr>
+<tr><td>4</td><td>Valores vacíos (sede, producto, fecha)</td><td>Rellenar con el backfill</td></tr>
+</tbody></table>
+<p><strong>Pendiente:</strong> ejecutar la auditoría de duplicados (lo hago con un script cuando quieras).</p>
+<hr>
+<h2>9. CHECKLIST DE EJECUCIÓN</h2>
+<h3>Tú (manual, UI de GHL)</h3>
+<ul><li>[ ] Desplegar en Render (activa las 4 sedes + aceleración)</li><li>[ ] <strong>Desconectar FB/Instagram</strong> de la subcuenta Empresa (Settings → Integrations)</li><li>[ ] Crear las <strong>Smart Lists</strong> de la sección 4 (incluida la quincena)</li><li>[ ] Crear el <strong>Dashboard</strong> (sección 5)</li><li>[ ] Configurar <strong>SMS</strong> (sección 7)</li><li>[ ] Crear los <strong>Workflows</strong> (sección 6)</li><li>[ ] Confirmar que el campo <code>Asesor Asignado</code> existe en Empresa</li></ul>
+<h3>Yo (código)</h3>
+<ul><li>[x] Sincronizar las 4 sedes → Empresa (hecho)</li><li>[x] Contador real de progreso (hecho)</li><li>[x] Aceleración del ritmo (hecho, pendiente deploy)</li><li>[x] Guardián de cuota diaria (hecho)</li><li>[ ] Auditoría de duplicados (cuando lo pidas)</li></ul>
+<hr>
+<h2>10. RESUMEN DE LA MEDICIÓN QUINCENAL</h2>
+<p><strong>Cómo se ve:</strong> 4 listas (<code>EMP · 15na &lt;Sede&gt;</code>), una por sede, filtradas por <code>Sede Asignada</code> + <code>Fecha Ultima Compra en los últimos 15 días</code>.</p>
+<p><strong>En el dashboard:</strong> el widget "Ventas de la quincena por sede" compara las 4 barras, una por sede. <strong>Cada sede se mide de forma independiente</strong>, y el total se ve en conjunto.</p>
+<p><strong>Filtros de trabajo claros:</strong> sede → quincena → producto/proveedor → etapa. Todo anclado a las etiquetas y campos que ya escribe el motor como copia fiel de vTiger.</p>
+</body>
+</html>
