@@ -1463,10 +1463,10 @@ app.get('/api/empresa/diagnostico', async (req, res) => {
           const v = cf.find(f => f.id === id)?.value;
           return v !== undefined && v !== null && String(v).trim() !== '';
         };
-        if (tiene('vTiger Total Compras')) conCompras++;
-        if (tiene('vTiger Fecha Última Compra') || tiene('vTiger Fecha Ultima Compra')) conFechas++;
-        if (tiene('Sede Asignada')) conSede++;
-        if (tiene('Origen Lead')) conOrigen++;
+        if (tiene('Total Compras') || tiene('vTiger Total Compras')) conCompras++;
+        if (tiene('Fecha Ultima Compra') || tiene('vTiger Fecha Última Compra') || tiene('vTiger Fecha Ultima Compra')) conFechas++;
+        if (tiene('Sede Asignada') || tiene('vTiger Sede / Tienda Compra')) conSede++;
+        if (tiene('Origen Lead') || tiene('vTiger Origen Lead')) conOrigen++;
         const tags = (c.tags || []).map(t => String(t).toLowerCase());
         if (tags.includes('compro') || tags.includes('convertido') || tags.includes('cliente-vtiger')) conTagComprador++;
         if (tags.includes('no-compro')) conTagNoCompro++;
