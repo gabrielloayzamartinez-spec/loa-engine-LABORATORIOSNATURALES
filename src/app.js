@@ -25,7 +25,7 @@ import { getVtigerConfigStatus, getVtigerGateMetrics } from './services/vtigerCl
 import { readSecret } from './config/secrets.js';
 import { isCentralConfigured } from './services/dual_sync_service.js';
 import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
-import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa } from './services/empresa_data_audit.js';
+import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
 
 /**
  * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
@@ -1528,6 +1528,24 @@ app.post('/api/empresa/depurar', async (req, res) => {
   const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
   try {
     const r = await depurarDuplicadosEmpresa({ paginas, ejecutar });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * DEPURACIÓN DE CONTACTOS SIN TELÉFONO en la Cuenta Empresa.
+ * Etiqueta como 'basura-sin-telefono' (NO borra) para excluirlos de la medición.
+ * MODO SECO por defecto. Para etiquetar, ejecutar=true.
+ * @query paginas {number}
+ * @query ejecutar {boolean}
+ */
+app.post('/api/empresa/depurar-sin-telefono', async (req, res) => {
+  const paginas = parseInt(req.query.paginas || '5', 10);
+  const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
+  try {
+    const r = await depurarSinTelefonoEmpresa({ paginas, ejecutar });
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
