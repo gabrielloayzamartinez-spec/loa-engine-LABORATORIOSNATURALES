@@ -201,6 +201,26 @@ export function resolveSedeContext({ locationId = '', pageId = '', sede = '' } =
         return conf;
       }
     }
+    // [FAIL-CLOSED] Un pageId que no pertenece a ninguna sede NO debe caer por
+    // accidente en PALACIOS. En modo estricto se rechaza (UNRESOLVED): un chat de
+    // una página desconocida no se enruta a ninguna sede. Antes este caso caía al
+    // fallback de PALACIOS y un mensaje huérfano podía entrar a la sede equivocada.
+    if (strict) {
+      return {
+        sedeId: 'UNRESOLVED',
+        name: `Pagina no registrada (${pageId})`,
+        isUnresolved: true,
+        isActive: false,
+        isPaused: false,
+        isConfigured: false,
+        ghl: { apiKey: '', locationId: '' },
+        meta: { appId: '', appSecret: '', accessToken: '', adAccountIds: [], adAccountId: '' },
+        pageIds: [],
+        pipeline: null,
+        customFields: null,
+        users: {}
+      };
+    }
   }
 
   // 3. Por Nombre de Sede

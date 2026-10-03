@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { buildSanitizedCommercialFields, COMMERCIAL_FIELD_IDS_BENAVIDES } from '../domain/commercial_engine.js';
+import { resolveSedeContext } from '../config/sedes_gateway.js';
 
 console.log('[TEST] Iniciando pruebas de Aislamiento Estricto de Sede (Sede-Lock & Sede-Shield)...');
 
@@ -84,5 +85,15 @@ assert.strictEqual(purgedSede?.field_value, '', 'ERROR: No se purgó la sede aje
 assert.strictEqual(purgedContactNo?.field_value, '', 'ERROR: No se purgó el contact_no ajeno');
 assert.strictEqual(purgedIdVT?.field_value, '', 'ERROR: No se purgó el id_cliente ajeno');
 console.log('[PASS] Test 4 Pasado: Campos de Palacios purgados a vacío en Benavides.');
+
+// Test 5: pageId desconocido NO cae a PALACIOS (fail-closed)
+console.log('Test 5: pageId desconocido se rechaza (no cae a PALACIOS)...');
+const ctxDesconocido = resolveSedeContext({ pageId: '999999999999999' });
+assert.strictEqual(ctxDesconocido.sedeId, 'UNRESOLVED', 'ERROR: un pageId desconocido debe resolver a UNRESOLVED, no a PALACIOS');
+assert.strictEqual(ctxDesconocido.isUnresolved, true, 'ERROR: el contexto desconocido debe marcarse isUnresolved');
+
+const ctxConocido = resolveSedeContext({ pageId: '566501466542620' });
+assert.strictEqual(ctxConocido.sedeId, 'PALACIOS', 'ERROR: un pageId conocido de Palacios debe resolver a PALACIOS');
+console.log('[PASS] Test 5 Pasado: pageId desconocido se rechaza (fail-closed).');
 
 console.log('\n[SUCCESS] TODAS LAS PRUEBAS DE AISLAMIENTO DE SEDE (SEDE-LOCK / SEDE-SHIELD) PASARON AL 100%.');
