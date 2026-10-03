@@ -194,3 +194,87 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
   return reporte;
 }
 
+/**
+ * DEPURACIÓN DE CONTACTOS SIN TELÉFONO (basura de gestiones anteriores).
+ *
+ * Un contacto sin teléfono NO se puede vincular a vTiger (el teléfono es la única
+ * llave), así que para la Empresa (copia fiel) es basura: no aporta a la medición.
+ * En vez de borrarlo de golpe (irreversible), se lo ETIQUETA como
+ * `basura-sin-telefono` para que quede identificado y excluible de las Smart Lists.
+ * El borrado real es una decisión posterior del operador.
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.paginas=5]
+ * @param {boolean} [opts.ejecutar=false] true para ETIQUETAR (no borra)
+ * @returns {Promise<object>}
+ */
+export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false } = {}) {
+  const locId = readSecret('GHL_LOCATION_ID_CENTRAL');
+  const apiKey = readSecret('GHL_API_KEY_CENTRAL');
+  if (!locId || !apiKey) {
+    return { ok: false, reason: 'Cuenta Empresa no configurada' };
+  }
+
+  const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', 'Content-Type': 'application/json', Accept: 'application/json' };
+  const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 5, 1), 50);
+
+  const sinTelefono = [];
+  let escaneados = 0;
+  let url = `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100`;
+
+  for (let p = 0; p < limitePaginas; p++) {
+    const r = await ghlFetch(url, { headers }, 1, 'Depurar-SinTel');
+    if (r.status !== 200) return { ok: false, reason: `HTTP ${r.status}`, escaneados };
+    const d = await r.json();
+    const contactos = d?.contacts || [];
+    if (contactos.length === 0) break;
+    for (const c of contactos) {
+      escaneados++;
+      if (!normalizarTelefonoAuditoria(c.phone)) sinTelefono.push(c.id);
+    }
+    url = d?.meta?.nextPageUrl || null;
+    if (!url) break;
+  }
+
+  let etiquetados = 0;
+  const fallos = [];
+  if (ejecutar && sinTelefono.length > 0) {
+    for (const id of sinTelefono) {
+      try {
+        const r = await ghlFetch(
+          `https://services.leadconnectorhq.com/contacts/${id}/tags`,
+          { method: 'POST', headers, body: JSON.stringify({ tags: ['basura-sin-telefono'] }) },
+          1, 'Depurar-SinTel'
+        );
+        if (r.status === 200 || r.status === 201) etiquetados++;
+        else fallos.push({ id, status: r.status });
+      } catch (e) {
+        fallos.push({ id, error: String(e.message).slice(0, 80) });
+      }
+    }
+  }
+
+  const reporte = {
+    ok: true,
+    modo: ejecutar ? 'EJECUTADO (etiquetados, NO borrados)' : 'MODO SECO (solo reporte)',
+    escaneados,
+    sinTelefono: sinTelefono.length,
+    etiquetados,
+    fallos: fallos.length,
+    etiqueta: 'basura-sin-telefono'
+  };
+
+  recordAuditEvent({
+    type: 'EMPRESA_DEPURACION_SIN_TELEFONO',
+    severity: sinTelefono.length > 0 ? 'warn' : 'info',
+    modo: reporte.modo,
+    escaneados,
+    sinTelefono: sinTelefono.length,
+    etiquetados,
+    fallos: fallos.length
+  });
+
+  return reporte;
+}
+
+
