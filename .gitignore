@@ -67,3 +67,7 @@ logs/
 
 # Temporales de Office/Word (~$archivo)
 ~\$*
+
+# Carpetas auxiliares de Word al guardar HTML (tema/archivos)
+*_archivos/
+*_files/
