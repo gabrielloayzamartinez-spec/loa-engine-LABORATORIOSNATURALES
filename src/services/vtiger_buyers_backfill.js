@@ -225,23 +225,49 @@ export async function runBuyersBackfill({
 
       const conteoSede = { sede, leidos: contactos.length, creados: 0, actualizados: 0, descartados: 0, fallidos: 0 };
 
-      for (const vContact of contactos) {
+      // ======================================================================
+      // [PARALELIZACION ACOTADA — 100% DE EXITO]
+      //
+      // Antes los contactos se procesaban UNO a uno (secuencial): cada contacto
+      // esperaba ~60 s (la mayor parte por vTiger). Eso daba ~60 contactos/hora.
+      //
+      // Ahora se procesan en GRUPOS de `concurrencia` contactos a la vez. La
+      // ganancia viene de que vTiger (el cuello) atiende varias consultas en
+      // paralelo dentro del gate (VTIGER_MAX_CONCURRENT). El manejo de errores es
+      // POR CONTACTO: si uno falla, se cuenta y se sigue con el resto — el lote
+      // nunca se rompe, y el 100% de exito se mide contactos-ok sobre totales.
+      //
+      // Concurrencia por defecto 3 (configurable con VTIGER_BACKFILL_CONCURRENCY):
+      //   - 1 = secuencial (el comportamiento anterior)
+      //   - 3 = ~3x mas rapido sin saturar vTiger
+      //   - 5 = agresivo (solo si vTiger aguanta, monitorear 190)
+      // ======================================================================
+      const CONCURRENCIA = Math.min(Math.max(parseInt(process.env.VTIGER_BACKFILL_CONCURRENCY || '3', 10) || 3, 1), 8);
+
+      const procesarUno = async (vContact) => {
         try {
           const r = await syncVtigerContactDual(vContact);
-          if (r.skipped) conteoSede.descartados++;
-          else if (r.ok) {
-            if (r.created) conteoSede.creados++;
-            else conteoSede.actualizados++;
-          } else conteoSede.fallidos++;
+          return { ok: r.ok, skipped: r.skipped, created: r.created, fallido: false };
         } catch (err) {
-          conteoSede.fallidos++;
           recordAuditEvent({ type: 'BUYERS_BACKFILL_CONTACT_FAIL', severity: 'warn', sede, vTigerId: vContact?.id, message: err.message });
+          return { ok: false, skipped: false, created: false, fallido: true };
+        }
+      };
+
+      for (let i = 0; i < contactos.length; i += CONCURRENCIA) {
+        const grupo = contactos.slice(i, i + CONCURRENCIA);
+        const resultados = await Promise.all(grupo.map(procesarUno));
+        for (const r of resultados) {
+          if (r.fallido) conteoSede.fallidos++;
+          else if (r.skipped) conteoSede.descartados++;
+          else if (r.ok) { if (r.created) conteoSede.creados++; else conteoSede.actualizados++; }
+          else conteoSede.fallidos++;
         }
         if (pausaMs > 0) await new Promise(res => setTimeout(res, pausaMs));
       }
 
       const nuevoUltimoId = contactos[contactos.length - 1]?.id || ultimoId;
-      console.log(`[Buyers Backfill] [${sede}] ${JSON.stringify(conteoSede)} (cursor id -> ${nuevoUltimoId}, total leidos ${offset + contactos.length})`);
+      console.log(`[Buyers Backfill] [${sede}] ${JSON.stringify(conteoSede)} (cursor id -> ${nuevoUltimoId}, total leidos ${offset + contactos.length}, concurrencia ${CONCURRENCIA})`);
 
       return {
         sede,
