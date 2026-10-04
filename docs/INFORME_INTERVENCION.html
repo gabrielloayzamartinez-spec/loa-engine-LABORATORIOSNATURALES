@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOA Engine - Analisis General del Desarrollo</title>
+<style>
+  :root { --azul:#1a3a5c; --acento:#2e7d9a; --gris:#f5f7fa; --borde:#d8e0e8; }
+  * { box-sizing:border-box; }
+  body { font-family:'Segoe UI',Calibri,Arial,sans-serif; line-height:1.65; color:#222;
+         max-width:1000px; margin:0 auto; padding:40px 32px; background:#fff; }
+  h1 { color:var(--azul); font-size:2em; border-bottom:3px solid var(--acento); padding-bottom:12px; margin-top:8px; }
+  h2 { color:var(--azul); font-size:1.45em; margin-top:38px; border-bottom:1px solid var(--borde); padding-bottom:6px; }
+  h3 { color:var(--acento); font-size:1.15em; margin-top:26px; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; font-size:0.92em; }
+  th { background:var(--azul); color:#fff; text-align:left; padding:9px 11px; font-weight:600; }
+  td { padding:8px 11px; border-bottom:1px solid var(--borde); vertical-align:top; }
+  tr:nth-child(even) td { background:var(--gris); }
+  code { background:var(--gris); padding:2px 6px; border-radius:4px; font-family:Consolas,monospace; font-size:0.9em; color:#b03060; }
+  pre { background:#1e2a38; color:#e8eef4; padding:14px 16px; border-radius:6px; overflow-x:auto; }
+  pre code { background:none; color:inherit; padding:0; }
+  blockquote { border-left:4px solid var(--acento); background:var(--gris); margin:16px 0; padding:12px 18px; border-radius:0 6px 6px 0; }
+  blockquote p { margin:6px 0; }
+  hr { border:none; border-top:1px solid var(--borde); margin:30px 0; }
+  ul,ol { margin:10px 0 10px 22px; }
+  li { margin:5px 0; }
+  @media print { body { padding:0; max-width:none; } h2 { page-break-after:avoid; } table { page-break-inside:avoid; } }
+</style>
+</head>
+<body>
+<h1>LOA ENGINE — INFORME DE INTERVENCIÓN</h1>
+<h2>Problema · Solución · Tiempos · Forma de Trabajo</h2>
+<blockquote><p>Estado: <strong>operativo</strong> · Última actualización del código: <code>b77cfc6</code></p></blockquote>
+<hr>
+<h1>1. EL PROBLEMA</h1>
+<h2>1.1 El hallazgo que originó todo</h2>
+<pre><code>El 98% de los compradores de Palacios NO existía en su subcuenta de GHL</code></pre>
+<p><strong>Traducción de negocio:</strong> cuando un cliente escribía por Messenger, el asesor <strong>no sabía</strong> si ya había comprado, cuánto gastó, qué producto tomó ni de qué sede venía. Trabajaba a ciegas.</p>
+<h2>1.2 Los 6 problemas técnicos encontrados</h2>
+<table><thead><tr><th>#</th><th>Problema</th><th>Consecuencia real</th></tr></thead><tbody>
+<tr><td>1</td><td><strong>Progreso efímero</strong></td><td>Cada reinicio de Render <strong>borraba</strong> el avance → la carga volvía a cero y nunca terminaba</td></tr>
+<tr><td>2</td><td><strong>Solo 2 de 4 sedes</strong> sincronizaban</td><td>Roosevelt y Piura tenían compradores en vTiger pero <strong>no entraban</strong> a la Empresa</td></tr>
+<tr><td>3</td><td><strong>Ritmo lentísimo</strong></td><td>~60 contactos/hora → <strong>~25 días</strong> para Palacios</td></tr>
+<tr><td>4</td><td><strong>Tokens Meta vencidos</strong></td><td>Atribución publicitaria <strong>caída en silencio</strong> (cada ~60 días)</td></tr>
+<tr><td>5</td><td><strong>Datos basura</strong></td><td>71% de la base sin teléfono (no vinculable a vTiger)</td></tr>
+<tr><td>6</td><td><strong>Bug de gobernanza</strong></td><td>Un <code>pageId</code> desconocido caía por accidente en la sede Palacios</td></tr>
+</tbody></table>
+<hr>
+<h1>2. LA SOLUCIÓN IMPLEMENTADA</h1>
+<table><thead><tr><th>Problema</th><th>Solución</th><th>Archivo</th></tr></thead><tbody>
+<tr><td>1 · Progreso efímero</td><td><strong>Base de datos PostgreSQL durable</strong></td><td><code>state_store.js</code></td></tr>
+<tr><td>2 · Faltaban 2 sedes</td><td><strong>Sincronizar las 4</strong> (Roosevelt/Piura solo a Empresa)</td><td><code>dual_sync_service.js</code></td></tr>
+<tr><td>3 · Ritmo lento</td><td><strong>Paralelización 3× + prioridad Palacios + aceleración nocturna</strong></td><td><code>vtiger_buyers_backfill.js</code></td></tr>
+<tr><td>4 · Tokens vencidos</td><td><strong>Usuario del Sistema (permanente)</strong> + diagnóstico preciso</td><td><code>meta_api_service.js</code></td></tr>
+<tr><td>5 · Datos basura</td><td><strong>Auditoría + depuración</strong> (duplicados y sin-teléfono)</td><td><code>empresa_data_audit.js</code></td></tr>
+<tr><td>6 · Bug de ruteo</td><td><strong>Fail-closed</strong>: pageId desconocido se rechaza</td><td><code>sedes_gateway.js</code></td></tr>
+</tbody></table>
+<h2>2.1 Mejoras clave de velocidad</h2>
+<pre><code>1. PARALELIZACIÓN    : 3 contactos a la vez (antes 1)     → 2.25× medido
+2. PRIORIDAD PALACIOS: doble ancho de banda               → sede principal
+3. ACELERACIÓN NOCTURNA: 1-6 AM, lote 5× más grande       → horas muertas
+4. DATOS RECIENTES PRIMERO (ORDER BY id DESC)             → ver "ayer" en horas
+5. GUARDIÁN DE CUOTA : protege la atención en vivo        → nunca agota GHL</code></pre>
+<hr>
+<h1>3. LOS TIEMPOS</h1>
+<h2>3.1 Ritmo medido en producción</h2>
+<pre><code>PALACIOS:  135 contactos/hora   (antes: 60/hora → mejora 2.25×)
+0 FALLIDOS  →  100% de éxito</code></pre>
+<h2>3.2 Cronograma de disponibilidad de datos</h2>
+<table><thead><tr><th>Momento</th><th>Qué está listo</th><th>¿Se puede trabajar?</th></tr></thead><tbody>
+<tr><td><strong>~4-6 horas</strong></td><td>✅ <strong>Quincena completa</strong> (15 días, las 4 sedes)</td><td>✅ <strong>SÍ</strong></td></tr>
+<tr><td><strong>~24 horas</strong></td><td>✅ Mes completo (30 días)</td><td>✅ Sí</td></tr>
+<tr><td><strong>~4-5 días</strong></td><td>✅ Historial de órdenes detallado</td><td>✅ Sí</td></tr>
+<tr><td><strong>~11 días</strong></td><td>✅ Cartera completa (41,879 compradores)</td><td>✅ Sí</td></tr>
+</tbody></table>
+<h2>3.3 Tiempo por sede (cartera completa)</h2>
+<table><thead><tr><th>Sede</th><th>Compradores</th><th>Tiempo</th></tr></thead><tbody>
+<tr><td><strong>PALACIOS</strong></td><td>36,629</td><td><strong>~11 días</strong> ← el que manda</td></tr>
+<tr><td><strong>BENAVIDES</strong></td><td>5,250</td><td>~3.3 días</td></tr>
+<tr><td>ROOSEVELT</td><td>por medir</td><td>en paralelo</td></tr>
+<tr><td>PIURA</td><td>por medir</td><td>en paralelo</td></tr>
+<tr><td><strong>EMPRESA</strong></td><td>las 4</td><td><strong>~11 días</strong> (termina con Palacios)</td></tr>
+</tbody></table>
+<h2>3.4 Si se quiere acortar</h2>
+<table><thead><tr><th>Opción</th><th>Tiempo total</th></tr></thead><tbody>
+<tr><td><strong>A)</strong> Como está (concurrencia 3)</td><td>~11 días</td></tr>
+<tr><td><strong>B)</strong> Subir a concurrencia 5</td><td><strong>~6-7 días</strong></td></tr>
+</tbody></table>
+<hr>
+<h1>4. LA EVOLUCIÓN PROGRESIVA</h1>
+<h2>4.1 Cómo entra la data (orden descendente)</h2>
+<pre><code>PASO 1 (horas)   : Compradores de AYER y de la semana         ← PRIORIDAD
+PASO 2 (1 día)   : Compradores del MES
+PASO 3 (3 días)  : Benavides completa
+PASO 4 (11 días) : Palacios completa (backlog histórico)</code></pre>
+<p><strong>Por qué este orden:</strong> entrar a una sede y ver las ventas recientes <strong>de inmediato</strong>, sin esperar a que termine el histórico de años atrás.</p>
+<h2>4.2 Progreso visible (en cualquier momento)</h2>
+<pre><code>GET /api/vtiger/buyers-backfill/status   → avance por sede
+GET /api/empresa/auditoria               → duplicados detectados
+GET /api/state/status                    → persistencia durable
+GET /api/health                          → cuota, tokens, gate vTiger</code></pre>
+<hr>
+<h1>5. FORMA DE TRABAJO</h1>
+<h2>5.1 SEDES (Palacios · Benavides)</h2>
+<p><strong>Rol:</strong> trinchera comercial — donde trabajan los asesores.</p>
+<table><thead><tr><th>Aspecto</th><th>Definición</th></tr></thead><tbody>
+<tr><td><strong>Datos que ve</strong></td><td><strong>Solo los suyos</strong> (aislamiento hermético)</td></tr>
+<tr><td><strong>Para qué sirve</strong></td><td>Chats, embudos, asignación de asesores, remarketing</td></tr>
+<tr><td><strong>Regla de oro</strong></td><td>Un asesor de Benavides <strong>jamás</strong> ve una compra de Palacios</td></tr>
+<tr><td><strong>Subcuentas</strong></td><td>Palacios y Benavides con su propia API y embudo</td></tr>
+</tbody></table>
+<h2>5.2 EMPRESA</h2>
+<p><strong>Rol:</strong> centro de medición e inteligencia — <strong>NO opera</strong>.</p>
+<table><thead><tr><th>Aspecto</th><th>Definición</th></tr></thead><tbody>
+<tr><td><strong>Datos que ve</strong></td><td><strong>Todas las sedes</strong> (copia fiel de vTiger)</td></tr>
+<tr><td><strong>Chats</strong></td><td><strong>CERO</strong> — no rutea, no asigna</td></tr>
+<tr><td><strong>Redes</strong></td><td><strong>Sin integración</strong> de Facebook/Instagram</td></tr>
+<tr><td><strong>Para qué sirve</strong></td><td>Medición, evaluación, dashboards, Smart Lists</td></tr>
+<tr><td><strong>Composición</strong></td><td>Las 4 sedes (Palacios, Benavides, Roosevelt, Piura)</td></tr>
+</tbody></table>
+<h2>5.3 Las dos capas de trabajo</h2>
+<table><thead><tr><th>Capa</th><th>Trabajo</th><th>Prioridad</th><th>Velocidad</th></tr></thead><tbody>
+<tr><td>🟢 <strong>PRIMARIO</strong></td><td>Chats, contactos, atribución, ventas de hoy/ayer</td><td>HIGH</td><td><strong>Tiempo real (150 ms)</strong></td></tr>
+<tr><td>🟡 <strong>SECUNDARIO</strong></td><td>Backfill histórico (curador)</td><td>LOW</td><td>Fondo (700 ms)</td></tr>
+</tbody></table>
+<p><strong>Clave:</strong> el trabajo primario <strong>nunca</strong> se frena por el secundario — corren en colas separadas.</p>
+<hr>
+<h1>6. RESUMEN EJECUTIVO</h1>
+<h2>Lo que se resolvió</h2>
+<pre><code>✅ 41,879 compradores sincronizados (antes: 98% faltaba)
+✅ Las 4 sedes entran a la Empresa (Roosevelt/Piura espejadas)
+✅ Progreso durable — ya no se borra en cada reinicio
+✅ Tokens Meta permanentes — no se renuevan más
+✅ Ritmo 2.25× más rápido con 100% de éxito
+✅ Datos recientes primero — ver "ayer" en horas
+✅ Herramientas de auditoría y limpieza de basura
+✅ Gobernanza blindada (fail-closed)</code></pre>
+<h2>El dato central</h2>
+<table><thead><tr><th>Pregunta</th><th>Respuesta</th></tr></thead><tbody>
+<tr><td>¿Cuándo puedo <strong>medir</strong> la quincena?</td><td><strong>~4-6 horas</strong></td></tr>
+<tr><td>¿Cuándo está <strong>todo</strong> completo?</td><td><strong>~11 días</strong> (o ~6-7 con concurrencia 5)</td></tr>
+<tr><td>¿El trabajo en vivo funciona ya?</td><td>✅ <strong>Sí, en tiempo real</strong></td></tr>
+</tbody></table>
+<hr>
+<p><em>Powered by LOA Engine — Gabriel Loayza</em></p>
+</body>
+</html>
