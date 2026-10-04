@@ -31,7 +31,7 @@ import { ghlFetch } from '../utils/ghl_http_client.js';
 import { tokenBucketQueue } from './token_bucket_queue.js';
 
 const backfillStore = getStateStore('buyers_backfill');
-const CURSOR_KEY = 'cursor_v1';
+const CURSOR_KEY = 'cursor_v2_desc';
 
 /**
  * [CONTADOR REAL DE CONTACTOS]
@@ -173,18 +173,25 @@ export async function runBuyersBackfill({
       const offset = cursorSede.offset || 0;
 
       // ======================================================================
-      // PAGINACION POR KEYSET, NO POR OFFSET.
-      // `WHERE id > ultimoId ORDER BY id LIMIT n`: el motor salta directo por el
-      // indice y el costo es CONSTANTE sin importar la profundidad del recorrido
-      // (medido: 1242 ms la pagina 1 y ~250 ms las siguientes).
-      // Compatibilidad: si el cursor viejo no tiene `ultimoId`, se hace UNA pagina
-      // por offset para no perder el avance y se migra al nuevo formato.
+      // PAGINACION POR KEYSET, NO POR OFFSET — EN ORDEN DESCENDENTE.
+      //
+      // [PRIORIDAD: DATOS RECIENTES PRIMERO] Se recorre `ORDER BY id DESC`: los
+      // compradores MAS RECIENTES (los de ayer, los de esta semana) se sincronizan
+      // PRIMERO, de modo que al entrar a una sede se ven las ventas recientes de
+      // inmediato. El backlog historico (compradores viejos) se rellena despues.
+      //
+      // Keyset descendente: `WHERE id < ultimoId ORDER BY id DESC LIMIT n`.
+      // El cursor vivo es `cursor_v2_desc` (clave distinta): el cursor viejo
+      // ascendente se abandona, asi que no hay mezcla de direcciones.
       // ======================================================================
+      // [PRIORIDAD PALACIOS] La sede principal (mayor cartera) recibe el DOBLE de
+      // ancho de banda por ciclo: se sincroniza mas rapido que el resto, respetando
+      // el tope de 150 contactos por lote que impone vTiger (100-row cap).
+      const limiteSede = sede === 'PALACIOS' ? Math.min(limite * 2, 150) : limite;
       const filtroCursor = ultimoId
-        ? ` AND id > '${sanitizeForVtigerQuery(String(ultimoId), 20)}'`
+        ? ` AND id < '${sanitizeForVtigerQuery(String(ultimoId), 20)}'`
         : '';
-      const paginacion = ultimoId ? '' : `${offset}, `;
-      const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeClause(sede)}${filtroCursor} ORDER BY id LIMIT ${paginacion}${limite};`;
+      const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeClause(sede)}${filtroCursor} ORDER BY id DESC LIMIT ${limiteSede};`;
 
       let contactos = [];
       try {
@@ -248,9 +255,9 @@ export async function runBuyersBackfill({
           offset: offset + contactos.length,
           ultimaEjecucion: new Date().toISOString(),
           ultimoLote: contactos.length,
-          completo: contactos.length < limite
+          completo: contactos.length < limiteSede
         },
-        completo: contactos.length < limite
+        completo: contactos.length < limiteSede
       };
     }));
 

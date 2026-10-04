@@ -1744,20 +1744,28 @@ export function registerBackgroundSchedulers() {
 
   // [BACKFILL DE COMPRADORES] Cierra la brecha historica de la cartera.
   //
-  // [RITMO MEDIDO Y RECALIBRADO] Antes: 2 lotes de 20 por sede cada 15 min = 160
-  // contactos/hora. Medido en produccion: ~80/hora reales, es decir ~19 DIAS para
-  // los 36,629 compradores de Palacios. La cola de GHL a 700 ms permite ~857
-  // contactos/hora por sede (se usaba menos del 10% de la capacidad), asi que el
-  // limite NO era la API: era la configuracion.
+  // [PRIORIDAD: DATOS RECIENTES PRIMERO] El backfill recorre `ORDER BY id DESC`
+  // (compradores mas recientes primero), de modo que al entrar a una sede se ven
+  // las ventas de ayer y de esta semana de inmediato. El backlog viejo se rellena
+  // despues.
   //
-  // Ahora: 2 lotes de 50 por sede cada 10 min = 600 contactos/hora por sede.
-  //   - Cuota de rafaga: 600 x ~6 llamadas = 3,600/h = 1.0 req/s = 70% de la cola (700 ms)
+  // [ACELERACION NOCTURNA] En madrugada (1-6 AM hora Nueva York, horas muertas) el
+  // lote sube de 50x2 a 120x4 por ciclo: ~5x mas rapido mientras no hay atencion
+  // en vivo compitiendo por la cuota. De dia se mantiene conservador para no
+  // estorbar a los asesores.
+  //
   //   - Cuota diaria: 14,400 contactos/dia x 6 = 86,400 llamadas = 43% del limite
   //     de 200,000/dia por location. DEJA MARGEN para la atencion en vivo.
-  //   - El Guardian de Cuota (token_bucket_queue) ademas pausa el ciclo si la
-  //     subcuenta se acerca a su techo diario.
+  //   - El Guardian de Cuota (token_bucket_queue) pausa el ciclo si la subcuenta
+  //     se acerca a su techo diario.
   //
-  // El cursor persiste en el StateStore: cada ciclo AVANZA en lugar de reprocesar.
+  // El cursor persiste en StateStore (Postgres): cada ciclo AVANZA, sobrevive a
+  // redeploys.
+  const esMadrugadaEst = () => {
+    const hora = new Date().toLocaleString('en-US', { hour: '2-digit', hour12: false, timeZone: 'America/New_York' });
+    const h = parseInt(hora, 10);
+    return h >= 1 && h < 6; // 1 AM - 6 AM (horas muertas)
+  };
   let buyersBackfillCorriendo = false;
   timers.push(setInterval(() => {
     if (buyersBackfillCorriendo) {
@@ -1765,10 +1773,15 @@ export function registerBackgroundSchedulers() {
       return;
     }
     buyersBackfillCorriendo = true;
+    const madrugada = esMadrugadaEst();
+    const tamano = madrugada ? 120 : 50;
+    const lotes = madrugada ? 4 : 2;
+    const pausa = madrugada ? 100 : 200;
+    if (madrugada) console.log('[Buyers Backfill] [MADRUGADA] Aceleracion nocturna activa: lote ' + tamano + ' x ' + lotes + ' lotes.');
     getBuyersBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // cartera ya recorrida por completo
-        return runBuyersBackfill({ tamanoLote: 50, maxLotes: 2, pausaMs: 200 });
+        return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
       .finally(() => { buyersBackfillCorriendo = false; });
