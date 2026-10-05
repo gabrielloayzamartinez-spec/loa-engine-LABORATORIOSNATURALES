@@ -1321,17 +1321,23 @@ app.get('/api/sync/estado', async (req, res) => {
   try {
     const estado = await getBuyersBackfillStatus();
 
-    // Configuracion de cada sede: subcuenta propia (Palacios/Benavides) o solo
-    // espejo a Empresa (Roosevelt/Piura pendientes de crear).
+    // Configuracion de cada sede: subcuenta propia o solo espejo a Empresa.
+    // [CONTEO REAL EN GHL] Se consulta el total de contactos de cada subcuenta: es
+    // la unica prueba directa de que el sync esta escribiendo donde debe.
     const sedes = {};
     for (const [sede, cfg] of Object.entries(SEDES_GATEWAY || {})) {
       if (!COMPRADORES_POR_SEDE[sede]) continue; // solo las 4 sedes de vTiger
       const s = estado.porSede?.[sede] || {};
+      let contactosEnGhl = null;
+      if (cfg?.ghl?.locationId) {
+        try { contactosEnGhl = await contarContactosGhl(cfg.ghl.locationId); } catch { contactosEnGhl = null; }
+      }
       sedes[sede] = {
         compradoresTotal: COMPRADORES_POR_SEDE[sede],
         procesados: s.procesados ?? 0,
         pendientes: s.pendientes ?? COMPRADORES_POR_SEDE[sede],
         pct: s.pct ?? 0,
+        contactosEnGhl,
         subcuenta: cfg?.ghl?.locationId ? 'CONFIGURADA' : 'PENDIENTE CREAR',
         espejoEmpresa: true // todas las sedes espejan a la Empresa (BI)
       };
