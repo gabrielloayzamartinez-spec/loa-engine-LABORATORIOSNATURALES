@@ -1435,6 +1435,7 @@ app.post('/api/sedes/clonar-campos', async (req, res) => {
 
       let creados = 0, existentes = 0, fallidos = 0;
       const nuevos = [];
+      const errores = [];
       for (const campo of camposRef) {
         const clave = String(campo.name).trim().toLowerCase();
         if (yaExiste.has(clave)) { existentes++; continue; }
@@ -1445,10 +1446,16 @@ app.post('/api/sedes/clonar-campos', async (req, res) => {
             method: 'POST', headers: cabeceras(cfg.ghl.apiKey), body: JSON.stringify(payload)
           }, 1, 'ClonarCampos');
           if (r.status === 200 || r.status === 201) { creados++; nuevos.push(campo.name); }
-          else { fallidos++; }
-        } catch { fallidos++; }
+          else {
+            fallidos++;
+            // Se guarda el motivo real de GHL: sin esto, un fallo persistente es invisible.
+            let motivo = `HTTP ${r.status}`;
+            try { const d = await r.json(); motivo = d?.message || d?.error || JSON.stringify(d).slice(0, 160); } catch { /* sin cuerpo */ }
+            errores.push({ nombre: campo.name, dataType: campo.dataType, motivo });
+          }
+        } catch (e) { fallidos++; errores.push({ nombre: campo.name, dataType: campo.dataType, motivo: e.message }); }
       }
-      resultado[sedeId] = { estado: 'OK', existentes, creados, fallidos, nuevos };
+      resultado[sedeId] = { estado: 'OK', existentes, creados, fallidos, nuevos, errores };
       recordAuditEvent({
         type: 'SEDE_CAMPOS_CLONADOS', severity: 'info', sede: sedeId,
         referencia: referenciaId, creados, existentes, fallidos
