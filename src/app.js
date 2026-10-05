@@ -1881,10 +1881,14 @@ app.post('/api/empresa/depurar', async (req, res) => {
  * @query ejecutar {boolean}
  */
 app.post('/api/empresa/depurar-sin-telefono', async (req, res) => {
-  const paginas = parseInt(req.query.paginas || '5', 10);
+  const paginas = parseInt(req.query.paginas || '50', 10);
   const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
+  const borrar = String(req.query.borrar || '').toLowerCase() === 'true';
+  if (borrar && ejecutar) {
+    return res.status(400).json({ ok: false, error: 'Usa O ejecutar (etiquetar) O borrar (eliminar), no ambos.' });
+  }
   try {
-    const r = await depurarSinTelefonoEmpresa({ paginas, ejecutar });
+    const r = await depurarSinTelefonoEmpresa({ paginas, ejecutar, borrar });
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
