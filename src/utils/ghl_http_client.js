@@ -136,7 +136,29 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
     // su PROPIO cubo. Antes todas las sedes compartian una sola cola global y se
     // serializaban entre si, usando menos del 10% del limite de GHL. La cuota de
     // GHL es "per app per resource": cada location tiene su presupuesto aparte.
-    const res = await tokenBucketQueue.enqueue(() => fetch(url, options), priority, subaccount);
+    //
+    // [TIMEOUT DURO — CAUSA RAIZ DE LOS ESTANCAMIENTOS]
+    // Este `fetch` NO tenia timeout: una llamada que nunca respondia colgaba el
+    // ciclo completo del scheduler, el `.finally()` que libera la guarda no se
+    // ejecutaba y el trabajo MORIA EN SILENCIO (caso real: el backfill de
+    // compradores estuvo ~30 h detenido, y los schedulers de ordenes y de ventas
+    // tenian el mismo defecto).
+    //
+    // Con AbortController NINGUNA llamada puede pasar del tope: se aborta, el
+    // `catch` la trata como error transitorio y reintenta, y el ciclo SIEMPRE
+    // termina. Es la proteccion en el origen, no solo el rescate posterior.
+    //
+    // Tope configurable con GHL_HTTP_TIMEOUT_MS (default 30 s; GHL normal responde
+    // en menos de 1 s, asi que 30 s ya es holgado).
+    const GHL_HTTP_TIMEOUT_MS = Math.min(Math.max(parseInt(process.env.GHL_HTTP_TIMEOUT_MS || '30000', 10) || 30000, 5000), 120000);
+    const res = await tokenBucketQueue.enqueue(() => {
+      const controlador = new AbortController();
+      const temporizador = setTimeout(() => {
+        controlador.abort(new Error(`GHL_HTTP_TIMEOUT_${GHL_HTTP_TIMEOUT_MS}ms`));
+      }, GHL_HTTP_TIMEOUT_MS);
+      return fetch(url, { ...options, signal: controlador.signal })
+        .finally(() => clearTimeout(temporizador));
+    }, priority, subaccount);
     
     // Telemetría nativa (No bloqueante, alimenta telemetry.db)
     const duration = Date.now() - startTime;
