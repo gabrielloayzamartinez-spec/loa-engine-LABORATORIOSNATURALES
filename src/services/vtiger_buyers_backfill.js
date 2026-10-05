@@ -33,6 +33,18 @@ import { tokenBucketQueue } from './token_bucket_queue.js';
 const backfillStore = getStateStore('buyers_backfill');
 const CURSOR_KEY = 'cursor_v2_desc';
 
+// [CONTEO REAL POR SEDE] Medido en vTiger con `SELECT count(*) FROM Contacts
+// WHERE spl_num_compras > 0 AND cf_3451 = '<SEDE>'` el 2026-10-05. Es la base para
+// calcular lo implementado vs lo pendiente en tiempo real. Si la cartera crece,
+// se recalibra con el endpoint /api/vtiger/buyers-backfill/recontar.
+export const COMPRADORES_POR_SEDE = {
+  PALACIOS: 36652,
+  BENAVIDES: 5301,
+  ROOSEVELT: 1908,
+  PIURA: 603
+};
+export const TOTAL_COMPRADORES = Object.values(COMPRADORES_POR_SEDE).reduce((a, b) => a + b, 0);
+
 /**
  * [CONTADOR REAL DE CONTACTOS]
  *
@@ -69,12 +81,63 @@ export async function contarContactosGhl(locationId) {
 
 /** Estado del backfill de compradores (para /api/health y diagnóstico). */
 export async function getBuyersBackfillStatus() {
-  const estado = await backfillStore.get(CURSOR_KEY, null);
-  return estado || {
+  const estado = await backfillStore.get(CURSOR_KEY, null) || {
     completo: false,
     porSede: {},
     ultimaEjecucion: null,
     totales: { contactos: 0, creados: 0, actualizados: 0, descartados: 0, fallidos: 0 }
+  };
+
+  // [TIEMPO REAL] Enriquece cada sede con lo implementado vs lo pendiente, contra
+  // el conteo real de compradores en vTiger. Asi el dashboard responde "cuanto
+  // falta" en lugar de solo "cuanto llevamos".
+  const porSede = {};
+  let procesadosTotal = 0;
+  for (const sede of VTIGER_SEDES_VALIDAS) {
+    const compradoresTotal = COMPRADORES_POR_SEDE[sede] || null;
+    const procesados = parseInt(estado.porSede?.[sede]?.offset || 0, 10) || 0;
+    procesadosTotal += procesados;
+    porSede[sede] = {
+      ...(estado.porSede?.[sede] || {}),
+      compradoresTotal,
+      procesados,
+      pendientes: compradoresTotal != null ? Math.max(compradoresTotal - procesados, 0) : null,
+      pct: compradoresTotal ? Math.round((procesados / compradoresTotal) * 10000) / 100 : null
+    };
+  }
+
+  return {
+    ...estado,
+    porSede,
+    compradoresTotal: TOTAL_COMPRADORES,
+    procesadosTotal,
+    pendientesTotal: Math.max(TOTAL_COMPRADORES - procesadosTotal, 0),
+    pctTotal: Math.round((procesadosTotal / TOTAL_COMPRADORES) * 10000) / 100,
+    ritmo: calcularRitmo(estado.historial)
+  };
+}
+
+/**
+ * Calcula el ritmo real (contactos/hora) y el ETA a partir del historial de avance.
+ * Usa los DOS ULTIMOS puntos guardados: delta de procesados / delta de tiempo.
+ */
+function calcularRitmo(historial = []) {
+  if (!Array.isArray(historial) || historial.length < 2) {
+    return { contactosPorHora: null, etaHoras: null, etaDias: null, muestras: (historial || []).length };
+  }
+  const a = historial[historial.length - 2];
+  const b = historial[historial.length - 1];
+  const horas = (new Date(b.ts).getTime() - new Date(a.ts).getTime()) / 3600000;
+  const delta = (b.procesadosTotal || 0) - (a.procesadosTotal || 0);
+  const contactosPorHora = horas > 0 ? Math.round(delta / horas) : 0;
+  const pendientes = Math.max(TOTAL_COMPRADORES - (b.procesadosTotal || 0), 0);
+  const etaHoras = contactosPorHora > 0 ? Math.round(pendientes / contactosPorHora) : null;
+  return {
+    contactosPorHora: contactosPorHora || null,
+    etaHoras,
+    etaDias: etaHoras != null ? Math.round((etaHoras / 24) * 10) / 10 : null,
+    muestras: historial.length,
+    ultimoProcesados: b.procesadosTotal || 0
   };
 }
 
@@ -349,6 +412,18 @@ export async function runBuyersBackfill({
       fallidos: (estado.totales?.fallidos || 0) + resumen.fallidos
     };
     estado.completo = sedesObjetivo.every(s => estado.porSede?.[s]?.completo);
+
+    // [HISTORIAL DE AVANCE] Se guarda una foto (timestamp + procesados totales)
+    // tras cada lote para poder CALCULAR EL RITMO real y el ETA en el dashboard.
+    // Se conservan las ultimas 30 fotos (suficiente para una ventana estable).
+    const procesadosSnapshot = VTIGER_SEDES_VALIDAS.reduce(
+      (acc, s) => acc + (parseInt(estado.porSede?.[s]?.offset || 0, 10) || 0), 0
+    );
+    estado.historial = [...(estado.historial || []).slice(-29), {
+      ts: new Date().toISOString(),
+      procesadosTotal: procesadosSnapshot
+    }];
+
     await backfillStore.set(CURSOR_KEY, estado);
 
     if (procesadosEnLote === 0) break; // nada más que recorrer

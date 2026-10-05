@@ -104,7 +104,7 @@ function startCentralCredentialCheck(intervaloMs = 15 * 60 * 1000) {
 import { syncVtigerContactDual } from './services/dual_sync_service.js';
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
-import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill } from './services/vtiger_buyers_backfill.js';
+import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill, contarContactosGhl, COMPRADORES_POR_SEDE, TOTAL_COMPRADORES } from './services/vtiger_buyers_backfill.js';
 import { getActiveSedeAgents, getSedeAgent } from './agents/sede_agent.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes } from './config/sedes_gateway.js';
@@ -1303,6 +1303,72 @@ app.post('/api/vtiger/buyers-backfill', async (req, res) => {
 app.get('/api/vtiger/buyers-backfill/status', async (req, res) => {
   try {
     res.json({ success: true, estado: await getBuyersBackfillStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * [TIEMPO REAL] Panel unificado de sincronizacion: lo IMPLEMENTADO vs lo PENDIENTE.
+ *
+ * Responde, en un solo endpoint, el estado de las 4 sedes (contra el conteo real
+ * de compradores en vTiger), el ritmo medido, el ETA, y la Cuenta Empresa:
+ *   GET /api/sync/estado
+ *
+ * Es la auditoria que pide el usuario: "cuanto va, cuanto falta, cuanto tarda".
+ */
+app.get('/api/sync/estado', async (req, res) => {
+  try {
+    const estado = await getBuyersBackfillStatus();
+
+    // Configuracion de cada sede: subcuenta propia (Palacios/Benavides) o solo
+    // espejo a Empresa (Roosevelt/Piura pendientes de crear).
+    const sedes = {};
+    for (const [sede, cfg] of Object.entries(SEDES_GATEWAY || {})) {
+      if (!COMPRADORES_POR_SEDE[sede]) continue; // solo las 4 sedes de vTiger
+      const s = estado.porSede?.[sede] || {};
+      sedes[sede] = {
+        compradoresTotal: COMPRADORES_POR_SEDE[sede],
+        procesados: s.procesados ?? 0,
+        pendientes: s.pendientes ?? COMPRADORES_POR_SEDE[sede],
+        pct: s.pct ?? 0,
+        subcuenta: cfg?.ghl?.locationId ? 'CONFIGURADA' : 'PENDIENTE CREAR',
+        espejoEmpresa: true // todas las sedes espejan a la Empresa (BI)
+      };
+    }
+
+    // Cuenta Empresa: total de contactos en GHL (copia fiel de vTiger).
+    let empresaContactos = null;
+    try {
+      const locEmpresa = readSecret('GHL_LOCATION_ID_CENTRAL');
+      if (locEmpresa) empresaContactos = await contarContactosGhl(locEmpresa);
+    } catch { empresaContactos = null; }
+
+    res.json({
+      success: true,
+      generadoEn: new Date().toISOString(),
+      resumen: {
+        compradoresTotal: TOTAL_COMPRADORES,
+        procesados: estado.procesadosTotal,
+        pendientes: estado.pendientesTotal,
+        pct: estado.pctTotal,
+        ritmoContactosPorHora: estado.ritmo?.contactosPorHora || null,
+        etaHoras: estado.ritmo?.etaHoras || null,
+        etaDias: estado.ritmo?.etaDias || null,
+        ultimaEjecucion: estado.ultimaEjecucion || null
+      },
+      sedes,
+      empresa: {
+        contactosTotales: empresaContactos,
+        rol: 'copia fiel BI de las 4 sedes',
+        subcuenta: 'CONFIGURADA'
+      },
+      notas: [
+        'Procesados = offset del cursor (compradores recorridos en orden descendente).',
+        'Ritmo/ETA = calculado del historial real guardado tras cada lote; nulo hasta el segundo lote.',
+        'Roosevelt y Piura: sin subcuenta propia aun -> se espejan SOLO a la Empresa.'
+      ]
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
