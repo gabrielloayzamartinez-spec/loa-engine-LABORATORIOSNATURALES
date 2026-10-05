@@ -2210,7 +2210,29 @@ export function registerBackgroundSchedulers() {
     getBuyersBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // cartera ya recorrida por completo
-        return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia });
+
+        // ======================================================================
+        // [PRIORIDAD ABSOLUTA PALACIOS]
+        // El negocio pide terminar PALACIOS primero con TODO el ancho de banda y
+        // luego ir agregando las demas. Hasta que Palacios no complete su cartera,
+        // el ciclo se dedica ENTERO a Palacios: las otras sedes quedan en pausa
+        // (su cursor se conserva, no se pierde nada).
+        //
+        // Ventaja real: el gate de vTiger (3 concurrentes) y la cola de GHL dejan
+        // de repartirse entre 4 sedes y se concentran en Palacios. Con una sola
+        // sede, la concurrencia del backfill se DOBLA (tope 8), lo que acorta su
+        // tiempo a la mitad o menos.
+        // ======================================================================
+        const palaciosCompleto = estado.porSede?.PALACIOS?.completo === true;
+        const sedesDelCiclo = palaciosCompleto
+          ? ['BENAVIDES', 'ROOSEVELT', 'PIURA']   // Palacios ya termino
+          : ['PALACIOS'];                          // Palacios primero
+        const concurrenciaFinal = palaciosCompleto
+          ? concurrencia
+          : Math.min(concurrencia * 2, 8);
+        if (!palaciosCompleto) console.log(`[Buyers Backfill] [PALACIOS-PRIORITARIO] Ciclo dedicado a Palacios (concurrencia ${concurrenciaFinal}).`);
+
+        return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia: concurrenciaFinal, sedes: sedesDelCiclo });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
       .finally(() => { buyersBackfillCorriendo = false; });

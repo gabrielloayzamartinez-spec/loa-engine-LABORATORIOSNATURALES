@@ -24,8 +24,16 @@
  * ==============================================================================
  */
 
-/** Ritmo por subcuenta. 700 ms => ~14.3 requests por ventana de 10 s (limite 100). */
-const DEFAULT_INTERVAL_MS = 700;
+/**
+ * Ritmo por subcuenta.
+ *
+ * [RECALIBRADO] Antes 700 ms (~14.3 req / ventana de 10 s, 14% del limite). Medido
+ * en produccion el sistema usaba el ~9% de la capacidad de GHL y el backfill de
+ * Palacios tardaba 11-18 dias de forma innecesaria. Se sube a 200 ms (~50 req /
+ * 10 s, 50% del limite): ~2.5x mas caudal, dejando 50% de margen para la atencion
+ * en vivo. El backoff 429 y el guardian de cuota siguen protegiendo.
+ */
+const DEFAULT_INTERVAL_MS = 200;
 
 /**
  * [GUARDIAN DE CUOTA DIARIA]
