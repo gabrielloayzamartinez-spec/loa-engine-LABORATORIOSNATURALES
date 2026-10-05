@@ -244,13 +244,41 @@ export async function runBuyersBackfill({
       // ======================================================================
       const CONCURRENCIA = Math.min(Math.max(parseInt(process.env.VTIGER_BACKFILL_CONCURRENCY || '3', 10) || 3, 1), 8);
 
+      // [TIMEOUT POR CONTACTO — DEFECTO CORREGIDO]
+      // DEFECTO REAL EN PRODUCCION: un contacto se quedo colgado (alguna llamada a
+      // GHL/vTiger que nunca resolvio). Como el grupo se espera con Promise.all, el
+      // lote NUNCA cerro, `runBuyersBackfill` nunca resolvio, y la guarda
+      // `buyersBackfillCorriendo` del scheduler quedo TRABADA en true: durante 30
+      // horas el backfill no volvio a ejecutarse (el scheduler se saltaba cada
+      // disparo). El motor seguia vivo, pero el trabajo de fondo estaba muerto.
+      //
+      // Ahora cada contacto tiene un tope de tiempo. Si se pasa, se cuenta como
+      // fallido y el lote CONTINUA: un contacto problematico ya no puede detener la
+      // carga completa.
+      const TIMEOUT_CONTACTO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_TIMEOUT_CONTACTO_MS || '120000', 10) || 120000, 15000), 600000);
+
       const procesarUno = async (vContact) => {
+        let temporizador = null;
         try {
-          const r = await syncVtigerContactDual(vContact);
+          const r = await Promise.race([
+            syncVtigerContactDual(vContact),
+            new Promise((resolve) => {
+              temporizador = setTimeout(
+                () => resolve({ __timeout: true }),
+                TIMEOUT_CONTACTO_MS
+              );
+            })
+          ]);
+          if (r && r.__timeout) {
+            recordAuditEvent({ type: 'BUYERS_BACKFILL_CONTACT_TIMEOUT', severity: 'warn', sede, vTigerId: vContact?.id, timeoutMs: TIMEOUT_CONTACTO_MS });
+            return { ok: false, skipped: false, created: false, fallido: true };
+          }
           return { ok: r.ok, skipped: r.skipped, created: r.created, fallido: false };
         } catch (err) {
           recordAuditEvent({ type: 'BUYERS_BACKFILL_CONTACT_FAIL', severity: 'warn', sede, vTigerId: vContact?.id, message: err.message });
           return { ok: false, skipped: false, created: false, fallido: true };
+        } finally {
+          if (temporizador) clearTimeout(temporizador);
         }
       };
 
