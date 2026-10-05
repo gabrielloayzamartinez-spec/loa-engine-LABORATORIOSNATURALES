@@ -64,7 +64,7 @@ export function isCentralConfigured() {
  * Las claves traen acentos, dobles guiones y erratas, por eso el matching
  * normaliza (minusculas, sin acentos, sin puntuacion) en lugar de comparar literal.
  */
-const CAMPOS_REQUERIDOS = {
+export const CAMPOS_REQUERIDOS = {
   // [SIN PREFIJO "vTiger"] Decision de negocio: los campos en GHL se renombran a su
   // nombre limpio. El alias LIMPIO va PRIMERO (maxima prioridad); el alias "v tiger"
   // se conserva AL FINAL como respaldo durante la transicion, para que un campo que

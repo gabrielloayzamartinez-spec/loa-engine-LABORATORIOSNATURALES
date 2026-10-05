@@ -122,7 +122,7 @@ function startCentralCredentialCheck(intervaloMs = 15 * 60 * 1000) {
   if (t.unref) t.unref();
   return t;
 }
-import { syncVtigerContactDual } from './services/dual_sync_service.js';
+import { syncVtigerContactDual, resolveCustomFieldIds, CAMPOS_REQUERIDOS, clearFieldCache } from './services/dual_sync_service.js';
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
 import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill, resetBuyersBackfillSede, contarContactosGhl, COMPRADORES_POR_SEDE, TOTAL_COMPRADORES } from './services/vtiger_buyers_backfill.js';
@@ -1546,6 +1546,112 @@ app.post('/api/sedes/clonar-campos', async (req, res) => {
       });
     }
     res.json({ success: true, referencia: referenciaId, camposReferencia: camposRef.length, resultado });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/** Normaliza un nombre de campo igual que el motor (sin acentos, sin puntuacion). */
+const normalizarCampo = (s) => String(s || '')
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/^contact\./, '')
+  .replace(/[^a-z0-9]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/**
+ * [COBERTURA DE CAMPOS POR DESTINO] Informa y completa los campos LOGICOS que le
+ * faltan a una cuenta, usando la sede de referencia como modelo.
+ *
+ * Resuelve la necesidad real del negocio: la Cuenta Empresa debe tener los datos
+ * COMPLETOS (es el centro de medicion), mientras que una sede solo necesita lo
+ * comercial. Aqui se ve exactamente que falta en cada destino y se crea sin
+ * duplicar: el match es por ALIAS (como el motor), no por nombre exacto, asi que
+ * un campo que ya resuelve por su variante "vTiger ..." NO se duplica.
+ *
+ *   POST /api/sedes/completar-campos?destino=EMPRESA            (solo informa)
+ *   POST /api/sedes/completar-campos?destino=EMPRESA&ejecutar=true
+ */
+app.post('/api/sedes/completar-campos', async (req, res) => {
+  try {
+    const destino = String(req.query.destino || 'EMPRESA').toUpperCase();
+    const referenciaId = String(req.query.referencia || 'PALACIOS').toUpperCase();
+    const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
+
+    // Credenciales del destino: la Empresa NO vive en SEDES_GATEWAY.
+    let destinoLoc = null, destinoKey = null;
+    if (destino === 'EMPRESA') {
+      destinoLoc = readSecret('GHL_LOCATION_ID_CENTRAL');
+      destinoKey = readSecret('GHL_API_KEY_CENTRAL');
+    } else {
+      const cfg = SEDES_GATEWAY[destino];
+      destinoLoc = cfg?.ghl?.locationId;
+      destinoKey = cfg?.ghl?.apiKey;
+    }
+    if (!destinoLoc || !destinoKey) {
+      return res.status(400).json({ success: false, error: `Destino ${destino} sin credenciales.` });
+    }
+
+    const ref = SEDES_GATEWAY[referenciaId];
+    if (!ref?.ghl?.apiKey || !ref?.ghl?.locationId) {
+      return res.status(400).json({ success: false, error: `Referencia ${referenciaId} sin credenciales.` });
+    }
+    const cab = (k) => ({ Authorization: `Bearer ${k}`, Version: '2021-07-28', Accept: 'application/json', 'Content-Type': 'application/json' });
+    const urlCampos = (loc) => `https://services.leadconnectorhq.com/locations/${loc}/customFields`;
+
+    // Campos de la referencia y mapa RESUELTO del destino (mismo criterio del motor).
+    const rRef = await ghlFetch(urlCampos(ref.ghl.locationId), { headers: cab(ref.ghl.apiKey) }, 1, 'CompletarCampos');
+    const camposRef = rRef.status === 200 ? ((await rRef.json()).customFields || []) : [];
+    const mapaDestino = await resolveCustomFieldIds(destinoLoc, cab(destinoKey));
+    const resueltos = new Set(Object.keys(mapaDestino || {}).filter(k => k !== '__cacheadoEn'));
+
+    const faltantes = [];
+    const creados = [];
+    const sinModelo = [];
+    for (const [logico, alias] of Object.entries(CAMPOS_REQUERIDOS)) {
+      if (resueltos.has(logico)) continue;
+      faltantes.push(logico);
+      // Se busca en la referencia el campo que corresponde a este logico.
+      const modelo = camposRef.find(c => {
+        const n = normalizarCampo(c.name);
+        return alias.some(a => normalizarCampo(a) === n);
+      });
+      if (!modelo) { sinModelo.push(logico); continue; }
+      if (!ejecutar) continue;
+
+      const opciones = Array.isArray(modelo.options) ? modelo.options.filter(o => String(o ?? '').trim() !== '') : [];
+      const payload = { name: modelo.name, dataType: modelo.dataType };
+      if (opciones.length > 0) payload.options = opciones;
+      else if (TIPOS_CON_OPCIONES.has(modelo.dataType)) {
+        const fb = OPCIONES_FALLBACK[normalizarCampo(modelo.name)];
+        if (!fb) continue;
+        payload.options = fb;
+      }
+      try {
+        const r = await ghlFetch(urlCampos(destinoLoc), { method: 'POST', headers: cab(destinoKey), body: JSON.stringify(payload) }, 1, 'CompletarCampos');
+        if (r.status === 200 || r.status === 201) creados.push(modelo.name);
+      } catch { /* se reporta por diferencia */ }
+    }
+
+    if (creados.length > 0) {
+      clearFieldCache();
+      recordAuditEvent({ type: 'CAMPOS_COMPLETADOS', severity: 'info', destino, referencia: referenciaId, creados: creados.length, nombres: creados });
+    }
+
+    res.json({
+      success: true,
+      destino,
+      referencia: referenciaId,
+      ejecutado: ejecutar,
+      resueltosAntes: resueltos.size,
+      requeridos: Object.keys(CAMPOS_REQUERIDOS).length,
+      faltantes,
+      sinModeloEnReferencia: sinModelo,
+      creados,
+      coberturaFinal: resueltos.size + creados.length
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
