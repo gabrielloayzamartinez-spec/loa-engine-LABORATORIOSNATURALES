@@ -1384,6 +1384,82 @@ app.post('/api/vtiger/buyers-backfill/reset', async (req, res) => {
   }
 });
 
+/**
+ * [ESTRENO DE SUBCUENTAS] Clona los campos personalizados de una sede de
+ * referencia (Palacios, que tiene los 27 resueltos) hacia las demas subcuentas.
+ *
+ * Es lo que permite estrenar Roosevelt y Piura: al crearlas en GHL nacen SIN los
+ * campos, y el sync resuelve los campos POR NOMBRE. Sin este paso esas sedes solo
+ * recibirian los campos nativos (direccion) y perderian compras/fechas/producto.
+ *
+ *   POST /api/sedes/clonar-campos                 (referencia = PALACIOS)
+ *   POST /api/sedes/clonar-campos?referencia=X
+ *
+ * Es idempotente: los campos que ya existen NO se duplican.
+ */
+app.post('/api/sedes/clonar-campos', async (req, res) => {
+  try {
+    const referenciaId = String(req.query.referencia || 'PALACIOS').toUpperCase();
+    const ref = SEDES_GATEWAY[referenciaId];
+    if (!ref?.ghl?.apiKey || !ref?.ghl?.locationId) {
+      return res.status(400).json({ success: false, error: `La sede de referencia ${referenciaId} no esta configurada.` });
+    }
+    const cabeceras = (apiKey) => ({
+      Authorization: `Bearer ${apiKey}`,
+      Version: '2021-07-28',
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    });
+    const urlCampos = (locId) => `https://services.leadconnectorhq.com/locations/${locId}/customFields`;
+
+    const rRef = await ghlFetch(urlCampos(ref.ghl.locationId), { headers: cabeceras(ref.ghl.apiKey) }, 1, 'ClonarCampos');
+    if (rRef.status !== 200) {
+      return res.status(502).json({ success: false, error: `No se pudieron leer los campos de ${referenciaId} (HTTP ${rRef.status}).` });
+    }
+    const camposRef = (await rRef.json()).customFields || [];
+    if (camposRef.length === 0) {
+      return res.status(502).json({ success: false, error: `${referenciaId} no tiene campos personalizados para clonar.` });
+    }
+
+    const resultado = {};
+    for (const [sedeId, cfg] of Object.entries(SEDES_GATEWAY)) {
+      if (sedeId === referenciaId) continue;
+      if (!cfg?.ghl?.locationId || !cfg?.ghl?.apiKey) {
+        resultado[sedeId] = { estado: 'SALTADA', motivo: 'sin credenciales en el entorno' };
+        continue;
+      }
+
+      const rAct = await ghlFetch(urlCampos(cfg.ghl.locationId), { headers: cabeceras(cfg.ghl.apiKey) }, 1, 'ClonarCampos');
+      const actuales = rAct.status === 200 ? ((await rAct.json()).customFields || []) : [];
+      const yaExiste = new Set(actuales.map(f => String(f.name).trim().toLowerCase()));
+
+      let creados = 0, existentes = 0, fallidos = 0;
+      const nuevos = [];
+      for (const campo of camposRef) {
+        const clave = String(campo.name).trim().toLowerCase();
+        if (yaExiste.has(clave)) { existentes++; continue; }
+        const payload = { name: campo.name, dataType: campo.dataType };
+        if (Array.isArray(campo.options) && campo.options.length > 0) payload.options = campo.options;
+        try {
+          const r = await ghlFetch(urlCampos(cfg.ghl.locationId), {
+            method: 'POST', headers: cabeceras(cfg.ghl.apiKey), body: JSON.stringify(payload)
+          }, 1, 'ClonarCampos');
+          if (r.status === 200 || r.status === 201) { creados++; nuevos.push(campo.name); }
+          else { fallidos++; }
+        } catch { fallidos++; }
+      }
+      resultado[sedeId] = { estado: 'OK', existentes, creados, fallidos, nuevos };
+      recordAuditEvent({
+        type: 'SEDE_CAMPOS_CLONADOS', severity: 'info', sede: sedeId,
+        referencia: referenciaId, creados, existentes, fallidos
+      });
+    }
+    res.json({ success: true, referencia: referenciaId, camposReferencia: camposRef.length, resultado });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/webhook/vtiger', async (req, res) => {
   try {
     // [SANITIZACIÓN OBLIGATORIA] Endpoint semi-público: el payload se sanea por
