@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { META_CONFIG, PAGE_TAG_MAP, SEDES_GATEWAY, getMetaConfigBySede } from '../config/index.js';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 const { graphApiVersion, accessToken, adAccountId, pixelId, exclusionAudienceId } = META_CONFIG;
 const GRAPH_BASE = `https://graph.facebook.com/${graphApiVersion}`;
@@ -107,7 +108,7 @@ export async function getMetaAdDetails(adId, options = {}) {
     try {
       const url = `${GRAPH_BASE}/${adId}?fields=id,name,campaign{id,name},adset{id,name},creative{id,title,body}&access_token=${token}`;
       if (global.apiCounters) global.apiCounters.meta++;
-      const res = await fetch(url);
+      const res = await fetchConTimeout(url);
       if (!res.ok) {
         // En caso de rate-limit (429), token expirado (190) o error de app, reintentar con siguiente token
         continue;
@@ -175,7 +176,7 @@ export async function excludeLeadFromMetaAds(contactData) {
 
     const url = `${GRAPH_BASE}/${targetAudienceId}/users?access_token=${accessToken}`;
     if (global.apiCounters) global.apiCounters.meta++;
-    const res = await fetch(url, {
+    const res = await fetchConTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ payload: bodyData })
@@ -236,7 +237,7 @@ export async function sendMetaConversionEvent(eventName, contactData, customData
 
     const url = `${GRAPH_BASE}/${targetPixelId}/events?access_token=${accessToken}`;
     if (global.apiCounters) global.apiCounters.meta++;
-    const res = await fetch(url, {
+    const res = await fetchConTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -267,7 +268,7 @@ export async function sendMetaConversionEvent(eventName, contactData, customData
 export async function getConnectedAdAccounts() {
   try {
     const url = `${GRAPH_BASE}/me/adaccounts?fields=id,name,account_status,currency&access_token=${accessToken}`;
-    const res = await fetch(url);
+    const res = await fetchConTimeout(url);
     const data = await res.json();
     return data.data || [];
   } catch (e) {
@@ -278,7 +279,7 @@ export async function getConnectedAdAccounts() {
 export async function getConnectedPages() {
   try {
     const url = `${GRAPH_BASE}/me/accounts?fields=id,name,tasks&access_token=${accessToken}`;
-    const res = await fetch(url);
+    const res = await fetchConTimeout(url);
     const data = await res.json();
     return data.data || [];
   } catch (e) {
@@ -297,7 +298,7 @@ export async function testMetaConnection() {
   for (const tok of candidateTokens) {
     try {
       const meUrl = `${GRAPH_BASE}/me?fields=id,name&access_token=${tok}`;
-      const meRes = await fetch(meUrl);
+      const meRes = await fetchConTimeout(meUrl);
       const meData = await meRes.json();
       if (!meData.error && meData.id) {
         results.push({
@@ -361,7 +362,7 @@ export async function verificarCredencialMeta(sedeId) {
 
   try {
     // 1. Autenticacion basica
-    const rMe = await fetch(`${GRAPH_BASE}/me?fields=id,name&access_token=${token}`);
+    const rMe = await fetchConTimeout(`${GRAPH_BASE}/me?fields=id,name&access_token=${token}`);
     const dMe = await rMe.json();
     if (dMe.error) {
       const code = dMe.error.code;
@@ -376,7 +377,7 @@ export async function verificarCredencialMeta(sedeId) {
         const appId = SEDES_GATEWAY?.[sede]?.meta?.appId;
         const appSecret = SEDES_GATEWAY?.[sede]?.meta?.appSecret;
         if (appId && appSecret) {
-          const rDbg = await fetch(`${GRAPH_BASE}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`);
+          const rDbg = await fetchConTimeout(`${GRAPH_BASE}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`);
           const dDbg = await rDbg.json();
           const i = dDbg.data;
           if (i) {
@@ -415,7 +416,7 @@ export async function verificarCredencialMeta(sedeId) {
     let paginas = null;
     let nombresPaginas = [];
     try {
-      const rPag = await fetch(`${GRAPH_BASE}/me/accounts?fields=id,name&limit=25&access_token=${token}`);
+      const rPag = await fetchConTimeout(`${GRAPH_BASE}/me/accounts?fields=id,name&limit=25&access_token=${token}`);
       const dPag = await rPag.json();
       if (!dPag.error && Array.isArray(dPag.data)) {
         paginas = dPag.data.length;
@@ -426,7 +427,7 @@ export async function verificarCredencialMeta(sedeId) {
     // 3. Permisos realmente otorgados (util para detectar falta de pages_messaging)
     let permisos = null;
     try {
-      const rPer = await fetch(`${GRAPH_BASE}/me/permissions?access_token=${token}`);
+      const rPer = await fetchConTimeout(`${GRAPH_BASE}/me/permissions?access_token=${token}`);
       const dPer = await rPer.json();
       if (!dPer.error && Array.isArray(dPer.data)) {
         permisos = dPer.data.filter(p => p.status === 'granted').map(p => p.permission);
@@ -448,7 +449,7 @@ export async function verificarCredencialMeta(sedeId) {
       const appSecret = SEDES_GATEWAY?.[sede]?.meta?.appSecret;
       if (appId && appSecret) {
         const appToken = `${appId}|${appSecret}`;
-        const rDbg = await fetch(`${GRAPH_BASE}/debug_token?input_token=${token}&access_token=${appToken}`);
+        const rDbg = await fetchConTimeout(`${GRAPH_BASE}/debug_token?input_token=${token}&access_token=${appToken}`);
         const dDbg = await rDbg.json();
         const info = dDbg.data;
         if (info && !dDbg.error) {
@@ -529,7 +530,7 @@ export async function scanMetaInboxForDuplicates() {
     // Obtenemos las páginas conectadas primero
     const pagesUrl = `${GRAPH_BASE}/me/accounts?access_token=${accessToken}`;
     if (global.apiCounters) global.apiCounters.meta++;
-    const pagesRes = await fetch(pagesUrl);
+    const pagesRes = await fetchConTimeout(pagesUrl);
     
     if (!pagesRes.ok) {
        if (global.pushLiveLog) global.pushLiveLog(`[META_API] [WARN] Meta API bloqueó el escaneo profundo (Revisar Token).`);
@@ -545,7 +546,7 @@ export async function scanMetaInboxForDuplicates() {
       const pageToken = page.access_token || accessToken;
       const convUrl = `${GRAPH_BASE}/${page.id}/conversations?fields=id,updated_time,messages{from,message}&limit=20&access_token=${pageToken}`;
       if (global.apiCounters) global.apiCounters.meta++;
-      const convRes = await fetch(convUrl);
+      const convRes = await fetchConTimeout(convUrl);
       
       if (convRes.ok) {
         const convData = await convRes.json();

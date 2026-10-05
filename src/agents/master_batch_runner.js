@@ -3,6 +3,7 @@ import { processMasterContact } from './master_processor.js';
 import { routeChatByContact } from './chat_router_agent.js';
 import fs from 'fs';
 import path from 'path';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -28,7 +29,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
   }
 
   try {
-    const res = await fetch(url, options);
+    const res = await fetchConTimeout(url, options);
     if (res.status === 429) {
       console.warn(`[RATE_LIMIT] [WARN] GHL retornó 429. Pausando peticiones durante 60 segundos...`);
       batchRateLimitBlockedUntil = Date.now() + 60000;

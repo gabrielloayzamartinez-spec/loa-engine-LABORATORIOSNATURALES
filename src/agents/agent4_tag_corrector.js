@@ -1,5 +1,6 @@
 import { GHL_CONFIG, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders } from '../config/index.js';
 import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -10,7 +11,7 @@ async function sleep(ms) {
 async function fetchWithRetry(url, options, attempt = 1) {
   try {
     if (global.apiCounters) global.apiCounters.ghl++;
-    const res = await fetch(url, options);
+    const res = await fetchConTimeout(url, options);
     if (res.status === 429) {
       await sleep(1500 * attempt);
       if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);

@@ -17,6 +17,7 @@ const HEADERS = {
 };
 
 import { PRODUCT_TAGS, isProductTag as isKnownProductTag, toProductTag } from '../domain/clinical_vocabulary.js';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 const STATE_FILE = path.join(process.cwd(), 'curator_state.json');
 const TRATAMIENTO_FIELD = 'WcrrCIL4A2203kIbeFsJ';
@@ -54,7 +55,7 @@ async function sleep(ms) {
 
 async function fetchWithRetry(url, options, attempt = 1) {
   try {
-    const res = await fetch(url, options);
+    const res = await fetchConTimeout(url, options);
     if (res.status === 429) {
       await sleep(2500 * attempt);
       if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);

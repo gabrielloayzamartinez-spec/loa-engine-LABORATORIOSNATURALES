@@ -1,4 +1,5 @@
 import { GHL_CONFIG, PAGE_TAG_MAP } from '../config/index.js';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -19,7 +20,7 @@ function sleep(ms) {
 
 async function fetchWithRetry(url, options, attempt = 1) {
   try {
-    const res = await fetch(url, options);
+    const res = await fetchConTimeout(url, options);
     if (res.status === 429) {
       // GoHighLevel limits are 100 req / 10s. We need to sleep longer if we hit it.
       await sleep(2000 * attempt);
