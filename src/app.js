@@ -1752,8 +1752,10 @@ export function registerBackgroundSchedulers() {
     };
   };
 
-  // [WATCHDOG] Puente de ventas con guarda protegida: si un ciclo se traba, se libera solo.
-  const guardaSalesBridge = crearGuardaConWatchdog('Sales Bridge', 30 * 60 * 1000);
+  // [WATCHDOG] Puente de ventas con guarda protegida. El ciclo normal procesa ~25
+  // contactos por sede (~27 min con la concurrencia actual), asi que el tope se fija
+  // en 45 min: mas del doble del ciclo normal, para NO disparar falsamente.
+  const guardaSalesBridge = crearGuardaConWatchdog('Sales Bridge', 45 * 60 * 1000);
   timers.push(setInterval(() => {
     if (!guardaSalesBridge.tomar()) return;
     runVtigerSalesBridge({ horasAtras: 6, soloCompradores: true, limitePorSede: 25 })
@@ -1763,8 +1765,9 @@ export function registerBackgroundSchedulers() {
 
   // [TICKET 1] Backfill del DETALLE de órdenes vTiger -> GHL.
   // Avanza lotes cada 15 min hasta completar el historial de todas las sedes.
-  // [WATCHDOG] Con guarda protegida: si un ciclo se traba, se libera solo.
-  const guardaOrderHistory = crearGuardaConWatchdog('Order Backfill', 40 * 60 * 1000);
+  // [WATCHDOG] Backfill de detalle de ordenes con guarda protegida. Ciclo normal
+  // ~27 min (50 x 2 por sede); tope de 60 min = mas del doble, sin falsos positivos.
+  const guardaOrderHistory = crearGuardaConWatchdog('Order Backfill', 60 * 60 * 1000);
   timers.push(setInterval(() => {
     if (!guardaOrderHistory.tomar()) return;
     getBackfillStatus()
@@ -1805,19 +1808,28 @@ export function registerBackgroundSchedulers() {
   };
   let buyersBackfillCorriendo = false;
   let buyersBackfillIniciadoEn = 0;
-  // [WATCHDOG DEL BACKFILL] Tope duro para un ciclo. Si un ciclo se queda trabado
-  // (una llamada que nunca responde), la guarda quedaba en true PARA SIEMPRE y el
+  // [WATCHDOG DEL BACKFILL] Tope para un ciclo. Si un ciclo se queda trabado (una
+  // llamada que nunca responde), la guarda quedaba en true PARA SIEMPRE y el
   // backfill dejaba de correr en silencio — paso real en produccion: 30 horas sin
-  // avanzar aunque el motor seguia vivo. Con el watchdog, un ciclo que excede el
-  // tope se considera trabado y la guarda se LIBERA para el siguiente disparo.
-  const BACKFILL_MAX_CICLO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_MAX_CICLO_MIN || '45', 10) || 45, 5), 180) * 60 * 1000;
+  // avanzar aunque el motor seguia vivo.
+  //
+  // [POR QUE ES ADAPTATIVO Y NO FIJO] Un tope fijo era peligroso: el ciclo normal
+  // dura ~50 min de dia y ~45 de madrugada (Palacios procesa el doble por su
+  // prioridad), asi que un tope fijo de 45 min habria disparado FALSAMENTE en pleno
+  // ciclo, liberando la guarda y arrancando DOS ciclos solapados. Ahora el tope se
+  // CALCULA por ciclo a partir del lote y la concurrencia reales, con margen.
+  const MARGEN_WATCHDOG = Math.min(Math.max(parseInt(process.env.BACKFILL_MARGEN_WATCHDOG || '2', 10) || 2, 1), 5);
+  const SEG_POR_CONTACTO_BASE = Math.min(Math.max(parseInt(process.env.BACKFILL_SEG_POR_CONTACTO || '45', 10) || 45, 5), 300);
+  const WATCHDOG_MINIMO_MS = 30 * 60 * 1000;
+  let buyersBackfillTopeCicloMs = 90 * 60 * 1000;
+
   timers.push(setInterval(() => {
     if (buyersBackfillCorriendo) {
       const transcurrido = Date.now() - buyersBackfillIniciadoEn;
-      if (transcurrido > BACKFILL_MAX_CICLO_MS) {
+      if (transcurrido > buyersBackfillTopeCicloMs) {
         const min = Math.round(transcurrido / 60000);
-        console.warn(`[Buyers Backfill] [WATCHDOG] Ciclo trabado ${min} min (tope ${Math.round(BACKFILL_MAX_CICLO_MS / 60000)} min): se libera la guarda.`);
-        recordAuditEvent({ type: 'BUYERS_BACKFILL_WATCHDOG', severity: 'warn', transcurridoMin: min });
+        console.warn(`[Buyers Backfill] [WATCHDOG] Ciclo trabado ${min} min (tope ${Math.round(buyersBackfillTopeCicloMs / 60000)} min): se libera la guarda.`);
+        recordAuditEvent({ type: 'BUYERS_BACKFILL_WATCHDOG', severity: 'warn', transcurridoMin: min, topeMin: Math.round(buyersBackfillTopeCicloMs / 60000) });
         buyersBackfillCorriendo = false;
       } else {
         console.warn('[Buyers Backfill] [SKIP] El ciclo anterior sigue en curso: se omite este disparo.');
@@ -1826,15 +1838,36 @@ export function registerBackgroundSchedulers() {
     }
     buyersBackfillCorriendo = true;
     buyersBackfillIniciadoEn = Date.now();
+
+    // ======================================================================
+    // [MULTISISTEMATICO, NO "FILA INDIA"]
+    //
+    // La aceleracion de madrugada ya NO agranda el lote (un lote gigante produce un
+    // ciclo larguisimo que ademas entorpece el watchdog): ahora sube la
+    // CONCURRENCIA. Mas APIs consultadas EN PARALELO = mas caudal, con ciclos de
+    // duracion acotada y predecible.
+    //
+    // Dia       : lote 50 x 2, 3 contactos en paralelo
+    // Madrugada : lote 60 x 3, 6 contactos en paralelo  (~2x caudal)
+    // ======================================================================
     const madrugada = esMadrugadaEst();
-    const tamano = madrugada ? 120 : 50;
-    const lotes = madrugada ? 4 : 2;
+    const tamano = madrugada ? 60 : 50;
+    const lotes = madrugada ? 3 : 2;
     const pausa = madrugada ? 100 : 200;
-    if (madrugada) console.log('[Buyers Backfill] [MADRUGADA] Aceleracion nocturna activa: lote ' + tamano + ' x ' + lotes + ' lotes.');
+    const concurrencia = madrugada ? 6 : 3;
+    if (madrugada) console.log(`[Buyers Backfill] [MADRUGADA] Multisistematico: lote ${tamano} x ${lotes}, concurrencia ${concurrencia}.`);
+
+    // Tope del watchdog calculado para ESTE ciclo. Palacios lleva el doble de lote
+    // por su prioridad, asi que es el que marca la duracion del ciclo.
+    const contactosPorSede = tamano * lotes * 2;
+    const segPorContactoEfectivo = SEG_POR_CONTACTO_BASE / concurrencia;
+    const minutosCiclo = Math.ceil((contactosPorSede * segPorContactoEfectivo) / 60);
+    buyersBackfillTopeCicloMs = Math.max(minutosCiclo * MARGEN_WATCHDOG * 60 * 1000, WATCHDOG_MINIMO_MS);
+
     getBuyersBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // cartera ya recorrida por completo
-        return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa });
+        return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
       .finally(() => { buyersBackfillCorriendo = false; });
