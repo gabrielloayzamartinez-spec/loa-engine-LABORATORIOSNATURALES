@@ -513,7 +513,11 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 //
 // El limite es por PROCESO (una instancia de Render = un proceso).
 // ==============================================================================
-const VTIGER_MAX_CONCURRENT = Math.max(envInt('VTIGER_MAX_CONCURRENT', 3), 1);
+// [RECALIBRADO] Antes 3 concurrentes. El backfill de Palacios se repartia el gate
+// con las otras 3 sedes y tardaba 11-18 dias. Se sube a 6: vTiger responde en
+// ~0.2-1 s (medido), asi que 6 consultas simultaneas no lo saturan y acortan el
+// barrido masivo. Ajustable con VTIGER_MAX_CONCURRENT.
+const VTIGER_MAX_CONCURRENT = Math.max(envInt('VTIGER_MAX_CONCURRENT', 6), 1);
 const VTIGER_QUEUE_MAX_WAIT_MS = envInt('VTIGER_QUEUE_MAX_WAIT_MS', 60000);
 const VTIGER_QUEUE_MAX_LEN = envInt('VTIGER_QUEUE_MAX_LEN', 200);
 
