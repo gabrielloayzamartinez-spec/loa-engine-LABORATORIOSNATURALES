@@ -52,10 +52,30 @@ let metaCredentialsStatus = { verificado: false, detalle: 'aun no verificado' };
 async function ejecutarVerificacionMeta() {
   try {
     const { verificarCredencialMeta } = await import('./services/meta_api_service.js');
-    const sedes = getActiveSedes().map(s => s.sedeId);
+    // [TODAS LAS SEDES CON CREDENCIALES, NO SOLO LAS "ACTIVAS"]
+    // Antes se verificaba unicamente `getActiveSedes()`, es decir las marcadas
+    // `isActive: true`. Roosevelt y Piura tienen `isActive: false` (aun no rutean
+    // chats), asi que el health NUNCA revisaba sus tokens: quedaban fuera del
+    // informe y parecia que faltaban credenciales aunque estuvieran cargadas.
+    //
+    // Ahora se verifica toda sede que tenga CUALQUIER credencial cargada, y se
+    // informa ademas QUE variables estan presentes (sin exponer sus valores). Asi
+    // el health responde de verdad: "¿se subieron las credenciales?".
+    const sedes = Object.values(SEDES_GATEWAY)
+      .filter(s => s?.meta?.accessToken || s?.ghl?.locationId || s?.ghl?.apiKey)
+      .map(s => s.sedeId);
     const porSede = {};
     for (const sede of sedes) {
-      porSede[sede] = await verificarCredencialMeta(sede);
+      const conf = SEDES_GATEWAY[sede] || {};
+      porSede[sede] = {
+        ...(await verificarCredencialMeta(sede)),
+        variablesPresentes: {
+          GHL_LOCATION_ID: Boolean(conf.ghl?.locationId),
+          GHL_API_KEY: Boolean(conf.ghl?.apiKey),
+          META_ACCESS_TOKEN: Boolean(conf.meta?.accessToken),
+          META_APP_ID: Boolean(conf.meta?.appId)
+        }
+      };
     }
     const invalidas = Object.entries(porSede).filter(([, v]) => v.valida === false).map(([k]) => k);
     metaCredentialsStatus = {
@@ -63,6 +83,7 @@ async function ejecutarVerificacionMeta() {
       ts: new Date().toISOString(),
       todasValidas: invalidas.length === 0,
       invalidas,
+      sedesVerificadas: sedes,
       porSede
     };
     if (invalidas.length > 0) {
