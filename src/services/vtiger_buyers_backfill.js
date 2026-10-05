@@ -103,7 +103,8 @@ export async function runBuyersBackfill({
   tamanoLote = 50,
   maxLotes = 1,
   pausaMs = 300,
-  sedes = null
+  sedes = null,
+  concurrencia = null
 } = {}) {
   // [LAS 4 SEDES] Se recorren TODAS las sedes presentes en vTiger (PALACIOS,
   // BENAVIDES, ROOSEVELT, PIURA), no solo las "activas". Roosevelt y Piura estan
@@ -242,7 +243,13 @@ export async function runBuyersBackfill({
       //   - 3 = ~3x mas rapido sin saturar vTiger
       //   - 5 = agresivo (solo si vTiger aguanta, monitorear 190)
       // ======================================================================
-      const CONCURRENCIA = Math.min(Math.max(parseInt(process.env.VTIGER_BACKFILL_CONCURRENCY || '3', 10) || 3, 1), 8);
+      // [MULTISISTEMATICO] La concurrencia la puede fijar el scheduler por ciclo
+      // (p. ej. mas alta de madrugada). Si no viene, se usa la variable de entorno
+      // VTIGER_BACKFILL_CONCURRENCY y, en ultimo caso, 3.
+      const CONCURRENCIA = Math.min(
+        Math.max(parseInt(concurrencia ?? process.env.VTIGER_BACKFILL_CONCURRENCY ?? '3', 10) || 3, 1),
+        8
+      );
 
       // [TIMEOUT POR CONTACTO — DEFECTO CORREGIDO]
       // DEFECTO REAL EN PRODUCCION: un contacto se quedo colgado (alguna llamada a
