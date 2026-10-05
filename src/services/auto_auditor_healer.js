@@ -2,6 +2,7 @@ import { GHL_CONFIG, PAGE_TAG_MAP, PALACIOS_USERS } from '../config/index.js';
 import { processMasterContact } from '../agents/master_processor.js';
 import fs from 'fs';
 import path from 'path';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -18,7 +19,7 @@ function sleep(ms) {
 
 async function fetchWithRetry(url, options, attempt = 1) {
   try {
-    const res = await fetch(url, options);
+    const res = await fetchConTimeout(url, options);
     if (res.status === 429) {
       await sleep(1500 * attempt);
       if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);

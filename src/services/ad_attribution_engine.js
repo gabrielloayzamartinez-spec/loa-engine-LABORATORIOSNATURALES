@@ -3,6 +3,7 @@ import { inferTreatmentFromCampaignOrUtm } from '../agents/nlp_symptom_engine.js
 import { findVTigerContact } from './vtiger_api_service.js';
 import fs from 'fs';
 import path from 'path';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -50,7 +51,7 @@ function sleep(ms) {
 
 async function fetchWithRetry(url, options, attempt = 1) {
   try {
-    const res = await fetch(url, options);
+    const res = await fetchConTimeout(url, options);
     if (res.status === 429) {
       await sleep(2000 * attempt);
       if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
@@ -589,7 +590,7 @@ if (process.argv[1] && process.argv[1].endsWith('ad_attribution_engine.js')) {
     console.log("Buscando contacto reciente para prueba rápida...");
     (async () => {
       try {
-        const res = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=1`, {
+        const res = await fetchConTimeout(`https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=1`, {
           headers: HEADERS_CONTACTS
         });
         const data = await res.json();

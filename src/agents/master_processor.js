@@ -5,6 +5,7 @@ import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { enqueueVtigerRetry } from '../services/vtiger_retry_queue.js';
 import fs from 'fs';
 import path from 'path';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 // Cache local en memoria para no exceder los límites de la API de Meta
 const metaAdCache = new Map();
@@ -63,7 +64,7 @@ function cleanText(text) {
 async function fetchWithRetry(url, options, attempt = 1) {
   try {
     if (global.apiCounters) global.apiCounters.ghl++;
-    const res = await fetch(url, options);
+    const res = await fetchConTimeout(url, options);
     if (res.status === 429) {
       const waitTime = 1500 * attempt;
       await sleep(waitTime);

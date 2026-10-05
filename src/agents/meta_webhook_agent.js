@@ -17,7 +17,7 @@ async function sleep(ms) {
 async function fetchWithRetry(url, options, attempt = 1) {
   try {
     if (global.apiCounters) global.apiCounters.ghl++;
-    const res = await fetch(url, options);
+    const res = await fetchConTimeout(url, options);
     if (res.status === 429) {
       await sleep(1500 * attempt);
       if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
@@ -47,7 +47,7 @@ async function getMetaUserProfile(psid, pageId) {
     
     // 1. Obtener el Token de Acceso de la Página
     const pageTokenUrl = `https://graph.facebook.com/${META_CONFIG.graphApiVersion}/${pageId}?fields=access_token&access_token=${systemToken}`;
-    const tokenRes = await fetch(pageTokenUrl);
+    const tokenRes = await fetchConTimeout(pageTokenUrl);
     if (!tokenRes.ok) {
       const err = await tokenRes.text();
       console.error(`[Meta API] Error obteniendo Page Token para la página ${pageId}:`, err);
@@ -59,7 +59,7 @@ async function getMetaUserProfile(psid, pageId) {
     // 2. Usar el Token de la Página para obtener el Perfil
     const url = `https://graph.facebook.com/${META_CONFIG.graphApiVersion}/${psid}?fields=first_name,last_name,name&access_token=${pageToken}`;
     if (global.apiCounters) global.apiCounters.meta++;
-    const res = await fetch(url);
+    const res = await fetchConTimeout(url);
     if (!res.ok) {
       const err = await res.text();
       console.error(`[Meta API] Error HTTP ${res.status} obteniendo perfil para PSID ${psid} (Page: ${pageId}):`, err);
@@ -73,6 +73,7 @@ async function getMetaUserProfile(psid, pageId) {
 }
 
 import { processAdIdCorrection } from './agent4_tag_corrector.js';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 
 /**
  * Procesar el Webhook Entrante de Meta
