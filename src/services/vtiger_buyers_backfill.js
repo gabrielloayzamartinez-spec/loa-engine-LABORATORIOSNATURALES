@@ -125,7 +125,12 @@ export async function getBuyersBackfillStatus() {
 
 /**
  * Calcula el ritmo real (contactos/hora) y el ETA a partir del historial de avance.
- * Usa los DOS ULTIMOS puntos guardados: delta de procesados / delta de tiempo.
+ *
+ * [RESET-SAFE] Se suman los DELTAS POSITIVOS sede por sede en lugar de restar el
+ * total. Motivo real: al reiniciar el cursor de Roosevelt y Piura (para reescribir
+ * en sus subcuentas nuevas) el total BAJO de 3,826 a 2,568 y la formula anterior
+ * devolvio un ritmo de -646/hora. Con deltas por sede, un reset de una sede no
+ * contamina la medicion de las demas.
  */
 function calcularRitmo(historial = []) {
   if (!Array.isArray(historial) || historial.length < 2) {
@@ -134,16 +139,31 @@ function calcularRitmo(historial = []) {
   const a = historial[historial.length - 2];
   const b = historial[historial.length - 1];
   const horas = (new Date(b.ts).getTime() - new Date(a.ts).getTime()) / 3600000;
-  const delta = (b.procesadosTotal || 0) - (a.procesadosTotal || 0);
-  const contactosPorHora = horas > 0 ? Math.round(delta / horas) : 0;
+
+  // Delta total (puede ser negativo si hubo reset) y delta por sede (solo positivos).
+  const deltaTotal = (b.procesadosTotal || 0) - (a.procesadosTotal || 0);
+  let deltaPositivo = 0;
+  let sedesMedidas = 0;
+  if (a.porSede && b.porSede) {
+    for (const sede of Object.keys(b.porSede)) {
+      const d = (b.porSede[sede] || 0) - (a.porSede[sede] || 0);
+      if (d > 0) { deltaPositivo += d; sedesMedidas++; }
+    }
+  }
+  // Si hubo reset (delta total negativo) se usa el avance positivo real.
+  const delta = deltaTotal > 0 ? deltaTotal : deltaPositivo;
+
+  const contactosPorHora = horas > 0 && delta > 0 ? Math.round(delta / horas) : null;
   const pendientes = Math.max(TOTAL_COMPRADORES - (b.procesadosTotal || 0), 0);
-  const etaHoras = contactosPorHora > 0 ? Math.round(pendientes / contactosPorHora) : null;
+  const etaHoras = contactosPorHora ? Math.round(pendientes / contactosPorHora) : null;
   return {
-    contactosPorHora: contactosPorHora || null,
+    contactosPorHora,
     etaHoras,
     etaDias: etaHoras != null ? Math.round((etaHoras / 24) * 10) / 10 : null,
     muestras: historial.length,
-    ultimoProcesados: b.procesadosTotal || 0
+    ultimoProcesados: b.procesadosTotal || 0,
+    huboReset: deltaTotal < 0,
+    sedesMedidas
   };
 }
 
@@ -454,15 +474,21 @@ export async function runBuyersBackfill({
     };
     estado.completo = sedesObjetivo.every(s => estado.porSede?.[s]?.completo);
 
-    // [HISTORIAL DE AVANCE] Se guarda una foto (timestamp + procesados totales)
-    // tras cada lote para poder CALCULAR EL RITMO real y el ETA en el dashboard.
+    // [HISTORIAL DE AVANCE] Se guarda una foto (timestamp + procesados totales +
+    // detalle por sede) tras cada lote para poder CALCULAR EL RITMO real y el ETA.
+    // El detalle por sede permite medir el avance aunque una sede se reinicie.
     // Se conservan las ultimas 30 fotos (suficiente para una ventana estable).
-    const procesadosSnapshot = VTIGER_SEDES_VALIDAS.reduce(
-      (acc, s) => acc + (parseInt(estado.porSede?.[s]?.offset || 0, 10) || 0), 0
-    );
+    const porSedeSnapshot = {};
+    let procesadosSnapshot = 0;
+    for (const s of VTIGER_SEDES_VALIDAS) {
+      const n = parseInt(estado.porSede?.[s]?.offset || 0, 10) || 0;
+      porSedeSnapshot[s] = n;
+      procesadosSnapshot += n;
+    }
     estado.historial = [...(estado.historial || []).slice(-29), {
       ts: new Date().toISOString(),
-      procesadosTotal: procesadosSnapshot
+      procesadosTotal: procesadosSnapshot,
+      porSede: porSedeSnapshot
     }];
 
     await backfillStore.set(CURSOR_KEY, estado);
