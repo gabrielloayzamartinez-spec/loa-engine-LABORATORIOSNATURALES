@@ -65,7 +65,12 @@ export async function auditarDuplicadosEmpresa({ paginas = 5 } = {}) {
       porTelefono.get(tel).push(c.id);
     }
 
-    url = d?.meta?.nextPageUrl || null;
+    // [PAGINACION CORRECTA] GHL pagina con `startAfter` (un cursor), NO con
+    // `nextPageUrl`. Con el campo equivocado, el bucle se detenia tras la PRIMERA
+    // pagina y el auditor/depurador solo veia 100 contactos: el reporte de
+    // "0 sin telefono" era falso (la basura esta en las paginas profundas).
+    const cursorSiguiente = d?.meta?.startAfter;
+    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfter=${cursorSiguiente}` : null;
     if (!url) break;
   }
 
@@ -139,7 +144,12 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
       if (!porTelefono.has(tel)) porTelefono.set(tel, []);
       porTelefono.get(tel).push({ id: c.id, dateUpdated: c.dateUpdated || c.dateAdded || '' });
     }
-    url = d?.meta?.nextPageUrl || null;
+    // [PAGINACION CORRECTA] GHL pagina con `startAfter` (un cursor), NO con
+    // `nextPageUrl`. Con el campo equivocado, el bucle se detenia tras la PRIMERA
+    // pagina y el auditor/depurador solo veia 100 contactos: el reporte de
+    // "0 sin telefono" era falso (la basura esta en las paginas profundas).
+    const cursorSiguiente = d?.meta?.startAfter;
+    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfter=${cursorSiguiente}` : null;
     if (!url) break;
   }
 
@@ -205,10 +215,11 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
  *
  * @param {object} [opts]
  * @param {number} [opts.paginas=5]
- * @param {boolean} [opts.ejecutar=false] true para ETIQUETAR (no borra)
+ * @param {boolean} [opts.ejecutar=false] true para ETIQUETAR (reversible)
+ * @param {boolean} [opts.borrar=false]    true para BORRAR de GHL (irreversible)
  * @returns {Promise<object>}
  */
-export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false } = {}) {
+export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false, borrar = false } = {}) {
   const locId = readSecret('GHL_LOCATION_ID_CENTRAL');
   const apiKey = readSecret('GHL_API_KEY_CENTRAL');
   if (!locId || !apiKey) {
@@ -216,7 +227,9 @@ export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false 
   }
 
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', 'Content-Type': 'application/json', Accept: 'application/json' };
-  const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 5, 1), 50);
+  // [TOPE AMPLIO] El barrido completo de la Empresa (~408k) son ~4080 paginas. Se
+  // permite hasta 6000 para cubrir toda la base de un tirón (corre en segundo plano).
+  const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 5, 1), 6000);
 
   const sinTelefono = [];
   let escaneados = 0;
@@ -232,22 +245,40 @@ export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false 
       escaneados++;
       if (!normalizarTelefonoAuditoria(c.phone)) sinTelefono.push(c.id);
     }
-    url = d?.meta?.nextPageUrl || null;
+    // [PAGINACION CORRECTA] GHL pagina con `startAfter` (un cursor), NO con
+    // `nextPageUrl`. Con el campo equivocado, el bucle se detenia tras la PRIMERA
+    // pagina y el auditor/depurador solo veia 100 contactos: el reporte de
+    // "0 sin telefono" era falso (la basura esta en las paginas profundas).
+    const cursorSiguiente = d?.meta?.startAfter;
+    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfter=${cursorSiguiente}` : null;
     if (!url) break;
   }
 
   let etiquetados = 0;
+  let borrados = 0;
   const fallos = [];
-  if (ejecutar && sinTelefono.length > 0) {
+  if ((ejecutar || borrar) && sinTelefono.length > 0) {
     for (const id of sinTelefono) {
       try {
-        const r = await ghlFetch(
-          `https://services.leadconnectorhq.com/contacts/${id}/tags`,
-          { method: 'POST', headers, body: JSON.stringify({ tags: ['basura-sin-telefono'] }) },
-          1, 'Depurar-SinTel'
-        );
-        if (r.status === 200 || r.status === 201) etiquetados++;
-        else fallos.push({ id, status: r.status });
+        if (borrar) {
+          // [BORRADO DEFINITIVO] GHL DELETE /contacts/{id}. Irreversible: solo para
+          // la basura sin telefono de la Empresa, que no aporta nada.
+          const r = await ghlFetch(
+            `https://services.leadconnectorhq.com/contacts/${id}`,
+            { method: 'DELETE', headers },
+            1, 'Depurar-SinTel-Borrar'
+          );
+          if (r.status === 200 || r.status === 204) borrados++;
+          else fallos.push({ id, status: r.status });
+        } else {
+          const r = await ghlFetch(
+            `https://services.leadconnectorhq.com/contacts/${id}/tags`,
+            { method: 'POST', headers, body: JSON.stringify({ tags: ['basura-sin-telefono'] }) },
+            1, 'Depurar-SinTel'
+          );
+          if (r.status === 200 || r.status === 201) etiquetados++;
+          else fallos.push({ id, status: r.status });
+        }
       } catch (e) {
         fallos.push({ id, error: String(e.message).slice(0, 80) });
       }
@@ -256,10 +287,11 @@ export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false 
 
   const reporte = {
     ok: true,
-    modo: ejecutar ? 'EJECUTADO (etiquetados, NO borrados)' : 'MODO SECO (solo reporte)',
+    modo: borrar ? 'EJECUTADO (BORRADOS de GHL)' : (ejecutar ? 'EJECUTADO (etiquetados)' : 'MODO SECO (solo reporte)'),
     escaneados,
     sinTelefono: sinTelefono.length,
     etiquetados,
+    borrados,
     fallos: fallos.length,
     etiqueta: 'basura-sin-telefono'
   };
