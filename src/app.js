@@ -1767,12 +1767,28 @@ export function registerBackgroundSchedulers() {
     return h >= 1 && h < 6; // 1 AM - 6 AM (horas muertas)
   };
   let buyersBackfillCorriendo = false;
+  let buyersBackfillIniciadoEn = 0;
+  // [WATCHDOG DEL BACKFILL] Tope duro para un ciclo. Si un ciclo se queda trabado
+  // (una llamada que nunca responde), la guarda quedaba en true PARA SIEMPRE y el
+  // backfill dejaba de correr en silencio — paso real en produccion: 30 horas sin
+  // avanzar aunque el motor seguia vivo. Con el watchdog, un ciclo que excede el
+  // tope se considera trabado y la guarda se LIBERA para el siguiente disparo.
+  const BACKFILL_MAX_CICLO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_MAX_CICLO_MIN || '45', 10) || 45, 5), 180) * 60 * 1000;
   timers.push(setInterval(() => {
     if (buyersBackfillCorriendo) {
-      console.warn('[Buyers Backfill] [SKIP] El ciclo anterior sigue en curso: se omite este disparo.');
-      return;
+      const transcurrido = Date.now() - buyersBackfillIniciadoEn;
+      if (transcurrido > BACKFILL_MAX_CICLO_MS) {
+        const min = Math.round(transcurrido / 60000);
+        console.warn(`[Buyers Backfill] [WATCHDOG] Ciclo trabado ${min} min (tope ${Math.round(BACKFILL_MAX_CICLO_MS / 60000)} min): se libera la guarda.`);
+        recordAuditEvent({ type: 'BUYERS_BACKFILL_WATCHDOG', severity: 'warn', transcurridoMin: min });
+        buyersBackfillCorriendo = false;
+      } else {
+        console.warn('[Buyers Backfill] [SKIP] El ciclo anterior sigue en curso: se omite este disparo.');
+        return;
+      }
     }
     buyersBackfillCorriendo = true;
+    buyersBackfillIniciadoEn = Date.now();
     const madrugada = esMadrugadaEst();
     const tamano = madrugada ? 120 : 50;
     const lotes = madrugada ? 4 : 2;
