@@ -1708,38 +1708,75 @@ export function registerBackgroundSchedulers() {
   // `setInterval` dispara otro igual y ambos compiten por la MISMA cola global de
   // GHL: eso multiplica las llamadas y puede provocar un 429 evitable. La guarda
   // descarta el disparo si el anterior sigue vivo, en lugar de acumular ciclos.
-  let salesBridgeCorriendo = false;
+  // ==========================================================================
+  // [WATCHDOG REUTILIZABLE DE GUARDA]
+  //
+  // POR QUE EXISTE: los schedulers usan una guarda booleana para no solaparse
+  // ("si el ciclo anterior sigue vivo, se omite este disparo"). El problema es que
+  // si UNA llamada de red se cuelga (nunca responde), el ciclo no termina, el
+  // `.finally()` que libera la guarda NO se ejecuta, y la guarda queda en `true`
+  // PARA SIEMPRE: el scheduler se salta todos los disparos siguientes y el trabajo
+  // MUERE EN SILENCIO.
+  //
+  // Caso real: el backfill de compradores estuvo ~30 HORAS sin ejecutarse porque un
+  // contacto se colgo. El motor seguia "OK" y el trabajo en vivo fluia, asi que
+  // nadie lo noto.
+  //
+  // Este wrapper pone un TOPE DURO a cada guarda: si el ciclo excede el maximo, se
+  // considera trabado, se AUDITA y la guarda se libera. El trabajo se auto-recupera.
+  // ==========================================================================
+  const crearGuardaConWatchdog = (etiqueta, maxMs) => {
+    const estado = { corriendo: false, iniciadoEn: 0 };
+    const tipoEvento = `SCHEDULER_WATCHDOG_${etiqueta.toUpperCase().replace(/[^A-Z]/g, '_')}`;
+    return {
+      /** @returns {boolean} true si se puede arrancar el ciclo */
+      tomar() {
+        if (!estado.corriendo) {
+          estado.corriendo = true;
+          estado.iniciadoEn = Date.now();
+          return true;
+        }
+        const transcurrido = Date.now() - estado.iniciadoEn;
+        if (transcurrido > maxMs) {
+          const min = Math.round(transcurrido / 60000);
+          console.warn(`[${etiqueta}] [WATCHDOG] Ciclo trabado ${min} min (tope ${Math.round(maxMs / 60000)} min): se libera la guarda.`);
+          recordAuditEvent({ type: tipoEvento, severity: 'warn', scheduler: etiqueta, transcurridoMin: min });
+          estado.corriendo = true;
+          estado.iniciadoEn = Date.now();
+          return true;
+        }
+        console.warn(`[${etiqueta}] [SKIP] El ciclo anterior sigue en curso: se omite este disparo.`);
+        return false;
+      },
+      liberar() { estado.corriendo = false; }
+    };
+  };
+
+  // [WATCHDOG] Puente de ventas con guarda protegida: si un ciclo se traba, se libera solo.
+  const guardaSalesBridge = crearGuardaConWatchdog('Sales Bridge', 30 * 60 * 1000);
   timers.push(setInterval(() => {
-    if (salesBridgeCorriendo) {
-      console.warn('[Sales Bridge] [SKIP] El ciclo anterior sigue en curso: se omite este disparo para no saturar la API.');
-      return;
-    }
-    salesBridgeCorriendo = true;
+    if (!guardaSalesBridge.tomar()) return;
     runVtigerSalesBridge({ horasAtras: 6, soloCompradores: true, limitePorSede: 25 })
       .catch(err => console.error('[Sales Bridge] Error en ciclo programado:', err.message))
-      .finally(() => { salesBridgeCorriendo = false; });
+      .finally(() => { guardaSalesBridge.liberar(); });
   }, 10 * 60 * 1000));
 
   // [TICKET 1] Backfill del DETALLE de órdenes vTiger -> GHL.
-  // Avanza lotes pequeños cada 30 min hasta completar el historial de todas las
-  // sedes. El cursor persiste en el StateStore: un redeploy no reinicia el trabajo.
-  let orderHistoryCorriendo = false;
+  // Avanza lotes cada 15 min hasta completar el historial de todas las sedes.
+  // [WATCHDOG] Con guarda protegida: si un ciclo se traba, se libera solo.
+  const guardaOrderHistory = crearGuardaConWatchdog('Order Backfill', 40 * 60 * 1000);
   timers.push(setInterval(() => {
-    if (orderHistoryCorriendo) {
-      console.warn('[Order Backfill] [SKIP] El ciclo anterior sigue en curso: se omite este disparo.');
-      return;
-    }
-    orderHistoryCorriendo = true;
+    if (!guardaOrderHistory.tomar()) return;
     getBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // nada pendiente
         // [RITMO RECALIBRADO] Antes 25x2 cada 30 min = 100/hora. Ahora 50x2 cada
-        // 15 min = 400/hora, para acompanar al backfill de compradores (600/hora)
+        // 15 min = 400/hora, para acompanar al backfill de compradores
         // sin saturar: el historial hace ~3 llamadas por contacto.
         return runOrderHistoryBackfill({ tamanoLote: 50, maxLotes: 2, pausaMs: 250 });
       })
       .catch(err => console.error('[Order Backfill] Error en ciclo programado:', err.message))
-      .finally(() => { orderHistoryCorriendo = false; });
+      .finally(() => { guardaOrderHistory.liberar(); });
   }, 15 * 60 * 1000));
 
   // [BACKFILL DE COMPRADORES] Cierra la brecha historica de la cartera.
@@ -1803,7 +1840,30 @@ export function registerBackgroundSchedulers() {
       .finally(() => { buyersBackfillCorriendo = false; });
   }, 10 * 60 * 1000));
 
-  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s, order-history 900s, buyers-backfill 600s).`);
+  // ==========================================================================
+  // [DETECTOR DE ESTANCAMIENTO] Que el sistema AVISE, no que lo descubramos.
+  //
+  // El watchdog libera la guarda, pero si el trabajo se detiene por otra razon
+  // (cuota, error persistente, cursor corrupto), el silencio continuaria. Este
+  // chequeo compara `ultimaEjecucion` con la hora actual: si el backfill lleva
+  // mas de 1 hora sin cerrar un lote, se registra BUYERS_BACKFILL_STALLED (visible
+  // en /api/health y /api/audit/log).
+  // ==========================================================================
+  timers.push(setInterval(() => {
+    getBuyersBackfillStatus()
+      .then(estado => {
+        if (estado.completo) return;
+        const ultima = estado.ultimaEjecucion ? new Date(estado.ultimaEjecucion).getTime() : 0;
+        if (ultima > 0 && Date.now() - ultima > 60 * 60 * 1000) {
+          const min = Math.round((Date.now() - ultima) / 60000);
+          console.error(`[Buyers Backfill] [STALLED] Sin cerrar un lote hace ${min} min.`);
+          recordAuditEvent({ type: 'BUYERS_BACKFILL_STALLED', severity: 'error', minutosSinEjecutar: min, ultimaEjecucion: estado.ultimaEjecucion });
+        }
+      })
+      .catch(() => { /* el detector nunca debe romper el arranque */ });
+  }, 15 * 60 * 1000));
+
+  console.log(`[SCHEDULERS] ${timers.length} ciclos de fondo activos (radar 5s, guardián 60s, reverse-sync 180s, retry 60s, memory-guard 600s, sales-bridge 600s, order-history 900s, buyers-backfill 600s, stall-detector 900s).`);
   return timers;
 }
 
