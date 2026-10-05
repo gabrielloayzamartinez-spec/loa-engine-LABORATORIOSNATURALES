@@ -24,7 +24,9 @@
 import { queryVTiger } from './vtiger_api_service.js';
 import { sedeClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
-import { SEDES_GATEWAY } from '../config/index.js';import { syncVtigerContactDual, pickPhone } from './dual_sync_service.js';
+import { SEDES_GATEWAY } from '../config/index.js';
+import { readSecret } from '../config/secrets.js';
+import { syncVtigerContactDual, pickPhone } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { getStateStore } from './state/state_store.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
@@ -62,7 +64,11 @@ export const TOTAL_COMPRADORES = Object.values(COMPRADORES_POR_SEDE).reduce((a, 
  */
 export async function contarContactosGhl(locationId) {
   const sedeConf = Object.values(SEDES_GATEWAY).find(s => s?.ghl?.locationId === locationId);
-  const apiKey = sedeConf?.ghl?.apiKey;
+  // [CUENTA EMPRESA] La Empresa NO vive en SEDES_GATEWAY: es el macro de BI, no una
+  // sede. Sin este caso, el conteo de la Empresa devolvia null y el panel mostraba
+  // la celda vacia. Su credencial se resuelve con las variables GHL_*_CENTRAL.
+  const esEmpresa = Boolean(locationId) && locationId === readSecret('GHL_LOCATION_ID_CENTRAL');
+  const apiKey = sedeConf?.ghl?.apiKey || (esEmpresa ? readSecret('GHL_API_KEY_CENTRAL') : null);
   if (!locationId || !apiKey) return null;
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
   try {
