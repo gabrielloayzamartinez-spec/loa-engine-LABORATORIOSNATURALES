@@ -125,7 +125,7 @@ function startCentralCredentialCheck(intervaloMs = 15 * 60 * 1000) {
 import { syncVtigerContactDual } from './services/dual_sync_service.js';
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
-import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill, contarContactosGhl, COMPRADORES_POR_SEDE, TOTAL_COMPRADORES } from './services/vtiger_buyers_backfill.js';
+import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill, resetBuyersBackfillSede, contarContactosGhl, COMPRADORES_POR_SEDE, TOTAL_COMPRADORES } from './services/vtiger_buyers_backfill.js';
 import { getActiveSedeAgents, getSedeAgent } from './agents/sede_agent.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes } from './config/sedes_gateway.js';
@@ -1412,6 +1412,36 @@ app.post('/api/vtiger/buyers-backfill/reset', async (req, res) => {
 });
 
 /**
+ * [RESET SELECTIVO] Reinicia el cursor SOLO de las sedes indicadas.
+ *
+ * Necesario al estrenar una subcuenta: hasta que existieron las credenciales de
+ * Roosevelt y Piura, el backfill avanzo su cursor pero solo espejo esos contactos
+ * a la Empresa — la subcuenta nueva nacio vacia y el cursor ya habia pasado de
+ * largo (por eso tenian 70 y 67 contactos con el cursor en 906 y 602).
+ *
+ * Reiniciar solo esas sedes evita repetir el trabajo ya hecho en Palacios.
+ *
+ *   POST /api/vtiger/buyers-backfill/reset-sede?sedes=ROOSEVELT,PIURA
+ */
+app.post('/api/vtiger/buyers-backfill/reset-sede', async (req, res) => {
+  try {
+    const pedidas = String(req.query.sedes || '')
+      .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (pedidas.length === 0) {
+      return res.status(400).json({ success: false, error: 'Indica ?sedes=ROOSEVELT,PIURA' });
+    }
+    const reiniciadas = await resetBuyersBackfillSede(pedidas);
+    res.json({
+      success: true,
+      reiniciadas,
+      message: `Cursor reiniciado para: ${reiniciadas.join(', ') || '(ninguna)'}. El proximo ciclo las recorre desde los compradores mas recientes.`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * [ESTRENO DE SUBCUENTAS] Clona los campos personalizados de una sede de
  * referencia (Palacios, que tiene los 27 resueltos) hacia las demas subcuentas.
  *
@@ -1424,6 +1454,17 @@ app.post('/api/vtiger/buyers-backfill/reset', async (req, res) => {
  *
  * Es idempotente: los campos que ya existen NO se duplican.
  */
+
+// Tipos de campo que GHL NO deja crear sin opciones ("options should not be empty").
+const TIPOS_CON_OPCIONES = new Set(['RADIO', 'SINGLE_OPTIONS', 'MULTIPLE_OPTIONS', 'CHECKBOX']);
+
+// Fallback SOLO para campos que el motor realmente usa y cuyo original no tiene
+// opciones cargadas. vTiger guarda el sexo como Hombre/Mujer/TERCER (cf_2821 en el
+// contacto y cf_862 en la orden), asi que esas son las opciones validas.
+const OPCIONES_FALLBACK = {
+  sexo: ['Hombre', 'Mujer', 'TERCER']
+};
+
 app.post('/api/sedes/clonar-campos', async (req, res) => {
   try {
     const referenciaId = String(req.query.referencia || 'PALACIOS').toUpperCase();
@@ -1460,14 +1501,30 @@ app.post('/api/sedes/clonar-campos', async (req, res) => {
       const actuales = rAct.status === 200 ? ((await rAct.json()).customFields || []) : [];
       const yaExiste = new Set(actuales.map(f => String(f.name).trim().toLowerCase()));
 
-      let creados = 0, existentes = 0, fallidos = 0;
+      let creados = 0, existentes = 0, fallidos = 0, omitidos = 0;
       const nuevos = [];
       const errores = [];
+      const omitidosNombres = [];
       for (const campo of camposRef) {
         const clave = String(campo.name).trim().toLowerCase();
         if (yaExiste.has(clave)) { existentes++; continue; }
+
+        // [CAMPOS QUE GHL EXIGE CON OPCIONES] Los tipos de lista no se pueden crear
+        // sin opciones: GHL responde "options should not be empty". En Palacios hay
+        // dos asi: 'Sexo' (campo REAL del motor, su original no tiene opciones
+        // cargadas) y 'Radio 1c19' (campo basura ajeno al motor).
+        //
+        //   - Si es un campo del motor -> se crea con las opciones reales de vTiger.
+        //   - Si no lo es -> se OMITE (no se cuenta como fallo; no se usa).
+        let opciones = Array.isArray(campo.options) ? campo.options.filter(o => String(o ?? '').trim() !== '') : [];
+        if (TIPOS_CON_OPCIONES.has(campo.dataType) && opciones.length === 0) {
+          const fallback = OPCIONES_FALLBACK[clave];
+          if (fallback) opciones = fallback;
+          else { omitidos++; omitidosNombres.push(campo.name); continue; }
+        }
+
         const payload = { name: campo.name, dataType: campo.dataType };
-        if (Array.isArray(campo.options) && campo.options.length > 0) payload.options = campo.options;
+        if (opciones.length > 0) payload.options = opciones;
         try {
           const r = await ghlFetch(urlCampos(cfg.ghl.locationId), {
             method: 'POST', headers: cabeceras(cfg.ghl.apiKey), body: JSON.stringify(payload)
@@ -1482,7 +1539,7 @@ app.post('/api/sedes/clonar-campos', async (req, res) => {
           }
         } catch (e) { fallidos++; errores.push({ nombre: campo.name, dataType: campo.dataType, motivo: e.message }); }
       }
-      resultado[sedeId] = { estado: 'OK', existentes, creados, fallidos, nuevos, errores };
+      resultado[sedeId] = { estado: 'OK', existentes, creados, fallidos, omitidos, nuevos, omitidosNombres, errores };
       recordAuditEvent({
         type: 'SEDE_CAMPOS_CLONADOS', severity: 'info', sede: sedeId,
         referencia: referenciaId, creados, existentes, fallidos

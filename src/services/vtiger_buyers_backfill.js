@@ -159,6 +159,41 @@ export async function resetBuyersBackfill() {
 }
 
 /**
+ * [RESET SELECTIVO] Reinicia el cursor SOLO de las sedes indicadas.
+ *
+ * Caso de uso real: al estrenar una subcuenta. Mientras Roosevelt y Piura no
+ * tuvieron credenciales, el backfill avanzo su cursor pero solo espejo esos
+ * contactos a la Empresa: la subcuenta nueva nacio vacia y el cursor ya habia
+ * pasado de largo (tenian 70 y 67 contactos con el cursor en 906 y 602).
+ *
+ * Se reinician solo esas sedes para NO repetir el trabajo ya hecho en Palacios.
+ *
+ * @param {string[]} sedes nombres de sede a reiniciar
+ * @returns {Promise<string[]>} sedes efectivamente reiniciadas
+ */
+export async function resetBuyersBackfillSede(sedes = []) {
+  const pedidas = [...new Set((sedes || []).map(s => String(s).toUpperCase().trim()).filter(Boolean))]
+    .filter(s => VTIGER_SEDES_VALIDAS.includes(s));
+  if (pedidas.length === 0) return [];
+
+  const estado = await getBuyersBackfillStatus();
+  const reiniciadas = [];
+  for (const sede of pedidas) {
+    if (!estado.porSede || !(sede in estado.porSede)) continue;
+    delete estado.porSede[sede];
+    reiniciadas.push(sede);
+  }
+  if (reiniciadas.length > 0) {
+    // `completo` deja de ser valido: hay sedes que deben recorrerse de nuevo.
+    estado.completo = false;
+    await backfillStore.set(CURSOR_KEY, estado);
+    console.log(`[Buyers Backfill] [RESET SELECTIVO] Reiniciadas: ${reiniciadas.join(', ')}.`);
+    recordAuditEvent({ type: 'BUYERS_BACKFILL_RESET_SEDE', severity: 'info', sedes: reiniciadas });
+  }
+  return reiniciadas;
+}
+
+/**
  * Ejecuta un lote de backfill de compradores.
  *
  * @param {object} opts
