@@ -329,11 +329,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       targetPageName = FB_PAGE_ID_MAP[targetPageId];
     }
 
-    // Fallback: Si no se determinó por mensaje de Facebook, verificar si el contacto ya tiene etiquetas de sede
+    // Fallback: Si no se determinó por mensaje de Facebook, verificar si el contacto ya tiene etiquetas de sede.
+    // El router etiqueta con slug a guiones ("bionatural-ultra"), asi que aqui se compara con la MISMA normalizacion.
     if (!targetPageName) {
       const tags = (contact.tags || []).map(t => String(t).toLowerCase());
-      for (const [pName, tag] of Object.entries(PAGE_TAG_MAP)) {
-        if (tags.includes(tag.toLowerCase())) {
+      const slugificar = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      for (const pName of Object.keys(PAGE_TAG_MAP)) {
+        if (tags.includes(slugificar(pName))) {
           targetPageName = pName;
           break;
         }

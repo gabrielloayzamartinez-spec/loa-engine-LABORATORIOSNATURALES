@@ -21,16 +21,24 @@
  */
 
 import { ghlFetch } from '../utils/ghl_http_client.js';
-import { PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY } from '../config/index.js';
+import { PALACIOS_USERS, SEDES_GATEWAY } from '../config/index.js';
 
-/** Construye el indice: slug de fanpage -> asesor esperado. */
+/**
+ * El router etiqueta la fanpage con un slug normalizado a guiones:
+ *   "BioNatural - Ultra"   -> "bionatural-ultra"
+ *   "Naturales BioNatural" -> "naturales-bionatural"
+ * PAGE_TAG_MAP usa espacios ("bionatural ultra"), por eso el auditor debe aplicar
+ * la MISMA normalizacion que el router, o no encontrara ninguna etiqueta.
+ */
+const slugificar = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+/** Construye el indice: slug de fanpage (normalizado) -> asesor esperado. */
 function construirReglas() {
   const porSlug = new Map();
   for (const usuario of Object.values(PALACIOS_USERS)) {
     if (!usuario?.id) continue;
     for (const nombrePagina of (usuario.pages || [])) {
-      const slug = PAGE_TAG_MAP[nombrePagina];
-      if (slug) porSlug.set(String(slug).toLowerCase(), usuario);
+      porSlug.set(slugificar(nombrePagina), usuario);
     }
   }
   return { porSlug };
