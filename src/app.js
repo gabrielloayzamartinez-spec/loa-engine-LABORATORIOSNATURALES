@@ -2040,6 +2040,42 @@ app.get('/api/procedencia/leads', async (req, res) => {
 });
 
 /**
+ * LISTA DE CAMPOS PERSONALIZADOS DE UNA SUBACCOUNT (para auditar la tarjeta de contacto).
+ * Muestra nombre, tipo y key de cada campo para detectar campos bloqueados/nativos,
+ * duplicados o basura. Solo lectura.
+ *   GET /api/sedes/campos?sede=PALACIOS
+ */
+app.get('/api/sedes/campos', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    let loc, key;
+    if (sede === 'EMPRESA' || sede === 'CENTRAL') {
+      loc = readSecret('GHL_LOCATION_ID_CENTRAL');
+      key = readSecret('GHL_API_KEY_CENTRAL');
+    } else {
+      const cfg = SEDES_GATEWAY[sede];
+      loc = cfg?.ghl?.locationId;
+      key = cfg?.ghl?.apiKey;
+    }
+    if (!loc || !key) return res.status(400).json({ ok: false, error: `Sede ${sede} sin credenciales` });
+    const headers = { Authorization: `Bearer ${key}`, Version: '2021-07-28', Accept: 'application/json' };
+    const r = await ghlFetch(`https://services.leadconnectorhq.com/locations/${loc}/customFields`, { headers }, 1, 'ListarCampos');
+    if (r.status !== 200) return res.status(r.status).json({ ok: false, error: `GHL HTTP ${r.status}` });
+    const d = await r.json();
+    const campos = (d.customFields || []).map(c => ({
+      nombre: c.name || '(sin nombre)',
+      tipo: c.type || '',
+      key: c.fieldKey || '',
+      id: c.id || '',
+      placeholder: c.placeholder || ''
+    })).sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+    res.json({ ok: true, sede, total: campos.length, campos });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * DASHBOARD VISUAL DE PROCEDENCIA — la vista "tipo Meta Business Suite".
  * GET /procedencia
  */
