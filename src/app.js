@@ -2122,56 +2122,80 @@ app.post('/api/empresa/depurar-sin-telefono', async (req, res) => {
 });
 
 /**
- * [TRABAJO DEL DÍA] Reprocesa los leads/conversaciones de las ÚLTIMAS N HORAS.
- * Aplica los fixes (atribución más reciente, ruteo por página autoritativa) a los
- * leads que HABLARON recientemente, sin esperar al radar. Es la prioridad del día:
- * el dealer trabaja con el dato más reciente.
- *
- *   POST /api/leads/reprocesar-24h?horas=24
+ * [TRABAJO DEL DÍA] Medianoche del día en hora Lima (UTC-5, sin horario de verano).
+ * Devuelve el timestamp (ms UTC) de las 00:00 de HOY en Lima = 05:00 UTC.
+ */
+function inicioDiaLima() {
+  const ahora = new Date();
+  const lima = new Date(ahora.getTime() - (5 * 60 * 60 * 1000));
+  return Date.UTC(lima.getUTCFullYear(), lima.getUTCMonth(), lima.getUTCDate()) + (5 * 60 * 60 * 1000);
+}
+
+/**
+ * [TRABAJO DEL DÍA] Reprocesa las conversaciones desde `desdeMs` (default: medianoche
+ * de hoy en Lima). Aplica los fixes (atribución más reciente, ruteo por página) a los
+ * leads que HABLARON hoy, para que el dealer trabaje SIEMPRE con el dato más reciente.
+ * Cubre el día completo: de 12 AM a la próxima 12 AM (hora Lima).
+ */
+async function reprocesarConversacionesDesde(desdeMs) {
+  const targetLocations = getActiveSedes().filter(s => !s.isPaused).map(s => ({
+    id: s.ghl.locationId,
+    headers: getGhlHeaders({ locationId: s.ghl.locationId }),
+    name: s.name
+  }));
+  const resultado = [];
+  let totalConversaciones = 0;
+  let totalProcesados = 0;
+
+  for (const loc of targetLocations) {
+    if (!loc.id) continue;
+    try {
+      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=100`;
+      const convRes = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
+      if (convRes.status !== 200) { resultado.push({ sede: loc.name, error: `HTTP ${convRes.status}` }); continue; }
+      const convData = await convRes.json();
+      const conversaciones = (convData.conversaciones || convData.conversations || []).filter(c => {
+        const t = c.lastMessageDate || c.dateUpdated || c.dateAdded;
+        return t && new Date(t).getTime() >= desdeMs;
+      });
+      totalConversaciones += conversaciones.length;
+
+      let procesados = 0;
+      for (const cv of conversaciones) {
+        if (!cv.contactId) continue;
+        try {
+          const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
+          if (r !== 'RETRY' && r !== 'RETRY_INDEXING') procesados++;
+        } catch { /* un contacto no aborta el lote */ }
+        await sleep(120);
+      }
+      totalProcesados += procesados;
+      resultado.push({ sede: loc.name, conversaciones: conversaciones.length, procesados });
+    } catch (e) {
+      resultado.push({ sede: loc.name, error: e.message });
+    }
+  }
+
+  return { totalConversaciones, totalProcesados, resultado };
+}
+
+/**
+ * [TRABAJO DEL DÍA] Endpoint manual. Por defecto cubre desde medianoche de hoy (Lima)
+ * hasta ahora. `?horas=N` lo convierte en ventana rodante de N horas si se prefiere.
+ *   POST /api/leads/reprocesar-24h          (día completo en hora Lima)
+ *   POST /api/leads/reprocesar-24h?horas=6  (solo últimas 6 horas)
  */
 app.post('/api/leads/reprocesar-24h', async (req, res) => {
   try {
-    const horas = Math.min(Math.max(parseInt(req.query.horas || '24', 10), 1), 72);
-    const corte = new Date(Date.now() - horas * 3600 * 1000).getTime();
-    const targetLocations = getActiveSedes().filter(s => !s.isPaused).map(s => ({
-      id: s.ghl.locationId,
-      headers: getGhlHeaders({ locationId: s.ghl.locationId }),
-      name: s.name
-    }));
-    const resultado = [];
-    let totalConversaciones = 0;
-    let totalProcesados = 0;
-
-    for (const loc of targetLocations) {
-      if (!loc.id) continue;
-      try {
-        const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=100`;
-        const convRes = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
-        if (convRes.status !== 200) { resultado.push({ sede: loc.name, error: `HTTP ${convRes.status}` }); continue; }
-        const convData = await convRes.json();
-        const conversaciones = (convData.conversations || []).filter(c => {
-          const t = c.lastMessageDate || c.dateUpdated || c.dateAdded;
-          return t && new Date(t).getTime() >= corte;
-        });
-        totalConversaciones += conversaciones.length;
-
-        let procesados = 0;
-        for (const cv of conversaciones) {
-          if (!cv.contactId) continue;
-          try {
-            const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
-            if (r !== 'RETRY' && r !== 'RETRY_INDEXING') procesados++;
-          } catch { /* un contacto no aborta el lote */ }
-          await sleep(120);
-        }
-        totalProcesados += procesados;
-        resultado.push({ sede: loc.name, conversaciones24h: conversaciones.length, procesados });
-      } catch (e) {
-        resultado.push({ sede: loc.name, error: e.message });
-      }
-    }
-
-    res.json({ success: true, horas, totalConversaciones, totalProcesados, resultado });
+    const horas = parseInt(req.query.horas || '', 10);
+    const desde = (horas > 0) ? Date.now() - horas * 3600 * 1000 : inicioDiaLima();
+    const r = await reprocesarConversacionesDesde(desde);
+    res.json({
+      success: true,
+      desde: new Date(desde).toISOString(),
+      desdeLima: new Date(desde - 5 * 3600 * 1000).toISOString().slice(11, 16) + ' Lima',
+      ...r
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2392,6 +2416,19 @@ export function registerBackgroundSchedulers() {
 
   // Radar de asignación en vivo (Worker 1)
   timers.push(setInterval(runExpressAssignment, 5000));
+
+  // [TRABAJO DEL DÍA] Cada 10 min reprocesa las conversaciones desde medianoche (Lima)
+  // hasta ahora, para que los UTMs/IDs/orígenes del día estén SIEMPRE actualizados.
+  // Cubre de 12 AM a la próxima 12 AM (hora Lima), sin tocar la base histórica.
+  timers.push(setInterval(() => {
+    reprocesarConversacionesDesde(inicioDiaLima())
+      .then(r => {
+        if (r.totalConversaciones > 0) {
+          console.log(`[TRABAJO-DIA] Reprocesadas ${r.totalConversaciones} conversaciones de hoy (${r.totalProcesados} contactos actualizados).`);
+        }
+      })
+      .catch(err => console.error("Error en reprocesar-dia:", err));
+  }, 10 * 60 * 1000));
 
   // Guardián de bandejas sin asignar (multi-sede)
   timers.push(setInterval(runUnassignedConversationsGuardian, 60000));
