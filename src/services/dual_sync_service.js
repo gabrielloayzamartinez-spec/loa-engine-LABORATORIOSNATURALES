@@ -114,7 +114,14 @@ export const CAMPOS_REQUERIDOS = {
   formaPago: ['forma de pago', 'metodo de pago', 'v tiger forma de pago'],
   transportista: ['transportista', 'v tiger transportista'],
   tracking: ['tracking', 'numero de guia', 'guia de envio', 'v tiger tracking'],
-  ultimoProducto: ['ultimo producto', 'v tiger ultimo producto', 'v tiger ultima compra producto']
+  ultimoProducto: ['ultimo producto', 'v tiger ultimo producto', 'v tiger ultima compra producto'],
+  // --- [ATRIBUCION VISIBLE] Campos de lectura clara para la tarjeta de contacto ---
+  // Los UTM nativos de GHL (utm_content/campaign/term) estan BLOQUEADOS por GHL:
+  // no se pueden renombrar. Estos campos paralelos se resuelven POR NOMBRE para que
+  // el dealer vea "Nombre del Anuncio / Campaña / Conjunto" en lugar de UTM técnicos.
+  nombreAnuncio: ['nombre del anuncio', 'anuncio meta', 'anuncio origen'],
+  campanaMeta: ['campana meta', 'campana del anuncio', 'campana de origen'],
+  conjuntoAnuncios: ['conjunto de anuncios', 'conjunto meta', 'ad set meta']
 };
 
 // ------------------------------------------------------------------------------

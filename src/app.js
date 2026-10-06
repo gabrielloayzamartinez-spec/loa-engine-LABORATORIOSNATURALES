@@ -1672,6 +1672,63 @@ app.post('/api/sedes/clonar-campos', async (req, res) => {
   }
 });
 
+/**
+ * CREA LOS CAMPOS CLAROS DE ATRIBUCIÓN (Nombre del Anuncio / Campaña Meta / Conjunto)
+ * en las subcuentas. Los UTM nativos de GHL están BLOQUEADOS (no se renombran), así
+ * que estos campos paralelos (TEXT, editables) reciben el mismo dato y se muestran
+ * con un nombre claro en la tarjeta de contacto.
+ *
+ *   POST /api/sedes/crear-campos-atribucion?sede=PALACIOS
+ *   POST /api/sedes/crear-campos-atribucion?sede=TODAS
+ */
+const CAMPOS_ATRIBUCION = [
+  { name: 'Nombre del Anuncio', dataType: 'TEXT' },
+  { name: 'Campaña Meta', dataType: 'TEXT' },
+  { name: 'Conjunto de Anuncios', dataType: 'TEXT' }
+];
+app.post('/api/sedes/crear-campos-atribucion', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const sedesDestino = (sede === 'TODAS' || sede === 'ALL')
+      ? ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA', 'EMPRESA']
+      : [sede];
+    const resultado = {};
+    for (const sId of sedesDestino) {
+      let loc, key;
+      if (sId === 'EMPRESA' || sId === 'CENTRAL') {
+        loc = readSecret('GHL_LOCATION_ID_CENTRAL');
+        key = readSecret('GHL_API_KEY_CENTRAL');
+      } else {
+        const cfg = SEDES_GATEWAY[sId];
+        loc = cfg?.ghl?.locationId;
+        key = cfg?.ghl?.apiKey;
+      }
+      if (!loc || !key) { resultado[sId] = { estado: 'SIN_CREDENCIALES' }; continue; }
+      const cabeceras = { Authorization: `Bearer ${key}`, Version: '2021-07-28', Accept: 'application/json', 'Content-Type': 'application/json' };
+      const urlCampos = `https://services.leadconnectorhq.com/locations/${loc}/customFields`;
+      const rEx = await ghlFetch(urlCampos, { headers: cabeceras }, 1, 'AtribucionCampos');
+      const existentes = new Set();
+      if (rEx.status === 200) {
+        const d = await rEx.json();
+        (d.customFields || []).forEach(c => existentes.add(String(c.name).trim().toLowerCase()));
+      }
+      const creados = [];
+      const yaExisten = [];
+      for (const campo of CAMPOS_ATRIBUCION) {
+        if (existentes.has(campo.name.toLowerCase())) { yaExisten.push(campo.name); continue; }
+        const r = await ghlFetch(urlCampos, {
+          method: 'POST', headers: cabeceras, body: JSON.stringify(campo)
+        }, 1, 'AtribucionCampos');
+        if (r.status === 200 || r.status === 201) creados.push(campo.name);
+      }
+      resultado[sId] = { estado: 'OK', creados, yaExisten };
+    }
+    res.json({ success: true, campos: CAMPOS_ATRIBUCION.map(c => c.name), resultado });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 /** Normaliza un nombre de campo igual que el motor (sin acentos, sin puntuacion). */
 const normalizarCampo = (s) => String(s || '')
   .toLowerCase()

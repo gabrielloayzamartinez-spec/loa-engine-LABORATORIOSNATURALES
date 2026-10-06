@@ -2,6 +2,7 @@ import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY
 import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
 import { resolveChannelFromEvent, detectSystemMessage } from '../utils/system_message_filter.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
+import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
@@ -540,6 +541,19 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const TIENE_TELEFONO_FIELD = sedeFields.tieneTelefono;
     const ULTIMA_INTERACCION_FIELD = sedeFields.ultimaInteraccion;
 
+    // [ATRIBUCION VISIBLE] Campos claros (Nombre del Anuncio / Campaña Meta / Conjunto).
+    // Se resuelven POR NOMBRE (no estan en las tablas fijas por sede). Si aun no fueron
+    // creados, la resolucion devuelve null y simplemente no se escriben (no es critico).
+    let NOMBRE_ANUNCIO_FIELD = null;
+    let CAMPANA_META_FIELD = null;
+    let CONJUNTO_ANUNCIOS_FIELD = null;
+    try {
+      const atribucionIds = await resolveCustomFieldIds(activeLocationId, getGhlHeaders(activeLocationId));
+      NOMBRE_ANUNCIO_FIELD = atribucionIds.nombreAnuncio || null;
+      CAMPANA_META_FIELD = atribucionIds.campanaMeta || null;
+      CONJUNTO_ANUNCIOS_FIELD = atribucionIds.conjuntoAnuncios || null;
+    } catch { /* sin campos claros: se omite la escritura, no rompe el flujo */ }
+
     const existingCustomFields = contact.customFields || [];
     const rawCurrentAdId = existingCustomFields.find(f => (f.id === ID_ANUNCIO_FIELD || f.id === AD_ID_ALT_FIELD) && f.value)?.value;
     const currentAdId = isValidMetaAdId(rawCurrentAdId) ? String(rawCurrentAdId).trim() : null;
@@ -1030,6 +1044,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (UTM_CONTENT_FIELD) customFieldsToUpdate.push({ id: UTM_CONTENT_FIELD, key: 'contact.utm_content', field_value: targetAdName || targetTratamiento || 'Anuncio' });
     if (UTM_TERM_FIELD && latestAdSetName) customFieldsToUpdate.push({ id: UTM_TERM_FIELD, key: 'contact.utm_term', field_value: latestAdSetName });
     if (ADSET_ID_FIELD && latestAdSetName) customFieldsToUpdate.push({ id: ADSET_ID_FIELD, key: 'contact.adset_id', field_value: latestAdSetName });
+    // [ATRIBUCION VISIBLE] Espejo de los UTM en campos con nombre claro para la tarjeta.
+    if (NOMBRE_ANUNCIO_FIELD && targetAdName) customFieldsToUpdate.push({ id: NOMBRE_ANUNCIO_FIELD, key: 'contact.nombre_anuncio', field_value: targetAdName });
+    if (CAMPANA_META_FIELD && latestCampaign) customFieldsToUpdate.push({ id: CAMPANA_META_FIELD, key: 'contact.campana_meta', field_value: latestCampaign });
+    if (CONJUNTO_ANUNCIOS_FIELD && latestAdSetName) customFieldsToUpdate.push({ id: CONJUNTO_ANUNCIOS_FIELD, key: 'contact.conjunto_anuncios', field_value: latestAdSetName });
     if (SEDE_ASIGNADA_FIELD) customFieldsToUpdate.push({ id: SEDE_ASIGNADA_FIELD, key: 'contact.sede_asignada', field_value: currentSedeName });
     if (ORIGEN_LEAD_FIELD && vtigerSource) customFieldsToUpdate.push({ id: ORIGEN_LEAD_FIELD, key: 'contact.origen_lead', field_value: vtigerSource });
     if (TIENE_TELEFONO_FIELD) customFieldsToUpdate.push({ id: TIENE_TELEFONO_FIELD, key: 'contact.tiene_telfono', field_value: (contact.phone || (shippingData && shippingData.hasPhone)) ? 'Sí' : 'No' });
