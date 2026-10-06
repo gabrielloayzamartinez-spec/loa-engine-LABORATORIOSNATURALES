@@ -577,12 +577,17 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // 2. Recopilar todas las fuentes de atribución disponibles en GHL ordenadas por recencia
+    // [ORDEN CORREGIDO — CRÍTICO] ANTES: `attributionSource` (PRIMER toque) iba PRIMERO,
+    // asi que `latestCampaign`/`latestAdSetName` tomaban la campaña VIEJA y el origen
+    // NO se actualizaba cuando el lead re-engañaba desde una campaña NUEVA (se perdia
+    // el trabajo del dia). AHORA: el mas reciente PRIMERO (lastAttributionSource ->
+    // attributions al reves -> attributionSource como ultimo recurso).
     const attributionSources = [];
-    if (contact.attributionSource) attributionSources.push(contact.attributionSource);
+    if (contact.lastAttributionSource) attributionSources.push(contact.lastAttributionSource);
     if (contact.attributions && Array.isArray(contact.attributions)) {
       attributionSources.push(...[...contact.attributions].reverse());
     }
-    if (contact.lastAttributionSource) attributionSources.push(contact.lastAttributionSource);
+    if (contact.attributionSource) attributionSources.push(contact.attributionSource);
 
     for (const attr of attributionSources) {
       if (!attr) continue;
