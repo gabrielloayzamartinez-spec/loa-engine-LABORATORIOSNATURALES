@@ -26,7 +26,7 @@ import { readSecret } from './config/secrets.js';
 import { isCentralConfigured } from './services/dual_sync_service.js';
 import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
 import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
-import { auditarRuteo } from './services/routing_audit.js';
+import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audit.js';
 
 /**
  * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
@@ -1914,7 +1914,10 @@ app.get('/api/routing/auditoria', async (req, res) => {
   try {
     const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
     const paginas = parseInt(req.query.paginas || '50', 10);
-    const r = await auditarRuteo({ sede, paginas });
+    // sede=TODAS audita las 4 subcuentas en un solo llamado.
+    const r = (sede === 'TODAS' || sede === 'ALL')
+      ? await auditarRuteoTodasLasSedes({ paginas })
+      : await auditarRuteo({ sede, paginas });
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
