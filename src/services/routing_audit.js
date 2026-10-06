@@ -123,8 +123,8 @@ export async function auditarRuteo({ sede = 'PALACIOS', paginas = 20 } = {}) {
       }
     }
 
-    const cursor = d?.meta?.startAfter;
-    url = cursor ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfter=${cursor}` : null;
+    const cursor = d?.meta?.startAfterId ?? (contactos[contactos.length - 1]?.id);
+    url = cursor ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursor}` : null;
     if (!url) break;
   }
 
