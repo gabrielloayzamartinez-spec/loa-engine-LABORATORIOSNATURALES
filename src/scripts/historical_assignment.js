@@ -87,7 +87,7 @@ export async function runHistoricalAssignment() {
     if (c.detectedPage === 'Naturales BioNatural') {
       targetUserId = PALACIOS_USERS['naturales bionatural'].id;
       targetUserName = PALACIOS_USERS['naturales bionatural'].name;
-    } else if (c.detectedPage === 'BioNatural - Ultra') {
+    } else if (c.detectedPage === 'BioNatural - Ultra' || c.detectedPage === 'Laboratorios Naturales BIO') {
       targetUserId = PALACIOS_USERS['bionatural ultra'].id;
       targetUserName = PALACIOS_USERS['bionatural ultra'].name;
     } else if (c.detectedPage === 'Naturales Bio Corp') {

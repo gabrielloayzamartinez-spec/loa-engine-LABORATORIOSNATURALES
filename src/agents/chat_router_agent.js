@@ -412,8 +412,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       } else if (resolvedSede.sedeId === 'PALACIOS') {
         // ================================================================
         // [REGLA ESTRICTA DE PROPIETARIO — PALACIOS]
-        //   ULTRA       (111906554968800)                   -> SIEMPRE CLICK2RING
-        //   BioNatural  (566501466542620 / 718150351371765) -> SIEMPRE ERNESTO
+        //   CLICK2RING (REDES 2):
+        //     - BioNatural - Ultra (111906554968800)
+        //     - Laboratorios Naturales BIO (718150351371765) — formularios
+        //   ERNESTO (REDES 1):
+        //     - Naturales BioNatural (566501466542620)
         //
         // DEFECTO ANTERIOR: el `else` asignaba ERNESTO a CUALQUIER cosa que no
         // fuera ULTRA, incluso cuando la pagina NO se pudo confirmar (mensaje sin
@@ -422,13 +425,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         // REAL y, si la pagina no esta mapeada o no hay evidencia, se mantiene la
         // continuidad operativa (ERNESTO) PERO se marca "revisar-ruteo".
         // ================================================================
-        const esUltra = targetPageId === '111906554968800'
-          || (targetPageName || '').toLowerCase().includes('ultra');
-        const esBioNatural = targetPageId === '566501466542620'
+        const esClick2Ring = targetPageId === '111906554968800'
           || targetPageId === '718150351371765'
+          || (targetPageName || '').toLowerCase().includes('ultra')
+          || (targetPageName || '').toLowerCase().includes('laboratorios naturales bio');
+        const esErnesto = targetPageId === '566501466542620'
           || (targetPageName || '').toLowerCase().includes('bionatural');
 
-        if (esUltra) {
+        if (esClick2Ring) {
           targetAdvisorId = resolvedSede.users.ultra.id;
           targetAdvisorName = resolvedSede.users.ultra.name;
         } else {
@@ -436,7 +440,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           targetAdvisorName = resolvedSede.users.ernesto.name;
           if (!hasRealFanpage) {
             routingReviewReason = 'sin evidencia de fanpage de Meta';
-          } else if (!esBioNatural) {
+          } else if (!esErnesto) {
             routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
           }
         }
@@ -795,7 +799,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
  // AFINAMIENTO DE ASESOR SEGÚN PROVEEDOR DETECTADO EN ADSET / CAMPAÑA:
     if (resolvedSede && resolvedSede.users) {
       if (resolvedSede.sedeId === 'PALACIOS') {
-        if (targetProvider === 'CLICK2RING') {
+        // [REGLA EXPLÍCITA DE PROPIETARIO] La página de FORMULARIOS
+        // "Laboratorios Naturales BIO" (718150351371765) es SIEMPRE de CLICK2RING,
+        // aunque su proveedor se resuelva como IN_HOUSE (orgánico). Este override
+        // prevalece sobre la afinación por proveedor de abajo.
+        if (targetPageId === '718150351371765') {
+          targetAdvisorId = resolvedSede.users.ultra.id;
+          targetAdvisorName = resolvedSede.users.ultra.name;
+        } else if (targetProvider === 'CLICK2RING') {
           targetAdvisorId = resolvedSede.users.ultra.id;
           targetAdvisorName = resolvedSede.users.ultra.name;
         } else if (targetProvider === 'ERNESTO' || targetProvider === 'IN_HOUSE') {

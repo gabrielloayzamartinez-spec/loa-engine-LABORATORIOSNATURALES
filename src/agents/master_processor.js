@@ -228,10 +228,11 @@ export async function processMasterContact(contactInput, options = {}) {
     let targetAdvisorId = contact.assignedTo || null;
     let targetAdvisorName = null;
 
-    if (detectedPageName === 'Naturales BioNatural' || detectedPageName === 'Laboratorios Naturales BIO' || detectedPageName === 'BIO Naturales Laboratorio') {
+    if (detectedPageName === 'Naturales BioNatural' || detectedPageName === 'BIO Naturales Laboratorio') {
       targetAdvisorId = PALACIOS_USERS['naturales bionatural'].id;
       targetAdvisorName = PALACIOS_USERS['naturales bionatural'].name;
-    } else if (detectedPageName === 'BioNatural - Ultra') {
+    } else if (detectedPageName === 'BioNatural - Ultra' || detectedPageName === 'Laboratorios Naturales BIO') {
+      // [REGLA] BioNatural - Ultra y Laboratorios Naturales BIO (formularios) -> CLICK2RING
       targetAdvisorId = PALACIOS_USERS['bionatural ultra'].id;
       targetAdvisorName = PALACIOS_USERS['bionatural ultra'].name;
     } else if (detectedPageName === 'Naturales Bio Corp') {
