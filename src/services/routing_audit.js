@@ -123,8 +123,13 @@ export async function auditarRuteo({ sede = 'PALACIOS', paginas = 20 } = {}) {
       }
     }
 
-    const cursor = d?.meta?.startAfterId ?? (contactos[contactos.length - 1]?.id);
-    url = cursor ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursor}` : null;
+    const meta = d?.meta || {};
+    if (meta.nextPageUrl) {
+      url = meta.nextPageUrl;
+    } else {
+      const cursor = meta.startAfterId ?? meta.startAfter ?? (contactos[contactos.length - 1]?.id);
+      url = cursor ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursor}` : null;
+    }
     if (!url) break;
   }
 
