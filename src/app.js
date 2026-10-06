@@ -27,6 +27,7 @@ import { isCentralConfigured } from './services/dual_sync_service.js';
 import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
 import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
 import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audit.js';
+import { procedenciaLeads } from './services/lead_provenance.js';
 
 /**
  * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
@@ -139,6 +140,101 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const { apiKey, locationId } = GHL_CONFIG;
+
+// ==============================================
+// DASHBOARD VISUAL DE PROCEDENCIA (HTML autocontenido)
+// ==============================================
+const PROCE_PAGE = `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Procedencia de Leads — LOA Engine</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0f1420;color:#e6e9ef;margin:0;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:#8b93a7;font-size:13px;margin-bottom:20px}
+  .toolbar{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  select,input,button{background:#1a2130;color:#e6e9ef;border:1px solid #2b3348;border-radius:8px;padding:8px 12px;font-size:14px}
+  button{background:#3b82f6;border-color:#3b82f6;cursor:pointer;font-weight:600}
+  button:hover{background:#2563eb}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:20px}
+  .card{background:#161c2b;border:1px solid #232c42;border-radius:12px;padding:14px}
+  .card b{font-size:22px;display:block}
+  .card span{color:#8b93a7;font-size:12px}
+  table{width:100%;border-collapse:collapse;background:#161c2b;border-radius:12px;overflow:hidden}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #232c42;font-size:13px}
+  th{background:#1a2130;color:#9aa3b5;font-weight:600;position:sticky;top:0}
+  tr:hover{background:#1a2130}
+  .pill{display:inline-block;background:#1f2b42;border-radius:999px;padding:2px 10px;font-size:11px;color:#a9c1ff}
+  .conv{color:#34d399;font-weight:600}
+  .low{color:#f87171}
+  .muted{color:#8b93a7}
+  .loading{color:#8b93a7;padding:20px}
+</style>
+</head>
+<body>
+<h1>📊 Procedencia de Leads</h1>
+<div class="sub">De qué anuncio/campaña llegó cada lead — y cuántos ya compraron (vista tipo Meta Business Suite)</div>
+
+<div class="toolbar">
+  <select id="destino">
+    <option value="EMPRESA" selected>Empresa (todas)</option>
+    <option value="PALACIOS">Palacios</option>
+    <option value="BENAVIDES">Benavides</option>
+    <option value="ROOSEVELT">Roosevelt</option>
+    <option value="PIURA">Piura</option>
+  </select>
+  <input id="paginas" type="number" value="50" min="1" max="300" title="Páginas de 100 contactos"/>
+  <button onclick="cargar()">Consultar</button>
+  <span class="muted" id="estado"></span>
+</div>
+
+<div class="cards" id="cards"></div>
+<div id="tabla"></div>
+
+<script>
+async function cargar(){
+  const destino = document.getElementById('destino').value;
+  const paginas = document.getElementById('paginas').value;
+  const estado = document.getElementById('estado');
+  estado.textContent = 'cargando...';
+  const t = document.getElementById('tabla');
+  t.innerHTML = '<div class="loading">Escaneando contactos y agregando por anuncio…</div>';
+  try {
+    const r = await fetch('/api/procedencia/leads?destino=' + destino + '&paginas=' + paginas);
+    const d = await r.json();
+    if (!d.ok) { estado.textContent = 'error: ' + (d.reason || d.error || 'desconocido'); return; }
+    estado.textContent = d.escaneados + ' contactos · ' + d.totalAnuncios + ' anuncios · ' + d.sinAnuncio + ' sin anuncio';
+    document.getElementById('cards').innerHTML =
+      '<div class="card"><b>'+d.escaneados+'</b><span>contactos escaneados</span></div>' +
+      '<div class="card"><b>'+d.totalAnuncios+'</b><span>anuncios distintos</span></div>' +
+      '<div class="card"><b>'+d.conAnuncio+'</b><span>con anuncio</span></div>' +
+      '<div class="card"><b>'+d.sinAnuncio+'</b><span>sin anuncio</span></div>';
+    if (!d.filas.length) { t.innerHTML = '<div class="loading">No se encontraron anuncios en este rango.</div>'; return; }
+    let html = '<table><thead><tr><th>Anuncio / Campaña</th><th>Campaña</th><th>Leads</th><th>Compraron</th><th>Conversión</th><th>Sedes</th></tr></thead><tbody>';
+    for (const f of d.filas) {
+      const conv = f.tasaConversion;
+      const cls = conv >= 10 ? 'conv' : (f.leads > 20 && conv < 5 ? 'low' : '');
+      html += '<tr><td><b>'+esc(f.anuncio)+'</b><br><span class="muted">'+esc(f.adId||'')+'</span></td>' +
+        '<td>'+esc(f.campana)+'</td>' +
+        '<td>'+f.leads+'</td>' +
+        '<td>'+f.compradores+'</td>' +
+        '<td class="'+cls+'">'+conv+'%</td>' +
+        '<td>'+f.sedes.map(s=>'<span class="pill">'+esc(s)+'</span>').join(' ')+'</td></tr>';
+    }
+    html += '</tbody></table>';
+    t.innerHTML = html;
+  } catch(e) {
+    estado.textContent = 'error de red: ' + e.message;
+  }
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+cargar();
+</script>
+</body>
+</html>`;
+
 
 const COUNTERS_FILE = path.join(process.cwd(), 'counters.json');
 const STATS_FILE = path.join(process.cwd(), 'stats.json');
@@ -1927,6 +2023,28 @@ app.get('/api/routing/auditoria', async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+/**
+ * PROCEDENCIA DE LEADS (JSON) — agregador por anuncio/campaña.
+ * GET /api/procedencia/leads?destino=EMPRESA&paginas=50
+ */
+app.get('/api/procedencia/leads', async (req, res) => {
+  try {
+    const destino = String(req.query.destino || 'EMPRESA').toUpperCase();
+    const paginas = parseInt(req.query.paginas || '30', 10);
+    res.json(await procedenciaLeads({ destino, paginas }));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * DASHBOARD VISUAL DE PROCEDENCIA — la vista "tipo Meta Business Suite".
+ * GET /procedencia
+ */
+app.get('/procedencia', (_req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8').send(PROCE_PAGE);
 });
 
 /**
