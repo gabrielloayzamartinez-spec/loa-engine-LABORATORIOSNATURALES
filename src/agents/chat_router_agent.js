@@ -379,12 +379,33 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const resolvedSede = resolveSedeContext({ pageId: targetPageId, sede: currentSedeName, locationId: activeLocationId });
     if (resolvedSede && resolvedSede.users) {
       if (resolvedSede.sedeId === 'BENAVIDES') {
-        if (targetPageId === '510617778807469' || targetPageName?.toLowerCase().includes('corp')) {
+        // ================================================================
+        // [REGLA ESTRICTA DE PROPIETARIO — BENAVIDES]
+        //   Naturales Bio Corp (510617778807469)                     -> REDES 1
+        //   Bio Natural (126154270581792) / BioNatural Fuerza (…8423762) -> REDES 2
+        //
+        // MISMO DEFECTO QUE PALACIOS: el `else` atrapaba todo lo que no fuera
+        // "corp", asi que un lead sin evidencia de fanpage caia en REDES 2 sin
+        // dejar rastro. Ahora se evalua la evidencia REAL y se marca la revision.
+        // ================================================================
+        const esCorp = targetPageId === '510617778807469'
+          || (targetPageName || '').toLowerCase().includes('corp');
+        const esRedes2 = targetPageId === '126154270581792'
+          || targetPageId === '1147742788423762'
+          || (targetPageName || '').toLowerCase().includes('fuerza')
+          || (targetPageName || '').toLowerCase().includes('bio natural');
+
+        if (esCorp) {
           targetAdvisorId = resolvedSede.users.redes1.id;
           targetAdvisorName = resolvedSede.users.redes1.name;
         } else {
           targetAdvisorId = resolvedSede.users.redes2.id;
           targetAdvisorName = resolvedSede.users.redes2.name;
+          if (!hasRealFanpage) {
+            routingReviewReason = 'sin evidencia de fanpage de Meta';
+          } else if (!esRedes2) {
+            routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
+          }
         }
       } else if (resolvedSede.sedeId === 'PALACIOS') {
         // ================================================================
@@ -420,37 +441,51 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    // Fallback general contextual por subcuenta activa (NUNCA mezclar asesores de otra subcuenta)
+    // ==================================================================
+    // [FALLBACK CONTEXTUAL SEGURO — SOLO ASESORES DE LA MISMA SUBCUENTA]
+    //
+    // DEFECTO ANTERIOR (afectaba a ROOSEVELT y PIURA): el fallback tenia un
+    // `else` que asignaba el asesor de PALACIOS (ERNESTO) a CUALQUIER sede que
+    // no fuera Benavides. Es decir, un lead de Roosevelt o Piura quedaba
+    // asignado a un asesor de OTRA subcuenta: una fuga entre sedes.
+    //
+    // Ahora se toman SOLO los asesores de la subcuenta activa. Si la sede no
+    // tiene asesores configurados, NO se asigna uno ajeno: queda para revision.
+    // ==================================================================
     if (!targetAdvisorId) {
-      if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
-        targetAdvisorId = SEDES_GATEWAY.BENAVIDES.users.redes1.id;
-        targetAdvisorName = SEDES_GATEWAY.BENAVIDES.users.redes1.name;
+      const sedeActual = Object.values(SEDES_GATEWAY)
+        .find(s => s?.ghl?.locationId === activeLocationId);
+      const asesoresPropios = sedeActual?.users
+        ? Object.values(sedeActual.users).filter(u => u?.id)
+        : [];
+      if (asesoresPropios.length > 0) {
+        targetAdvisorId = asesoresPropios[0].id;
+        targetAdvisorName = asesoresPropios[0].name;
+        routingReviewReason = routingReviewReason || 'asignado por defecto al primer asesor de la sede';
       } else {
-        targetAdvisorId = SEDES_GATEWAY.PALACIOS.users.ernesto.id;
-        targetAdvisorName = SEDES_GATEWAY.PALACIOS.users.ernesto.name;
+        routingReviewReason = `sede ${currentSedeName} sin asesores configurados`;
+        console.warn(`[Agente 3] [RUTEO] ${currentSedeName} no tiene asesores configurados: no se asigna un asesor de otra subcuenta.`);
       }
     }
 
- // BLINDAJE MULTI-SEDE ESTRICTO: Un contacto en Benavides solo puede asignarse a un usuario de Benavides
-    if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
-      const benavidesUserIds = [
-        SEDES_GATEWAY.BENAVIDES.users.redes1.id,
-        SEDES_GATEWAY.BENAVIDES.users.redes2.id
-      ];
-      if (!benavidesUserIds.includes(targetAdvisorId)) {
-        console.warn(`[Agente 3] [GUARD] Prevenida asignación errónea de asesor (${targetAdvisorId}) en Benavides. Corrigiendo a REDES 1 BENAVIDES.`);
-        targetAdvisorId = SEDES_GATEWAY.BENAVIDES.users.redes1.id;
-        targetAdvisorName = SEDES_GATEWAY.BENAVIDES.users.redes1.name;
-      }
-    } else if (activeLocationId === SEDES_GATEWAY.PALACIOS.ghl.locationId) {
-      const palaciosUserIds = [
-        SEDES_GATEWAY.PALACIOS.users.ultra.id,
-        SEDES_GATEWAY.PALACIOS.users.ernesto.id
-      ];
-      if (!palaciosUserIds.includes(targetAdvisorId)) {
-        console.warn(`[Agente 3] [GUARD] Prevenida asignación errónea de asesor (${targetAdvisorId}) en Palacios. Corrigiendo a REDES PALACIOS ERNESTO.`);
-        targetAdvisorId = SEDES_GATEWAY.PALACIOS.users.ernesto.id;
-        targetAdvisorName = SEDES_GATEWAY.PALACIOS.users.ernesto.name;
+    // ==================================================================
+    // [BLINDAJE MULTI-SEDE GENÉRICO]
+    // El asesor asignado DEBE pertenecer a la subcuenta activa. Antes este
+    // guard solo cubria BENAVIDES y PALACIOS: Roosevelt y Piura quedaban sin
+    // proteccion. Ahora se aplica a las 4 sedes por locationId.
+    // ==================================================================
+    {
+      const sedeActual = Object.values(SEDES_GATEWAY)
+        .find(s => s?.ghl?.locationId === activeLocationId);
+      const asesoresValidos = sedeActual?.users
+        ? Object.values(sedeActual.users).filter(u => u?.id)
+        : [];
+      if (targetAdvisorId && asesoresValidos.length > 0
+          && !asesoresValidos.some(u => u.id === targetAdvisorId)) {
+        console.warn(`[Agente 3] [GUARD] Prevenida asignacion de asesor ajeno (${targetAdvisorId}) en ${currentSedeName}. Corrigiendo a ${asesoresValidos[0].name}.`);
+        targetAdvisorId = asesoresValidos[0].id;
+        targetAdvisorName = asesoresValidos[0].name;
+        routingReviewReason = 'asesor de otra subcuenta prevenido por el guard';
       }
     }
 
