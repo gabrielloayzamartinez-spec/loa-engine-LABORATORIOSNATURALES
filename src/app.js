@@ -1563,6 +1563,46 @@ app.post('/api/vtiger/buyers-backfill/desatascar', async (req, res) => {
 });
 
 /**
+ * [REPRENDER EL CARRO] Un solo boton para cuando vTiger se cae por minutos y vuelve:
+ *   1. Desatasca cualquier flag "completo" falso.
+ *   2. Fuerza UN ciclo inmediato de backfill (sin esperar al scheduler de 10 min).
+ *   3. Devuelve el resultado del ciclo y el offset actual de Palacios.
+ *
+ *   POST /api/vtiger/buyers-backfill/reanudar?sede=PALACIOS
+ *   POST /api/vtiger/buyers-backfill/reanudar?sede=TODAS
+ */
+app.post('/api/vtiger/buyers-backfill/reanudar', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || '').toUpperCase();
+    const objetivo = (sede === '' || sede === 'TODAS' || sede === 'ALL')
+      ? ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA']
+      : sede.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    // 1) Desatascar flags falsos (un lote vacio transitorio no debe bloquear).
+    const desatascadas = await desatascarBackfill(objetivo);
+    // 2) Forzar un ciclo inmediato.
+    const ciclo = await runBuyersBackfill({ sedes: objetivo, maxLotes: 1 });
+    // 3) Estado actual de Palacios.
+    const estado = await getBuyersBackfillStatus();
+    res.json({
+      success: true,
+      desatascadas,
+      ciclo: {
+        contactos: ciclo?.contactos || 0,
+        creados: ciclo?.creados || 0,
+        actualizados: ciclo?.actualizados || 0,
+        descartados: ciclo?.descartados || 0,
+        fallidos: ciclo?.fallidos || 0,
+        ms: ciclo?.ms || 0
+      },
+      palacios: { offset: estado.porSede?.PALACIOS?.offset, completo: estado.porSede?.PALACIOS?.completo },
+      message: 'Ciclo forzado ejecutado. Revisa "palacios.offset" para confirmar el avance.'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * [ESTRENO DE SUBCUENTAS] Clona los campos personalizados de una sede de
  * referencia (Palacios, que tiene los 27 resueltos) hacia las demas subcuentas.
  *
