@@ -161,8 +161,8 @@ export const PAGE_TAG_MAP = {
 export const FB_PAGE_ID_MAP = {
   // PALACIOS ERNESTO
   "566501466542620": "Naturales BioNatural",
-  "718150351371765": "Laboratorios Naturales BIO",
-  // PALACIOS ULTRA
+  // PALACIOS CLICK2RING (REDES 2)
+  "718150351371765": "Laboratorios Naturales BIO", // formularios -> CLICK2RING
   "111906554968800": "BioNatural - Ultra",
   // BENAVIDES 1
   "510617778807469": "Naturales Bio Corp",
@@ -185,15 +185,15 @@ export const PALACIOS_USERS = {
     id: "8LuTk9jzt5BeaKLxdVru",
     name: "REDES 1 ERNESTO",
     email: "fb.palacios.1@gmail.com",
-    pages: ["Naturales BioNatural", "Laboratorios Naturales BIO"],
-    fbPageIds: ["566501466542620", "718150351371765"]
+    pages: ["Naturales BioNatural"],
+    fbPageIds: ["566501466542620"]
   },
   "bionatural ultra": {
     id: "RrzgEyi2VOKIJ7Tf54SR",
     name: "REDES 2 CLICK2RING",
     email: "fb.palacios.2ultra@gmail.com",
-    pages: ["BioNatural - Ultra"],
-    fbPageIds: ["111906554968800"]
+    pages: ["BioNatural - Ultra", "Laboratorios Naturales BIO"],
+    fbPageIds: ["111906554968800", "718150351371765"]
   },
   "redes benavides 1": {
     id: "GLC6pCjW4oP76hcT9QuC",
