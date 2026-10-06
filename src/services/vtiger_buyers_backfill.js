@@ -300,6 +300,30 @@ export async function runBuyersBackfill({
 
   const estado = await getBuyersBackfillStatus();
   const inicio = Date.now();
+
+  // [AUTO-RECUPERACION] Un falso `completo` se corrige SOLO, sin intervencion humana.
+  // Si una sede figura completa pero su offset es MENOR que el total de compradores,
+  // es un lote vacio transitorio mal interpretado (el defecto que detuvo Palacios en
+  // el 12.86%). Se baja el flag para que el scheduler la retome en el proximo ciclo.
+  {
+    let autoSanado = 0;
+    for (const sede of VTIGER_SEDES_VALIDAS) {
+      const porSede = estado.porSede?.[sede];
+      const total = COMPRADORES_POR_SEDE[sede];
+      if (!porSede || !total) continue;
+      if (porSede.completo && (parseInt(porSede.offset, 10) || 0) < total) {
+        porSede.completo = false;
+        porSede.vaciosConsecutivos = 0;
+        autoSanado++;
+        recordAuditEvent({ type: 'BUYERS_BACKFILL_AUTO_DESATASCADO', severity: 'warn', sede, offset: porSede.offset, total });
+        console.warn(`[Buyers Backfill] [AUTO-HEAL] ${sede} figura completa con offset ${porSede.offset}/${total}: flag corregido solo.`);
+      }
+    }
+    if (autoSanado > 0) {
+      estado.completo = false;
+      await backfillStore.set(CURSOR_KEY, estado);
+    }
+  }
   const resumen = { lotes: 0, contactos: 0, creados: 0, actualizados: 0, descartados: 0, fallidos: 0, porSede: {} };
   const limite = Math.min(Math.max(parseInt(tamanoLote, 10) || 50, 1), 150);
 
