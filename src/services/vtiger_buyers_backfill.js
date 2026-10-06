@@ -214,6 +214,40 @@ export async function resetBuyersBackfillSede(sedes = []) {
 }
 
 /**
+ * [DESATASCAR] Corrige el flag `completo` mal puesto que detiene el backfill.
+ *
+ * A diferencia de `resetBuyersBackfillSede` (que BORRA el cursor y repite todo el
+ * trabajo), este SOLO baja `completo: false` y conserva el `offset`: el backfill
+ * retoma EXACTAMENTE donde quedo. Es la recuperacion ante un falso `completo` por
+ * un lote vacio transitorio de vTiger.
+ *
+ * @param {string[]} sedes nombres de sede a desatascar
+ * @returns {Promise<string[]>} sedes efectivamente desatascadas
+ */
+export async function desatascarBackfill(sedes = []) {
+  const pedidas = [...new Set((sedes || []).map(s => String(s).toUpperCase().trim()).filter(Boolean))]
+    .filter(s => VTIGER_SEDES_VALIDAS.includes(s));
+  if (pedidas.length === 0) return [];
+
+  const estado = await getBuyersBackfillStatus();
+  const desatascadas = [];
+  for (const sede of pedidas) {
+    if (estado.porSede && estado.porSede[sede]) {
+      estado.porSede[sede].completo = false;
+      estado.porSede[sede].vaciosConsecutivos = 0;
+      desatascadas.push(sede);
+    }
+  }
+  if (desatascadas.length > 0) {
+    estado.completo = false;
+    await backfillStore.set(CURSOR_KEY, estado);
+    console.log(`[Buyers Backfill] [DESATASCAR] Sede(s) retomadas: ${desatascadas.join(', ')}.`);
+    recordAuditEvent({ type: 'BUYERS_BACKFILL_DESATASCADO', severity: 'warn', sedes: desatascadas });
+  }
+  return desatascadas;
+}
+
+/**
  * Ejecuta un lote de backfill de compradores.
  *
  * @param {object} opts
@@ -340,11 +374,21 @@ export async function runBuyersBackfill({
       }
 
       if (contactos.length === 0) {
-        console.log(`[Buyers Backfill] [${sede}] Cartera completada (ultimoId ${ultimoId || 'inicio'}).`);
+        // [DEFECTO CORREGIDO] Antes un lote vacio marcaba `completo: true` DE INMEDIATO.
+        // Pero vTiger puede devolver 0 filas de forma TRANSITORIA (saturacion, timeout
+        // silencioso): un solo vacio no es prueba de que la cartera termino. Ese falso
+        // `completo` dejaba el backfill PARADO en el 12.86% (Palacios), sin retomar.
+        // Ahora se exigen 3 vacios CONSECUTIVOS antes de declarar la cartera completa.
+        const vacios = parseInt(cursorSede?.vaciosConsecutivos || 0, 10) + 1;
+        const esCompleto = vacios >= 3;
+        console.log(`[Buyers Backfill] [${sede}] Lote vacio (vacio #${vacios}${esCompleto ? ' -> COMPLETA' : ' -> reintentara'}).`);
+        if (vacios === 1) {
+          recordAuditEvent({ type: 'BUYERS_BACKFILL_EMPTY_BATCH', severity: 'warn', sede, ultimoId: ultimoId || null, offset, vacios });
+        }
         return {
           sede, leidos: 0, creados: 0, actualizados: 0, descartados: 0, fallidos: 0,
-          cursor: { ...cursorSede, offset, completo: true, ultimaEjecucion: new Date().toISOString() },
-          completo: true
+          cursor: { ...cursorSede, offset, completo: esCompleto, vaciosConsecutivos: vacios, ultimaEjecucion: new Date().toISOString() },
+          completo: esCompleto
         };
       }
 
@@ -440,9 +484,11 @@ export async function runBuyersBackfill({
           offset: offset + contactos.length,
           ultimaEjecucion: new Date().toISOString(),
           ultimoLote: contactos.length,
-          completo: contactos.length < limiteSede
+          // Un lote con contactos restablece el contador de vacios: hay trabajo real.
+          completo: false,
+          vaciosConsecutivos: 0
         },
-        completo: contactos.length < limiteSede
+        completo: false
       };
     }));
 
