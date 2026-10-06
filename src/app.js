@@ -21,7 +21,7 @@ import { runForwardCure, runBackwardCure, getBiCuratorMetrics } from './services
 import { envInt } from './config/secrets.js';
 import { sanitizeContactPayload, sanitizeObject, sanitizeString, sanitizePhone, sanitizeEmail, sanitizeId, detectInjectionPatterns } from './utils/sanitize.js';
 import { recordAuditEvent, getAuditMetrics, readAuditEvents } from './services/audit_logger.js';
-import { getVtigerConfigStatus, getVtigerGateMetrics } from './services/vtigerClient.js';
+import { getVtigerConfigStatus, getVtigerGateMetrics, getVtigerCircuit } from './services/vtigerClient.js';
 import { readSecret } from './config/secrets.js';
 import { isCentralConfigured } from './services/dual_sync_service.js';
 import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
@@ -547,6 +547,9 @@ app.get('/api/health', (req, res) => {
     // activas, cuantas en espera y la espera media. Sirve para ver si vTiger se esta
     // saturando antes de que aparezcan abortos en los logs.
     vtigerGate: getVtigerGateMetrics(),
+    // [CIRCUIT BREAKER vTiger] CLOSED=funcionando, OPEN=pausado (vTiger caido),
+    // HALF_OPEN=probando si volvio. El sistema se pausa y reanuda SOLO.
+    vtigerCircuit: getVtigerCircuit(),
     // [DIAGNOSTICO] Estado de la Cuenta Empresa. Expone SOLO presencia de
     // credenciales, nunca su valor. `apiKeyPresente: true` NO significa que el
     // token sirva (un PIT revocado esta presente y falla igual), por eso se

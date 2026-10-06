@@ -712,6 +712,69 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_M
 // ------------------------------------------------------------------------------
 // 6. CONSULTA CON REINTENTOS (NUNCA PIERDE EL DATO EN TRÁNSITO)
 // ------------------------------------------------------------------------------
+// ==========================================================================
+// [CIRCUIT BREAKER vTiger — AUTONOMO 24/7]
+// Si vTiger se cae, las consultas se PAUSAN solas (circuito ABIERTO) durante un
+// cooldown. Al vencer, se prueba UNA sonda (HALF_OPEN): si responde, el circuito
+// se CIERRA y el trabajo reanuda solo. Sin intervencion humana ni endpoints.
+//   VTIGER_CB_THRESHOLD      -> fallos seguidos para abrir (default 3)
+//   VTIGER_CB_COOLDOWN_MS    -> pausa antes de sondear (default 120000 = 2 min)
+// ==========================================================================
+const vtigerCircuit = {
+  status: 'CLOSED', // CLOSED | OPEN | HALF_OPEN
+  fallosConsecutivos: 0,
+  abiertoEn: null,
+  get umbral() { return parseInt(process.env.VTIGER_CB_THRESHOLD || '3', 10); },
+  get cooldownMs() { return parseInt(process.env.VTIGER_CB_COOLDOWN_MS || '120000', 10); }
+};
+
+function circuitoPermitir() {
+  if (vtigerCircuit.status === 'CLOSED' || vtigerCircuit.status === 'HALF_OPEN') return true;
+  // OPEN: solo se permite si vencio el cooldown -> sonda HALF_OPEN
+  if (Date.now() - (vtigerCircuit.abiertoEn || 0) >= vtigerCircuit.cooldownMs) {
+    vtigerCircuit.status = 'HALF_OPEN';
+    console.log('[vTiger] [CIRCUIT] Cooldown vencido: sonda HALF_OPEN para ver si vTiger volvio.');
+    return true;
+  }
+  return false;
+}
+
+function circuitoExito() {
+  if (vtigerCircuit.status !== 'CLOSED') {
+    console.log('[vTiger] [CIRCUIT] vTiger respondio: circuito CERRADO (trabajo reanudado).');
+    recordAuditEvent({ type: 'VTIGER_CIRCUIT_CLOSED', severity: 'info', reason: 'vTiger volvio a responder' });
+  }
+  vtigerCircuit.status = 'CLOSED';
+  vtigerCircuit.fallosConsecutivos = 0;
+  vtigerCircuit.abiertoEn = null;
+}
+
+function circuitoFallo(context) {
+  vtigerCircuit.fallosConsecutivos++;
+  if (vtigerCircuit.fallosConsecutivos >= vtigerCircuit.umbral && vtigerCircuit.status !== 'OPEN') {
+    vtigerCircuit.status = 'OPEN';
+    vtigerCircuit.abiertoEn = Date.now();
+    recordAuditEvent({
+      type: 'VTIGER_CIRCUIT_OPEN',
+      severity: 'critical',
+      fallos: vtigerCircuit.fallosConsecutivos,
+      cooldownSeg: Math.round(vtigerCircuit.cooldownMs / 1000),
+      reason: `vTiger fallo ${vtigerCircuit.fallosConsecutivos} veces seguidas: pausando consultas ${Math.round(vtigerCircuit.cooldownMs / 1000)}s.`
+    });
+    console.error('[vTiger] [CIRCUIT] ABIERTO: vTiger caido. Consultas pausadas, se reintentara solo.');
+  }
+}
+
+export function getVtigerCircuit() {
+  return {
+    status: vtigerCircuit.status,
+    fallosConsecutivos: vtigerCircuit.fallosConsecutivos,
+    abiertoEn: vtigerCircuit.abiertoEn,
+    umbral: vtigerCircuit.umbral,
+    cooldownSeg: Math.round(vtigerCircuit.cooldownMs / 1000)
+  };
+}
+
 /**
  * Ejecuta `operation=query` contra vTiger con reintentos seguros.
  *
@@ -763,9 +826,23 @@ export async function query(queryStr, { context = 'query', maxAttempts = MAX_ATT
   // [COMPUERTA DE CONCURRENCIA] Todo intento (incluidos los reintentos) pasa por
   // la compuerta. Sin esto, decenas de consultas simultaneas saturan la unica
   // sesion de vTiger y provocan abortos en cadena.
-  return conCompuerta(() => ejecutarConReintentos({
-    endpoint, cleanQuery, context, maxAttempts, timeoutMs
-  }));
+  //
+  // [CIRCUIT BREAKER] Si vTiger esta caido (circuito ABIERTO), la consulta se pausa
+  // de inmediato sin gastar reintentos. Cuando vTiger vuelve, se reanuda solo.
+  if (!circuitoPermitir()) {
+    recordAuditEvent({ type: 'VTIGER_CIRCUIT_PAUSED', severity: 'warn', context, reason: 'circuito abierto: vTiger en pausa' });
+    throw new Error('VTIGER_CIRCUIT_OPEN: vTiger caido, consulta pausada temporalmente.');
+  }
+  try {
+    const resultado = await conCompuerta(() => ejecutarConReintentos({
+      endpoint, cleanQuery, context, maxAttempts, timeoutMs
+    }));
+    circuitoExito();
+    return resultado;
+  } catch (err) {
+    circuitoFallo(context);
+    throw err;
+  }
 }
 
 /** Bucle de intentos + backoff. Se extrajo para poder envolverlo con la compuerta. */
