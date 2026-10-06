@@ -127,7 +127,7 @@ function startCentralCredentialCheck(intervaloMs = 15 * 60 * 1000) {
 import { syncVtigerContactDual, resolveCustomFieldIds, CAMPOS_REQUERIDOS, clearFieldCache } from './services/dual_sync_service.js';
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
-import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill, resetBuyersBackfillSede, contarContactosGhl, COMPRADORES_POR_SEDE, TOTAL_COMPRADORES } from './services/vtiger_buyers_backfill.js';
+import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill, resetBuyersBackfillSede, desatascarBackfill, contarContactosGhl, COMPRADORES_POR_SEDE, TOTAL_COMPRADORES } from './services/vtiger_buyers_backfill.js';
 import { getActiveSedeAgents, getSedeAgent } from './agents/sede_agent.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes } from './config/sedes_gateway.js';
@@ -1532,6 +1532,30 @@ app.post('/api/vtiger/buyers-backfill/reset-sede', async (req, res) => {
       success: true,
       reiniciadas,
       message: `Cursor reiniciado para: ${reiniciadas.join(', ') || '(ninguna)'}. El proximo ciclo las recorre desde los compradores mas recientes.`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * [DESATASCAR BACKFILL] Baja el flag `completo` mal puesto (falso positivo por un
+ * lote vacio transitorio de vTiger) SIN reiniciar el cursor. El backfill retoma
+ * donde quedo.
+ *   POST /api/vtiger/buyers-backfill/desatascar?sedes=PALACIOS
+ */
+app.post('/api/vtiger/buyers-backfill/desatascar', async (req, res) => {
+  try {
+    const pedidas = String(req.query.sedes || '')
+      .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (pedidas.length === 0) {
+      return res.status(400).json({ success: false, error: 'Indica ?sedes=PALACIOS' });
+    }
+    const desatascadas = await desatascarBackfill(pedidas);
+    res.json({
+      success: true,
+      desatascadas,
+      message: `Flag completo corregido para: ${desatascadas.join(', ') || '(ninguna)'}. El proximo ciclo retoma desde el cursor actual.`
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
