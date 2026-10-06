@@ -26,6 +26,7 @@ import { readSecret } from './config/secrets.js';
 import { isCentralConfigured } from './services/dual_sync_service.js';
 import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
 import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
+import { auditarRuteo } from './services/routing_audit.js';
 
 /**
  * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
@@ -1889,6 +1890,31 @@ app.post('/api/empresa/depurar-sin-telefono', async (req, res) => {
   }
   try {
     const r = await depurarSinTelefonoEmpresa({ paginas, ejecutar, borrar });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * [EL OJO DEL DEALER] Audita que el propietario asignado corresponda a la fanpage
+ * por la que escribio el lead.
+ *
+ * Regla de negocio:
+ *   "BioNatural - Ultra"    ->  SIEMPRE CLICK2RING
+ *   "Naturales BioNatural"  ->  SIEMPRE ERNESTO
+ *
+ * El router deja el slug de la fanpage como etiqueta, asi que esta auditoria es
+ * INDEPENDIENTE del router: compara etiqueta vs propietario real y reporta los
+ * desajustes. Solo lectura.
+ *
+ *   GET /api/routing/auditoria?sede=PALACIOS&paginas=50
+ */
+app.get('/api/routing/auditoria', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const paginas = parseInt(req.query.paginas || '50', 10);
+    const r = await auditarRuteo({ sede, paginas });
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

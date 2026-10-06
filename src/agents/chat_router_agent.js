@@ -371,6 +371,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Determinar a qué asesor le corresponde esta página (por Sede, Page ID o por Nombre de Fanpage)
     let targetAdvisorId = null;
     let targetAdvisorName = null;
+    // [AUDITORIA DE RUTEO] Motivo por el que la asignacion NO se pudo confirmar con
+    // evidencia de Meta. Si queda con valor, el contacto se etiqueta "revisar-ruteo"
+    // para que sea auditable (antes la asignacion fallida era silenciosa).
+    let routingReviewReason = null;
 
     const resolvedSede = resolveSedeContext({ pageId: targetPageId, sede: currentSedeName, locationId: activeLocationId });
     if (resolvedSede && resolvedSede.users) {
@@ -383,12 +387,35 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           targetAdvisorName = resolvedSede.users.redes2.name;
         }
       } else if (resolvedSede.sedeId === 'PALACIOS') {
-        if (targetPageId === '111906554968800' || targetPageName?.toLowerCase().includes('ultra')) {
+        // ================================================================
+        // [REGLA ESTRICTA DE PROPIETARIO — PALACIOS]
+        //   ULTRA       (111906554968800)                   -> SIEMPRE CLICK2RING
+        //   BioNatural  (566501466542620 / 718150351371765) -> SIEMPRE ERNESTO
+        //
+        // DEFECTO ANTERIOR: el `else` asignaba ERNESTO a CUALQUIER cosa que no
+        // fuera ULTRA, incluso cuando la pagina NO se pudo confirmar (mensaje sin
+        // metadatos de Meta, SMS, formulario). Asi un lead de ULTRA sin evidencia
+        // terminaba en ERNESTO y sin dejar rastro. Ahora se evalua la evidencia
+        // REAL y, si la pagina no esta mapeada o no hay evidencia, se mantiene la
+        // continuidad operativa (ERNESTO) PERO se marca "revisar-ruteo".
+        // ================================================================
+        const esUltra = targetPageId === '111906554968800'
+          || (targetPageName || '').toLowerCase().includes('ultra');
+        const esBioNatural = targetPageId === '566501466542620'
+          || targetPageId === '718150351371765'
+          || (targetPageName || '').toLowerCase().includes('bionatural');
+
+        if (esUltra) {
           targetAdvisorId = resolvedSede.users.ultra.id;
           targetAdvisorName = resolvedSede.users.ultra.name;
         } else {
           targetAdvisorId = resolvedSede.users.ernesto.id;
           targetAdvisorName = resolvedSede.users.ernesto.name;
+          if (!hasRealFanpage) {
+            routingReviewReason = 'sin evidencia de fanpage de Meta';
+          } else if (!esBioNatural) {
+            routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
+          }
         }
       }
     }
@@ -850,6 +877,28 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // La mudanza de sede entre subcuentas ya no existe. Cada contacto pertenece a la sede de su subcuenta.
     const isMudanzaDeSede = false;
     newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
+
+    // [AUDITORIA DE RUTEO] Si la asignacion no se pudo confirmar con evidencia de
+    // Meta, se marca el contacto para revision humana. Es el "ojo" permanente sobre
+    // las delegaciones que antes ocurrian en silencio.
+    if (routingReviewReason) {
+      newTagsSet.add('revisar-ruteo');
+      recordAuditEvent({
+        type: 'ROUTING_REVIEW_FLAGGED',
+        severity: 'warn',
+        sede: currentSedeName,
+        contactoId: contact.id,
+        pageId: targetPageId,
+        pageName: targetPageName,
+        asesorAsignado: targetAdvisorName,
+        motivo: routingReviewReason
+      });
+      console.warn(`[Agente 3] [RUTEO-REVISAR] ${contact.id}: ${routingReviewReason} -> asignado a ${targetAdvisorName}`);
+    } else if (newTagsSet.has('revisar-ruteo') && hasRealFanpage) {
+      // El ruteo quedo confirmado: se retira la marca de revision previa.
+      newTagsSet.delete('revisar-ruteo');
+      tagsToRemove.push('revisar-ruteo');
+    }
 
  // Purga forzosa de etiquetas obsoletas de mudanza que hayan quedado de sincronizaciones previas
     const MUDANZA_OBSOLETE_TAGS = ['mudanza-desde-palacios', 'mudanza-desde-benavides', 'mudanza-de-sede', 'mudanza-gracia-expirada'];
