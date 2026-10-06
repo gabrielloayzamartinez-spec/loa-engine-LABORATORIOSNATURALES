@@ -810,20 +810,21 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       existingSource: contact.source
     });
 
- // AFINAMIENTO DE ASESOR SEGÚN PROVEEDOR DETECTADO EN ADSET / CAMPAÑA:
-    if (resolvedSede && resolvedSede.users) {
+ // [AFINAMIENTO POR PROVEEDOR — SOLO SI LA PAGINA NO FUE CONFIRMADA]
+    // DEFECTO CORREGIDO (confirmado por auditoria de ruteo): esta afinacion
+    // SOBREESCRIBIA la asignacion correcta por pagina. Un lead de la fanpage de
+    // ERNESTO cuyo anuncio/campaña menciona "CLICK2RING" (o CESAR/PIKALEX)
+    // terminaba asignado a CLICK2RING: ~50% de Palacios y Benavides mal delegados.
+    //
+    // La PAGINA es la fuente AUTORITATIVA. El proveedor solo afina cuando NO hay
+    // fanpage confirmada (routingReviewReason != null, p.ej. SMS/formulario sin
+    // pagina o pagina no mapeada).
+    if (routingReviewReason && resolvedSede && resolvedSede.users) {
       if (resolvedSede.sedeId === 'PALACIOS') {
-        // [REGLA EXPLÍCITA DE PROPIETARIO] La página de FORMULARIOS
-        // "Laboratorios Naturales BIO" (718150351371765) es SIEMPRE de CLICK2RING,
-        // aunque su proveedor se resuelva como IN_HOUSE (orgánico). Este override
-        // prevalece sobre la afinación por proveedor de abajo.
-        if (targetPageId === '718150351371765') {
+        if (targetProvider === 'CLICK2RING') {
           targetAdvisorId = resolvedSede.users.ultra.id;
           targetAdvisorName = resolvedSede.users.ultra.name;
-        } else if (targetProvider === 'CLICK2RING') {
-          targetAdvisorId = resolvedSede.users.ultra.id;
-          targetAdvisorName = resolvedSede.users.ultra.name;
-        } else if (targetProvider === 'ERNESTO' || targetProvider === 'IN_HOUSE') {
+        } else {
           targetAdvisorId = resolvedSede.users.ernesto.id;
           targetAdvisorName = resolvedSede.users.ernesto.name;
         }
@@ -831,7 +832,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         if (targetProvider === 'CLICK2RING') {
           targetAdvisorId = resolvedSede.users.redes2.id;
           targetAdvisorName = resolvedSede.users.redes2.name;
-        } else if (targetProvider === 'ERNESTO' || targetProvider === 'IN_HOUSE') {
+        } else {
           targetAdvisorId = resolvedSede.users.redes1.id;
           targetAdvisorName = resolvedSede.users.redes1.name;
         }
