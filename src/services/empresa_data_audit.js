@@ -73,8 +73,7 @@ export async function auditarDuplicadosEmpresa({ paginas = 5 } = {}) {
     // contacto). El campo `startAfter` es numerico y NO avanza las paginas: devolvia
     // el MISMO contacto repetido, lo que inflaba el reporte de duplicados/sin-telefono
     // (se contaba el mismo contacto N veces como si fueran N duplicados).
-    const cursorSiguiente = d?.meta?.startAfterId ?? (contactos[contactos.length - 1]?.id);
-    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursorSiguiente}` : null;
+    url = siguienteUrlContactos(d, contactos, locId);
     if (!url) break;
   }
 
@@ -120,6 +119,24 @@ export async function auditarDuplicadosEmpresa({ paginas = 5 } = {}) {
  * @param {boolean} [opts.ejecutar=false] true para ELIMINAR los duplicados
  * @returns {Promise<object>}
  */
+
+/**
+ * Calcula la URL de la siguiente pagina de contactos GHL de forma robusta.
+ * El endpoint GET /contacts/ esta deprecated y su cursor historico (`startAfter`
+ * numerico) no avanza las paginas. Prioridad:
+ *   1) `meta.nextPageUrl` (GHL provee la URL completa correcta)
+ *   2) `meta.startAfterId` / `meta.startAfter`
+ *   3) el id del ultimo contacto del lote
+ */
+function siguienteUrlContactos(d, contactos, locId) {
+  const meta = d?.meta || {};
+  if (meta.nextPageUrl) return meta.nextPageUrl;
+  const cursor = meta.startAfterId ?? meta.startAfter ?? (contactos?.[contactos.length - 1]?.id);
+  return cursor
+    ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursor}`
+    : null;
+}
+
 export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false } = {}) {
   const locId = readSecret('GHL_LOCATION_ID_CENTRAL');
   const apiKey = readSecret('GHL_API_KEY_CENTRAL');
@@ -132,6 +149,7 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
 
   // tel -> [{ id, dateUpdated }]
   const porTelefono = new Map();
+  const metaCapturada = [];
   let escaneados = 0;
   let url = `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100`;
 
@@ -141,6 +159,15 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
     const d = await r.json();
     const contactos = d?.contacts || [];
     if (contactos.length === 0) break;
+    if (metaCapturada.length < 3) {
+      metaCapturada.push({
+        pagina: p + 1,
+        nContactos: contactos.length,
+        primerId: contactos[0]?.id,
+        ultimoId: contactos[contactos.length - 1]?.id,
+        meta: d?.meta ?? null
+      });
+    }
     for (const c of contactos) {
       escaneados++;
       const tel = normalizarTelefonoAuditoria(c.phone);
@@ -148,16 +175,7 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
       if (!porTelefono.has(tel)) porTelefono.set(tel, []);
       porTelefono.get(tel).push({ id: c.id, dateUpdated: c.dateUpdated || c.dateAdded || '' });
     }
-    // [PAGINACION CORRECTA] GHL pagina con `startAfter` (un cursor), NO con
-    // `nextPageUrl`. Con el campo equivocado, el bucle se detenia tras la PRIMERA
-    // pagina y el auditor/depurador solo veia 100 contactos: el reporte de
-    // "0 sin telefono" era falso (la basura esta en las paginas profundas).
-    // [PAGINACION REAL] GHL expone el cursor como `startAfterId` (el ID del ultimo
-    // contacto). El campo `startAfter` es numerico y NO avanza las paginas: devolvia
-    // el MISMO contacto repetido, lo que inflaba el reporte de duplicados/sin-telefono
-    // (se contaba el mismo contacto N veces como si fueran N duplicados).
-    const cursorSiguiente = d?.meta?.startAfterId ?? (contactos[contactos.length - 1]?.id);
-    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursorSiguiente}` : null;
+    url = siguienteUrlContactos(d, contactos, locId);
     if (!url) break;
   }
 
@@ -196,6 +214,7 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
     aEliminar: aEliminar.length,
     eliminados,
     fallos,
+    metaCapturada,
     muestra: aEliminar.slice(0, 15).map(x => ({ telefono: x.telefono, eliminarId: x.id, conservarId: x.sobrevivienteId }))
   };
 
@@ -261,8 +280,7 @@ export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false,
     // contacto). El campo `startAfter` es numerico y NO avanza las paginas: devolvia
     // el MISMO contacto repetido, lo que inflaba el reporte de duplicados/sin-telefono
     // (se contaba el mismo contacto N veces como si fueran N duplicados).
-    const cursorSiguiente = d?.meta?.startAfterId ?? (contactos[contactos.length - 1]?.id);
-    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursorSiguiente}` : null;
+    url = siguienteUrlContactos(d, contactos, locId);
     if (!url) break;
   }
 
