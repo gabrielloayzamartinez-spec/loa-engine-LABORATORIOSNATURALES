@@ -69,8 +69,12 @@ export async function auditarDuplicadosEmpresa({ paginas = 5 } = {}) {
     // `nextPageUrl`. Con el campo equivocado, el bucle se detenia tras la PRIMERA
     // pagina y el auditor/depurador solo veia 100 contactos: el reporte de
     // "0 sin telefono" era falso (la basura esta en las paginas profundas).
-    const cursorSiguiente = d?.meta?.startAfter;
-    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfter=${cursorSiguiente}` : null;
+    // [PAGINACION REAL] GHL expone el cursor como `startAfterId` (el ID del ultimo
+    // contacto). El campo `startAfter` es numerico y NO avanza las paginas: devolvia
+    // el MISMO contacto repetido, lo que inflaba el reporte de duplicados/sin-telefono
+    // (se contaba el mismo contacto N veces como si fueran N duplicados).
+    const cursorSiguiente = d?.meta?.startAfterId ?? (contactos[contactos.length - 1]?.id);
+    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursorSiguiente}` : null;
     if (!url) break;
   }
 
@@ -148,8 +152,12 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
     // `nextPageUrl`. Con el campo equivocado, el bucle se detenia tras la PRIMERA
     // pagina y el auditor/depurador solo veia 100 contactos: el reporte de
     // "0 sin telefono" era falso (la basura esta en las paginas profundas).
-    const cursorSiguiente = d?.meta?.startAfter;
-    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfter=${cursorSiguiente}` : null;
+    // [PAGINACION REAL] GHL expone el cursor como `startAfterId` (el ID del ultimo
+    // contacto). El campo `startAfter` es numerico y NO avanza las paginas: devolvia
+    // el MISMO contacto repetido, lo que inflaba el reporte de duplicados/sin-telefono
+    // (se contaba el mismo contacto N veces como si fueran N duplicados).
+    const cursorSiguiente = d?.meta?.startAfterId ?? (contactos[contactos.length - 1]?.id);
+    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursorSiguiente}` : null;
     if (!url) break;
   }
 
@@ -249,8 +257,12 @@ export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false,
     // `nextPageUrl`. Con el campo equivocado, el bucle se detenia tras la PRIMERA
     // pagina y el auditor/depurador solo veia 100 contactos: el reporte de
     // "0 sin telefono" era falso (la basura esta en las paginas profundas).
-    const cursorSiguiente = d?.meta?.startAfter;
-    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfter=${cursorSiguiente}` : null;
+    // [PAGINACION REAL] GHL expone el cursor como `startAfterId` (el ID del ultimo
+    // contacto). El campo `startAfter` es numerico y NO avanza las paginas: devolvia
+    // el MISMO contacto repetido, lo que inflaba el reporte de duplicados/sin-telefono
+    // (se contaba el mismo contacto N veces como si fueran N duplicados).
+    const cursorSiguiente = d?.meta?.startAfterId ?? (contactos[contactos.length - 1]?.id);
+    url = cursorSiguiente ? `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100&startAfterId=${cursorSiguiente}` : null;
     if (!url) break;
   }
 

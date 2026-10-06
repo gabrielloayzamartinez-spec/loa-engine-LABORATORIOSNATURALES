@@ -1812,8 +1812,8 @@ app.get('/api/empresa/diagnostico', async (req, res) => {
         if (tags.includes('no-compro')) conTagNoCompro++;
         if (String(c.phone || '').trim()) conTelefono++; else sinTelefono++;
       }
-      const next = d.meta?.startAfter;
-      url = next ? `https://services.leadconnectorhq.com/contacts/?locationId=${loc}&limit=100&startAfter=${next}` : null;
+      const next = d.meta?.startAfterId ?? (lista[lista.length - 1]?.id);
+      url = next ? `https://services.leadconnectorhq.com/contacts/?locationId=${loc}&limit=100&startAfterId=${next}` : null;
     }
 
     const pct = n => leidos ? Math.round((n / leidos) * 100) : 0;
