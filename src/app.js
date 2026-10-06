@@ -2122,6 +2122,62 @@ app.post('/api/empresa/depurar-sin-telefono', async (req, res) => {
 });
 
 /**
+ * [TRABAJO DEL DÍA] Reprocesa los leads/conversaciones de las ÚLTIMAS N HORAS.
+ * Aplica los fixes (atribución más reciente, ruteo por página autoritativa) a los
+ * leads que HABLARON recientemente, sin esperar al radar. Es la prioridad del día:
+ * el dealer trabaja con el dato más reciente.
+ *
+ *   POST /api/leads/reprocesar-24h?horas=24
+ */
+app.post('/api/leads/reprocesar-24h', async (req, res) => {
+  try {
+    const horas = Math.min(Math.max(parseInt(req.query.horas || '24', 10), 1), 72);
+    const corte = new Date(Date.now() - horas * 3600 * 1000).getTime();
+    const targetLocations = getActiveSedes().filter(s => !s.isPaused).map(s => ({
+      id: s.ghl.locationId,
+      headers: getGhlHeaders({ locationId: s.ghl.locationId }),
+      name: s.name
+    }));
+    const resultado = [];
+    let totalConversaciones = 0;
+    let totalProcesados = 0;
+
+    for (const loc of targetLocations) {
+      if (!loc.id) continue;
+      try {
+        const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=100`;
+        const convRes = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
+        if (convRes.status !== 200) { resultado.push({ sede: loc.name, error: `HTTP ${convRes.status}` }); continue; }
+        const convData = await convRes.json();
+        const conversaciones = (convData.conversations || []).filter(c => {
+          const t = c.lastMessageDate || c.dateUpdated || c.dateAdded;
+          return t && new Date(t).getTime() >= corte;
+        });
+        totalConversaciones += conversaciones.length;
+
+        let procesados = 0;
+        for (const cv of conversaciones) {
+          if (!cv.contactId) continue;
+          try {
+            const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
+            if (r !== 'RETRY' && r !== 'RETRY_INDEXING') procesados++;
+          } catch { /* un contacto no aborta el lote */ }
+          await sleep(120);
+        }
+        totalProcesados += procesados;
+        resultado.push({ sede: loc.name, conversaciones24h: conversaciones.length, procesados });
+      } catch (e) {
+        resultado.push({ sede: loc.name, error: e.message });
+      }
+    }
+
+    res.json({ success: true, horas, totalConversaciones, totalProcesados, resultado });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * [EL OJO DEL DEALER] Audita que el propietario asignado corresponda a la fanpage
  * por la que escribio el lead.
  *
