@@ -2188,7 +2188,7 @@ app.get('/api/sedes/campos', async (req, res) => {
     const d = await r.json();
     const campos = (d.customFields || []).map(c => ({
       nombre: c.name || '(sin nombre)',
-      tipo: c.type || '',
+      tipo: c.dataType || c.fieldType || c.type || '',
       key: c.fieldKey || '',
       id: c.id || '',
       placeholder: c.placeholder || ''
