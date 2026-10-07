@@ -311,7 +311,18 @@ export async function fetchRecentConfirmedSales(limit = 25, sedeActiva = '') {
   try {
     // NOTA vTiger: `WHERE 1=1` NO es válido para su parser ("Permission to access
     // 1 attribute denied"). El WHERE se construye con la cláusula de sede directa.
-    const q = `SELECT ${VTIGER_FIELDS.ID}, ${VTIGER_FIELDS.FIRST_NAME}, ${VTIGER_FIELDS.LAST_NAME}, ${VTIGER_FIELDS.TRATAMIENTO}, ${VTIGER_FIELDS.CAMPANA}, ${VTIGER_FIELDS.CREATED_TIME}, ${VTIGER_FIELDS.SEDE} FROM Contacts WHERE ${VTIGER_FIELDS.SEDE} = '${sede}' ORDER BY ${VTIGER_FIELDS.CREATED_TIME} DESC LIMIT 0, ${safeLimit};`;
+    //
+    // [RENDIMIENTO — FIX CRÍTICO] ANTES: `ORDER BY createdtime DESC`. Ese campo NO
+    // tiene índice: vTiger escaneaba la tabla completa (399k contactos) y ordenaba,
+    // provocando timeouts ("This operation was aborted"). Esos fallos disparaban el
+    // CIRCUIT BREAKER, que pausaba TODAS las consultas — incluidas las búsquedas por
+    // teléfono del PRIMER NIVEL. Es decir: una tarea de MANTENIMIENTO (alimentar el
+    // Cerebro) tumbaba el trabajo EN VIVO.
+    //
+    // AHORA: `ORDER BY id DESC`. El `id` (CRMID) es la CLAVE PRIMARIA y es
+    // cronológicamente creciente, así que devuelve los mismos "contactos recientes"
+    // pero usando el índice → respuesta en milisegundos, sin timeouts.
+    const q = `SELECT ${VTIGER_FIELDS.ID}, ${VTIGER_FIELDS.FIRST_NAME}, ${VTIGER_FIELDS.LAST_NAME}, ${VTIGER_FIELDS.TRATAMIENTO}, ${VTIGER_FIELDS.CAMPANA}, ${VTIGER_FIELDS.CREATED_TIME}, ${VTIGER_FIELDS.SEDE} FROM Contacts WHERE ${VTIGER_FIELDS.SEDE} = '${sede}' ORDER BY ${VTIGER_FIELDS.ID} DESC LIMIT 0, ${safeLimit};`;
     const contacts = await queryVTiger(q, sede);
     // Trazabilidad del origen de cada registro.
     return (contacts || []).map(c => ({ ...c, __sedeOrigen: sede }));
