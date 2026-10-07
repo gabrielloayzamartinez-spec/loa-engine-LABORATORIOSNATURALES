@@ -454,20 +454,25 @@ export async function runBuyersBackfill({
       // Ahora cada contacto tiene un tope de tiempo. Si se pasa, se cuenta como
       // fallido y el lote CONTINUA: un contacto problematico ya no puede detener la
       // carga completa.
-      const TIMEOUT_CONTACTO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_TIMEOUT_CONTACTO_MS || '45000', 10) || 45000, 15000), 600000);
+      const TIMEOUT_CONTACTO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_TIMEOUT_CONTACTO_MS || '120000', 10) || 120000, 15000), 600000);
 
       // [DEADLINE DE CICLO — BLINDAJE CONTRA ESTANCAMIENTOS]
-      // DEFECTO REAL EN PRODUCCION: un lote lento (cada contacto fallido quema
-      // hasta 4 reintentos de ghlFetch x 30 s) puede tardar >80 min. Mientras ese
-      // lote no cierra, `buyersBackfillCorriendo` sigue en true y el scheduler se
-      // salta TODOS los disparos: el trabajo de 2do nivel queda muerto en silencio
-      // hasta el proximo redeploy (caso observado: 20:06 -> 21:26 sin avanzar).
+      // DEFECTO REAL EN PRODUCCION: un lote lento (cada contacto puede quemar hasta
+      // 120 s entre reintentos de GHL y del historial de ordenes) tarda ~34 min.
+      // Mientras ese lote no cierra, `buyersBackfillCorriendo` sigue en true y el
+      // scheduler se salta TODOS los disparos: el trabajo de 2do nivel queda muerto
+      // en silencio hasta el proximo redeploy (caso observado: 20:06 -> 21:26 sin
+      // avanzar; 126 contactos sincronizados y 107 timeouts sin que el cursor se
+      // moviera ni una vez).
       //
       // Ahora el ciclo tiene un tope de tiempo. Al vencer, se CORTA el lote de forma
       // ORDENADA: se persiste el avance REAL (solo los contactos ya procesados) y el
-      // ciclo siguiente retoma exactamente donde quedo. Nunca se salta un contacto y
-      // nunca se queda trabado.
-      const MAX_CICLO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_MAX_CICLO_MS || '1800000', 10) || 1800000, 60000), 3600000);
+      // ciclo siguiente retoma exactamente donde quedo. La clave: el cursor AVANZA
+      // AUNQUE el lote no termine, asi que el 2do nivel nunca mas se ve congelado.
+      //
+      // Se deja en 55 min (>34 min que tarda un lote normal) para NO cortar ciclos
+      // sanos: solo actua como red de seguridad ante un lote patologico.
+      const MAX_CICLO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_MAX_CICLO_MS || '3300000', 10) || 3300000, 60000), 3600000);
       const deadlineCiclo = Date.now() + MAX_CICLO_MS;
 
       const procesarUno = async (vContact) => {
