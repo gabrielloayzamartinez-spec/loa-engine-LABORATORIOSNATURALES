@@ -265,3 +265,142 @@ export function iniciarCorreccionUltraFondo({ sede = 'PALACIOS', paginas = 200 }
 
   return { ok: true, iniciado: true, sede: ctx.sedeId, estado: estadoCorreccionUltra() };
 }
+
+/**
+ * ==============================================================================
+ * DIAGNÓSTICO DE UTMs — ¿qué origen se puede EXTRAER de un contacto de Ultra?
+ * ==============================================================================
+ * Ultra es SOLO Messenger, así que el origen llega por DOS vías distintas:
+ *
+ *   VÍA 1 — Referral del mensaje (la principal para Messenger):
+ *     Cuando el lead hace clic en el anuncio, Facebook abre Messenger con un
+ *     "referral" que lleva el `ad_id` (y a veces `ref`, `source`, `type`). No hay
+ *     URL de destino, así que NO hay parámetros utm_* clásicos: el `ad_id` es el
+ *     identificador maestro y se traduce a Campaña / Conjunto / Anuncio con la
+ *     API de Meta.
+ *
+ *   VÍA 2 — Atribución de GHL (`attributionSource` / `lastAttributionSource` /
+ *     `attributions`): si el lead llegó por un enlace con parámetros, GHL guarda
+ *     utmSource, utmMedium, utmCampaign, utmContent, utmTerm y adId.
+ *
+ * Este diagnóstico es SOLO LECTURA: muestra, contacto por contacto, qué campos
+ * trae cada vía para saber exactamente qué se puede recuperar y qué no.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.sede='PALACIOS']
+ * @param {number} [opts.paginas=20] páginas a escanear para encontrar Ultra
+ * @param {number} [opts.muestra=5]  contactos a inspeccionar a fondo (tope 25)
+ */
+export async function diagnosticarUtmsUltra({ sede = 'PALACIOS', paginas = 20, muestra = 5 } = {}) {
+  const ctx = resolverSede(sede);
+  if (!ctx) return { ok: false, reason: `Sede ${sede} sin credenciales cargadas` };
+
+  const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 20, 1), 500);
+  const tope = Math.min(Math.max(parseInt(muestra, 10) || 5, 1), 25);
+
+  const { encontrados, escaneados } = await listarContactosUltra({ ...ctx, limitePaginas });
+  const seleccion = encontrados.slice(0, tope);
+
+  /** Normaliza una atribución a los campos que nos interesan. */
+  const extraerUtms = attr => {
+    if (!attr) return null;
+    return {
+      utmSource: attr.utmSource || null,
+      utmMedium: attr.utmMedium || null,
+      utmCampaign: attr.utmCampaign || attr.campaign || null,
+      utmContent: attr.utmContent || null,
+      utmTerm: attr.utmTerm || null,
+      adId: attr.utmAdId || attr.adId || null,
+      sessionSource: attr.sessionSource || null,
+      medium: attr.medium || null
+    };
+  };
+
+  const detalle = [];
+  for (const c of seleccion) {
+    const item = { id: c.id, nombre: c.nombre, atribucionGhl: null, adsEnMensajes: [], error: null };
+    try {
+      // 1. Atribución de GHL (vía 2).
+      const rC = await ghlFetch(
+        `https://services.leadconnectorhq.com/contacts/${c.id}`,
+        { headers: ctx.headers },
+        1,
+        'Ultra-Diag'
+      );
+      if (rC.status === 200) {
+        const contacto = (await rC.json())?.contact || {};
+        item.atribucionGhl = {
+          firstTouch: extraerUtms(contacto.attributionSource),
+          lastTouch: extraerUtms(contacto.lastAttributionSource),
+          todasLasAtribuciones: Array.isArray(contacto.attributions)
+            ? contacto.attributions.map(extraerUtms)
+            : []
+        };
+      }
+
+      // 2. Referral de los mensajes (vía 1) — la fuente real para Messenger.
+      const rConv = await ghlFetch(
+        `https://services.leadconnectorhq.com/conversations/search?locationId=${ctx.locId}&contactId=${c.id}&limit=5`,
+        { headers: { ...ctx.headers, Version: '2021-04-15' } },
+        1,
+        'Ultra-Diag'
+      );
+      if (rConv.status === 200) {
+        const dConv = await rConv.json();
+        const conversaciones = dConv?.conversations || dConv?.conversaciones || [];
+        for (const cv of conversaciones.slice(0, 3)) {
+          const rMsg = await ghlFetch(
+            `https://services.leadconnectorhq.com/conversations/${cv.id}/messages?locationId=${ctx.locId}&limit=20`,
+            { headers: ctx.headers },
+            1,
+            'Ultra-Diag'
+          );
+          if (rMsg.status !== 200) continue;
+          const dMsg = await rMsg.json();
+          for (const m of (dMsg?.messages?.messages || [])) {
+            const fb = m.meta?.fb || {};
+            const ref = m.meta?.referral || {};
+            const ad = fb.adId || fb.ad_id || ref.ad_id || ref.adId || null;
+            if (ad || ref.source || ref.type) {
+              item.adsEnMensajes.push({
+                fecha: m.dateAdded,
+                adId: ad,
+                refSource: ref.source || null,
+                refType: ref.type || null,
+                refRef: ref.ref || null,
+                desdePagina: fb.fromPageId || fb.pageId || null
+              });
+            }
+          }
+          await sleep(120);
+        }
+      }
+    } catch (err) {
+      item.error = err.message;
+    }
+    detalle.push(item);
+    await sleep(150);
+  }
+
+  const conAdEnMensaje = detalle.filter(d => d.adsEnMensajes.some(a => a.adId)).length;
+  const conUtmGhl = detalle.filter(d =>
+    d.atribucionGhl && (
+      (d.atribucionGhl.lastTouch && (d.atribucionGhl.lastTouch.utmCampaign || d.atribucionGhl.lastTouch.adId)) ||
+      (d.atribucionGhl.firstTouch && (d.atribucionGhl.firstTouch.utmCampaign || d.atribucionGhl.firstTouch.adId))
+    )
+  ).length;
+
+  return {
+    ok: true,
+    sede: ctx.sedeId,
+    escaneados,
+    contactosUltra: encontrados.length,
+    muestraInspeccionada: detalle.length,
+    resumen: {
+      conAdIdEnMensajes: conAdEnMensaje,
+      conUtmsEnGhl: conUtmGhl,
+      sinNingunaFuente: detalle.length - Math.max(conAdEnMensaje, conUtmGhl)
+    },
+    detalle
+  };
+}
