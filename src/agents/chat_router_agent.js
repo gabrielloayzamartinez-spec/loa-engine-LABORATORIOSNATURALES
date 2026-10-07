@@ -601,6 +601,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
     if (contact.attributionSource) attributionSources.push(contact.attributionSource);
 
+    // [ATRIBUCIÓN MÁS RECIENTE] Helper para todo lo que refleja la interacción ACTUAL
+    // (tratamiento, pauta pagada, canal). Evita caer en el PRIMER toque (attributionSource)
+    // cuando el lead re-engaña el mismo día por otra campaña.
+    const attrReciente = contact.lastAttributionSource || contact.attributionSource || null;
+
     for (const attr of attributionSources) {
       if (!attr) continue;
 
@@ -725,8 +730,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(targetAdName) ||
                                   inferTreatmentFromCampaignOrUtm(latestMedium) ||
                                   inferTreatmentFromCampaignOrUtm(latestCampaign) ||
-                                  inferTreatmentFromCampaignOrUtm(contact.attributionSource?.campaign) ||
-                                  inferTreatmentFromCampaignOrUtm(contact.attributionSource?.utmContent);
+                                  inferTreatmentFromCampaignOrUtm(attrReciente?.campaign) ||
+                                  inferTreatmentFromCampaignOrUtm(attrReciente?.utmContent);
 
     let targetTratamiento = adsetInferredTreatment;
     if (!targetTratamiento && isUltraPage) {
@@ -743,9 +748,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const checkIsPaidAd = (adId) => Boolean(
       (adId && isValidMetaAdId(adId)) ||
       latestAdSetName ||
-      contact.attributionSource?.sessionSource === 'Paid Social' ||
-      contact.attributionSource?.utmMedium === 'cpc' ||
-      contact.attributionSource?.utmMedium === 'paid' ||
+      attrReciente?.sessionSource === 'Paid Social' ||
+      attrReciente?.utmMedium === 'cpc' ||
+      attrReciente?.utmMedium === 'paid' ||
       latestMedium === 'cpc' ||
       latestMedium === 'paid'
     );
@@ -861,7 +866,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Twilio se etiquetaba como Messenger y contaminaba la atribución.
     const targetChannel = resolveChannelFromEvent({
       type: latestMessageTransport,
-      source: contact.attributionSource?.sessionSource || '',
+      source: attrReciente?.sessionSource || '',
       campaignName: latestCampaign || targetAdName,
       hasMetaPage: hasRealFanpage
     });
