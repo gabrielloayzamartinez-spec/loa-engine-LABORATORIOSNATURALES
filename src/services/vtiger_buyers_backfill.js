@@ -454,7 +454,21 @@ export async function runBuyersBackfill({
       // Ahora cada contacto tiene un tope de tiempo. Si se pasa, se cuenta como
       // fallido y el lote CONTINUA: un contacto problematico ya no puede detener la
       // carga completa.
-      const TIMEOUT_CONTACTO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_TIMEOUT_CONTACTO_MS || '120000', 10) || 120000, 15000), 600000);
+      const TIMEOUT_CONTACTO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_TIMEOUT_CONTACTO_MS || '45000', 10) || 45000, 15000), 600000);
+
+      // [DEADLINE DE CICLO — BLINDAJE CONTRA ESTANCAMIENTOS]
+      // DEFECTO REAL EN PRODUCCION: un lote lento (cada contacto fallido quema
+      // hasta 4 reintentos de ghlFetch x 30 s) puede tardar >80 min. Mientras ese
+      // lote no cierra, `buyersBackfillCorriendo` sigue en true y el scheduler se
+      // salta TODOS los disparos: el trabajo de 2do nivel queda muerto en silencio
+      // hasta el proximo redeploy (caso observado: 20:06 -> 21:26 sin avanzar).
+      //
+      // Ahora el ciclo tiene un tope de tiempo. Al vencer, se CORTA el lote de forma
+      // ORDENADA: se persiste el avance REAL (solo los contactos ya procesados) y el
+      // ciclo siguiente retoma exactamente donde quedo. Nunca se salta un contacto y
+      // nunca se queda trabado.
+      const MAX_CICLO_MS = Math.min(Math.max(parseInt(process.env.BACKFILL_MAX_CICLO_MS || '1800000', 10) || 1800000, 60000), 3600000);
+      const deadlineCiclo = Date.now() + MAX_CICLO_MS;
 
       const procesarUno = async (vContact) => {
         let temporizador = null;
@@ -481,7 +495,24 @@ export async function runBuyersBackfill({
         }
       };
 
+      let procesadosLote = 0;
+      let ultimoIdLote = ultimoId;
       for (let i = 0; i < contactos.length; i += CONCURRENCIA) {
+        // Se exige al menos UN grupo por ciclo (si no, el offset no avanzaria y el
+        // ciclo se repetiria infinitamente sobre el mismo lote).
+        if (i > 0 && Date.now() > deadlineCiclo) {
+          console.warn(`[Buyers Backfill] [${sede}] Deadline de ciclo alcanzado: ${procesadosLote}/${contactos.length} procesados. Avance persistido; el proximo ciclo retoma aqui.`);
+          recordAuditEvent({
+            type: 'BUYERS_BACKFILL_CICLO_ACOTADO',
+            severity: 'warn',
+            sede,
+            procesados: procesadosLote,
+            tamanoLote: contactos.length,
+            maxCicloMs: MAX_CICLO_MS,
+            reason: 'lote lento: se corta ordenadamente para no trabar la guarda'
+          });
+          break;
+        }
         const grupo = contactos.slice(i, i + CONCURRENCIA);
         const resultados = await Promise.all(grupo.map(procesarUno));
         for (const r of resultados) {
@@ -490,11 +521,16 @@ export async function runBuyersBackfill({
           else if (r.ok) { if (r.created) conteoSede.creados++; else conteoSede.actualizados++; }
           else conteoSede.fallidos++;
         }
+        procesadosLote = Math.min(i + grupo.length, contactos.length);
+        ultimoIdLote = grupo[grupo.length - 1]?.id || ultimoIdLote;
         if (pausaMs > 0) await new Promise(res => setTimeout(res, pausaMs));
       }
 
-      const nuevoUltimoId = contactos[contactos.length - 1]?.id || ultimoId;
-      console.log(`[Buyers Backfill] [${sede}] ${JSON.stringify(conteoSede)} (cursor id -> ${nuevoUltimoId}, total leidos ${offset + contactos.length}, concurrencia ${CONCURRENCIA})`);
+      // [AVANCE REAL] El cursor avanza SOLO por los contactos efectivamente
+      // procesados: si el deadline corto el lote, el proximo ciclo retoma en el
+      // contacto exacto donde quedo (cero saltos, cero repeticiones).
+      const nuevoUltimoId = ultimoIdLote;
+      console.log(`[Buyers Backfill] [${sede}] ${JSON.stringify(conteoSede)} (cursor id -> ${nuevoUltimoId}, total leidos ${offset + procesadosLote}, concurrencia ${CONCURRENCIA})`);
 
       return {
         sede,
@@ -505,9 +541,9 @@ export async function runBuyersBackfill({
         fallidos: conteoSede.fallidos,
         cursor: {
           ultimoId: nuevoUltimoId,
-          offset: offset + contactos.length,
+          offset: offset + procesadosLote,
           ultimaEjecucion: new Date().toISOString(),
-          ultimoLote: contactos.length,
+          ultimoLote: procesadosLote,
           // Un lote con contactos restablece el contador de vacios: hay trabajo real.
           completo: false,
           vaciosConsecutivos: 0
