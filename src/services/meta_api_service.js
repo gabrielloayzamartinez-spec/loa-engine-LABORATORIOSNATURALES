@@ -32,7 +32,29 @@ export function normalizePhone(phone) {
  * Evita llamar a Graph API múltiples veces para el mismo Ad ID
  */
 const adCache = new Map();
-const CACHE_TTL = 60 * 60 * 1000; // 1 hora
+const CACHE_TTL = 60 * 60 * 1000; // 1 hora (acierto)
+
+// [CACHÉ NEGATIVA — DEFECTO CORREGIDO]
+// Antes SOLO se cacheaban los aciertos. Si un Ad ID no se podia resolver
+// (anuncio de otra cuenta, ID viejo, creativo ya archivado), CADA contacto que
+// traia ese anuncio volvia a recorrer TODOS los tokens candidatos en serie:
+// 4 sedes + contingencias = hasta 8 llamadas a Graph API por contacto, cada una
+// con su timeout. Con decenas de contactos compartiendo el mismo anuncio
+// irreconocible, eso saturaba la cuota de Meta y retrasaba el ruteo completo.
+//
+// Ahora el fallo tambien se recuerda (TTL corto, porque un anuncio puede
+// volverse accesible cuando se corrige el acceso, como paso con Ultra).
+const NEGATIVE_CACHE_TTL = 15 * 60 * 1000; // 15 minutos (fallo)
+
+// [TOPE DE INTENTOS] La resolucion prueba tokens en serie. Sin tope, un anuncio
+// irreconocible agotaba toda la lista. Con el token de la sede primero, el caso
+// normal se resuelve al primer intento; el resto son solo contingencias.
+const MAX_TOKEN_INTENTOS = 4;
+
+// [TOPE POR LLAMADA] Graph API responde en menos de 1 s cuando el anuncio es
+// accesible. 10 s es holgado para el caso normal y evita que un anuncio
+// irreconocible encadene 4 intentos de 30 s (120 s por contacto).
+const META_AD_TIMEOUT_MS = 10000;
 
 /**
  * Extrae y ordena todos los tokens disponibles de Meta (primarios, por sede y contingencia)
@@ -92,15 +114,18 @@ export async function getMetaAdDetails(adId, options = {}) {
   if (!adId || adId === 'N/A') return null;
 
   const now = Date.now();
-  if (adCache.has(adId)) {
-    const cached = adCache.get(adId);
-    if (now - cached.timestamp < CACHE_TTL) {
+  const cached = adCache.get(adId);
+  if (cached) {
+    // El TTL depende del resultado: un acierto dura 1 h; un fallo solo 15 min.
+    const ttl = cached.data ? CACHE_TTL : NEGATIVE_CACHE_TTL;
+    if (now - cached.timestamp < ttl) {
       return cached.data;
     }
   }
 
-  // Resolver pool de tokens candidatos para balanceo y contingencia
-  const candidateTokens = getMetaCandidateTokens(options);
+  // [TOPE DE INTENTOS] Se acota la lista de tokens: el de la sede va primero, así
+  // que el caso normal resuelve al primer intento y los demás son contingencia.
+  const candidateTokens = getMetaCandidateTokens(options).slice(0, MAX_TOKEN_INTENTOS);
 
   // Probar candidateTokens en orden
   for (const token of candidateTokens) {
@@ -108,7 +133,7 @@ export async function getMetaAdDetails(adId, options = {}) {
     try {
       const url = `${GRAPH_BASE}/${adId}?fields=id,name,campaign{id,name},adset{id,name},creative{id,title,body}&access_token=${token}`;
       if (global.apiCounters) global.apiCounters.meta++;
-      const res = await fetchConTimeout(url);
+      const res = await fetchConTimeout(url, {}, META_AD_TIMEOUT_MS);
       if (!res.ok) {
         // En caso de rate-limit (429), token expirado (190) o error de app, reintentar con siguiente token
         continue;
@@ -134,6 +159,9 @@ export async function getMetaAdDetails(adId, options = {}) {
     }
   }
 
+  // [CACHÉ NEGATIVA] Se recuerda el fallo para NO volver a recorrer la lista de
+  // tokens por cada contacto que traiga el mismo anuncio irreconocible.
+  adCache.set(adId, { timestamp: now, data: null });
   return null;
 }
 
