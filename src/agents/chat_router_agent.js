@@ -254,35 +254,47 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const conversations = convData.conversations || [];
       
       if (conversations.length > 0) {
-        const convId = conversations[0].id;
-        const msgUrl = `https://services.leadconnectorhq.com/conversations/${convId}/messages?locationId=${activeLocationId}&limit=20`;
-        const msgRes = await fetchWithRetry(msgUrl, { headers: activeHeaders }, 1, isLive);
-        
-        if (msgRes.status === 200) {
-          const msgData = await msgRes.json();
-          allMessages = msgData.messages?.messages || [];
-          allMessages.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
-
-          for (const m of allMessages) {
-            const fbMeta = m.meta?.fb || {};
-            const pageId = fbMeta.fromPageId || fbMeta.pageId;
-            if (pageId) {
-              const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
-              const validAd = rawAd && rawAd !== 'N/A' && isValidMetaAdId(rawAd) ? String(rawAd).trim() : null;
-              fbMessages.push({
-                id: m.id,
-                pageId: String(pageId),
-                timestamp: new Date(m.dateAdded).getTime(),
-                dateStr: m.dateAdded,
-                adId: validAd
-              });
+        // [FIX MISMO DÍA — MULTI-ATRIBUCIÓN] Recorrer TODAS las conversaciones (no solo
+        // la primera). Un lead que entra por 2 anuncios de campañas distintas el MISMO
+        // DÍA genera 2 conversaciones: si solo se lee la primera, el ad_id de la SEGUNDA
+        // interacción se pierde y el origen queda atascado en el primer anuncio.
+        const todasMsgs = [];
+        const limiteConvs = Math.min(conversations.length, 5);
+        for (let ci = 0; ci < limiteConvs; ci++) {
+          const conv = conversations[ci];
+          if (!conv?.id) continue;
+          try {
+            const msgUrl = `https://services.leadconnectorhq.com/conversations/${conv.id}/messages?locationId=${activeLocationId}&limit=20`;
+            const msgRes = await fetchWithRetry(msgUrl, { headers: activeHeaders }, 1, isLive);
+            if (msgRes.status === 200) {
+              const msgData = await msgRes.json();
+              const msgs = msgData.messages?.messages || [];
+              todasMsgs.push(...msgs);
             }
-          }
-          fbMessages.sort((a, b) => b.timestamp - a.timestamp);
-          // El transporte del mensaje mas reciente dicta el canal real.
-          const newestAny = allMessages[0];
-          latestMessageTransport = String(newestAny?.messageType || newestAny?.type || '').trim();
+          } catch { /* una conversación sin mensajes no aborta el lote */ }
         }
+
+        allMessages = todasMsgs.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
+
+        for (const m of allMessages) {
+          const fbMeta = m.meta?.fb || {};
+          const pageId = fbMeta.fromPageId || fbMeta.pageId;
+          if (pageId) {
+            const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
+            const validAd = rawAd && rawAd !== 'N/A' && isValidMetaAdId(rawAd) ? String(rawAd).trim() : null;
+            fbMessages.push({
+              id: m.id,
+              pageId: String(pageId),
+              timestamp: new Date(m.dateAdded).getTime(),
+              dateStr: m.dateAdded,
+              adId: validAd
+            });
+          }
+        }
+        fbMessages.sort((a, b) => b.timestamp - a.timestamp);
+        // El transporte del mensaje mas reciente dicta el canal real.
+        const newestAny = allMessages[0];
+        latestMessageTransport = String(newestAny?.messageType || newestAny?.type || '').trim();
       } else {
         console.log(`[Agente 3] [FAST-PATH] Sin conversaciones indexadas aún para ${contactId}. Procesando y asignando directamente por subcuenta (${activeLocationId}).`);
       }
