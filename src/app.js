@@ -28,6 +28,7 @@ import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
 import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
 import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audit.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
+import { corregirOrigenesUltra } from './services/ultra_origin_corrector.js';
 
 /**
  * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
@@ -2196,6 +2197,30 @@ app.post('/api/leads/reprocesar-24h', async (req, res) => {
       desdeLima: new Date(desde - 5 * 3600 * 1000).toISOString().slice(11, 16) + ' Lima',
       ...r
     });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * [CORRECTOR DE ORIGENES — ULTRA] Re-resuelve el origen de los contactos de la
+ * fanpage "BioNatural - Ultra" con los accesos nuevos de Meta.
+ *
+ * POR QUE: Ultra no estaba vinculada al System User, asi que el Ad ID de sus
+ * anuncios no se podia traducir a campana/conjunto/anuncio. Sus contactos
+ * (historicos y recientes) quedaron con el origen erroneo o vacio.
+ *
+ * SEGURIDAD: DRY-RUN por defecto. Solo escribe si `ejecutar=true`.
+ *   POST /api/ultra/corregir-origenes?sede=PALACIOS&paginas=10            (simula)
+ *   POST /api/ultra/corregir-origenes?sede=PALACIOS&paginas=10&ejecutar=true (aplica)
+ */
+app.post('/api/ultra/corregir-origenes', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const paginas = parseInt(req.query.paginas || '10', 10);
+    const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
+    const r = await corregirOrigenesUltra({ sede, paginas, ejecutar });
+    res.json(r);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
