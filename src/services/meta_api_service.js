@@ -415,12 +415,17 @@ export async function verificarCredencialMeta(sedeId) {
     // 2. Paginas alcanzables: es lo que decide si hay atribucion o no
     let paginas = null;
     let nombresPaginas = [];
+    let detallePaginas = [];
     try {
       const rPag = await fetchConTimeout(`${GRAPH_BASE}/me/accounts?fields=id,name&limit=25&access_token=${token}`);
       const dPag = await rPag.json();
       if (!dPag.error && Array.isArray(dPag.data)) {
         paginas = dPag.data.length;
-        nombresPaginas = dPag.data.map(p => p.name).slice(0, 8);
+        // [LISTA COMPLETA] Antes se truncaba a 8 nombres y era imposible verificar si
+        // una pagina concreta (ej. "BioNatural - Ultra") estaba vinculada al System User.
+        // Ahora se listan TODAS con su ID para poder auditarlas.
+        nombresPaginas = dPag.data.map(p => p.name);
+        detallePaginas = dPag.data.map(p => ({ id: String(p.id), nombre: p.name }));
       }
     } catch (e) { /* no critico */ }
 
@@ -502,6 +507,7 @@ export async function verificarCredencialMeta(sedeId) {
       usuarioMeta: dMe.name || dMe.id,
       paginasAlcanzadas: paginas,
       nombresPaginas,
+      detallePaginas,
       tieneMessaging,
       permisos: permisos ? permisos.slice(0, 12) : null,
       tipoToken,
