@@ -1411,9 +1411,16 @@ app.post('/api/vtiger/buyers-backfill', async (req, res) => {
   try {
     const lote = Math.min(Math.max(parseInt(req.query.lote || req.body?.lote || '50', 10) || 50, 1), 150);
     const lotes = Math.min(Math.max(parseInt(req.query.lotes || req.body?.lotes || '1', 10) || 1, 1), 20);
-    res.json({ success: true, message: `Backfill de compradores iniciado (${lotes} lote(s) de ${lote}). Consulta /api/vtiger/buyers-backfill/status.` });
+    // [SEDES OPCIONAL] Por defecto recorre TODAS las sedes. Con ?sedes=PALACIOS se
+    // dedica a una sola (util para forzar el avance de la sede prioritaria sin
+    // repartir el ancho de banda entre 4 y sin disparar 4 lotes en paralelo).
+    const sedesPedidas = String(req.query.sedes || req.body?.sedes || '')
+      .toUpperCase().split(',').map(s => s.trim())
+      .filter(s => ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'].includes(s));
+    const sedes = sedesPedidas.length ? sedesPedidas : undefined;
+    res.json({ success: true, message: `Backfill de compradores iniciado (${lotes} lote(s) de ${lote}${sedes ? ` en ${sedes.join(', ')}` : ''}). Consulta /api/vtiger/buyers-backfill/status.` });
     setImmediate(() => {
-      runBuyersBackfill({ tamanoLote: lote, maxLotes: lotes })
+      runBuyersBackfill({ tamanoLote: lote, maxLotes: lotes, ...(sedes ? { sedes } : {}) })
         .catch(err => console.error('[Buyers Backfill] Error:', err.message));
     });
   } catch (error) {
