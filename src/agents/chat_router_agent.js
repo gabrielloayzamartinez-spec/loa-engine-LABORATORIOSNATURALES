@@ -560,7 +560,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let CAMPANA_META_FIELD = null;
     let CONJUNTO_ANUNCIOS_FIELD = null;
     try {
-      const atribucionIds = await resolveCustomFieldIds(activeLocationId, getGhlHeaders(activeLocationId));
+      // [FIX] getGhlHeaders espera un OBJETO { locationId }. Antes se le pasaba el string
+      // suelto: el destructuring dejaba locationId='' y resolvia un token VACIO, lo que
+      // provocaba HTTP 403 en toda sede distinta a la de fallback (BENAVIDES/ROOSEVELT/PIURA).
+      const atribucionIds = await resolveCustomFieldIds(activeLocationId, getGhlHeaders({ locationId: activeLocationId }));
       NOMBRE_ANUNCIO_FIELD = atribucionIds.nombreAnuncio || null;
       CAMPANA_META_FIELD = atribucionIds.campanaMeta || null;
       CONJUNTO_ANUNCIOS_FIELD = atribucionIds.conjuntoAnuncios || null;
