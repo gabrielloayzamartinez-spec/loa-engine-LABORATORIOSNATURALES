@@ -1156,14 +1156,17 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       customFields: customFieldsToUpdate
     };
 
-    // ESCUDO DE PROPIETARIO (CLIENTE GANADO EN VTIGER)
-    // No robar la asignación si ya es cliente cerrado con compra activa en vTiger
-    if (finalCustomerWon && contact.assignedTo) {
-      console.log(`[Agente 3] [PROPIETARIO] Escudo de Propietario activado para ${contactId}. Se mantiene asignado al actual.`);
-      // No incluimos 'assignedTo' en el payload
-    } else {
-      updatePayload.assignedTo = targetAdvisorId; // Regla de Oro: Sede actual
-    }
+    // [ASIGNACIÓN POR SEDE ACTUAL — SUBCUENTAS SEPARADAS]
+    // El dueño se asigna SIEMPRE según la página por la que escribió (regla estricta
+    // de ruteo). El antiguo "Escudo de Propietario" (no robar clientes cerrados) era
+    // para cuando TODAS las sedes vivían en UNA subcuenta; con subcuentas separadas
+    // cada sede es soberana y no hay conflicto de posesión.
+    //
+    // Aislamiento de datos de compra: si un cliente que compró en PALACIOS escribe a
+    // la página de BENAVIDES, el SEDE-LOCK (cf_3451 = sede) hace que `findVTigerContact`
+    // NO lo encuentre en Benavides: conversa normal, pero sus datos de compra NO se
+    // filtran a Benavides. La compra queda SOLO en la subcuenta de la sede donde compró.
+    updatePayload.assignedTo = targetAdvisorId;
 
  // INYECCIÓN AUTOMÁTICA DE "GENERAL INFO" (ESTRICTO USA)
     // 1. Teléfono
