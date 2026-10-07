@@ -28,7 +28,7 @@ import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
 import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
 import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audit.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
-import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra } from './services/ultra_origin_corrector.js';
+import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
 /**
  * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
@@ -2245,6 +2245,25 @@ app.post('/api/ultra/corregir-origenes', async (req, res) => {
 /** [ESTADO] Avance del barrido de Ultra en segundo plano. */
 app.get('/api/ultra/corregir-origenes/estado', (req, res) => {
   res.json(estadoCorreccionUltra());
+});
+
+/**
+ * [DIAGNOSTICO DE UTMs — ULTRA] Muestra, SOLO LECTURA, qué origen se puede
+ * extraer de un contacto de Ultra: el referral del mensaje (ad_id, la vía real
+ * de Messenger) y/o la atribucion de GHL (utmSource/Medium/Campaign/Content/Term).
+ *
+ *   GET /api/ultra/diagnostico-utms?sede=PALACIOS&paginas=20&muestra=5
+ */
+app.get('/api/ultra/diagnostico-utms', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const paginas = parseInt(req.query.paginas || '20', 10);
+    const muestra = parseInt(req.query.muestra || '5', 10);
+    const r = await diagnosticarUtmsUltra({ sede, paginas, muestra });
+    res.json(r);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 /**
