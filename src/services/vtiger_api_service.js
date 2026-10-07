@@ -219,117 +219,17 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
     }
   }
   
-  // ────────────────────────────────────────────
-  // ESTRATEGIA 1: Búsqueda por Nombre + Apellido
-  // ────────────────────────────────────────────
-  if (firstName.length >= 2 && lastName.length >= 2) {
-    // 1. Intentar primero con igualdad exacta + filtro de sede
-    let q = `SELECT * FROM Contacts WHERE firstname = '${firstName}' AND lastname = '${lastName}'${sedeClause};`;
-    let potentialContacts = await queryVTiger(q, targetSedeUpper);
-    
-    // 2. Si no hay resultados exactos, intentar con LIKE + filtro de sede
-    if (!potentialContacts || potentialContacts.length === 0) {
-      const fnPrefix = firstName.substring(0, Math.min(4, firstName.length));
-      const lnPrefix = lastName.substring(0, Math.min(4, lastName.length));
-      q = `SELECT * FROM Contacts WHERE firstname LIKE '${fnPrefix}%' AND lastname LIKE '${lnPrefix}%'${sedeClause};`;
-      potentialContacts = await queryVTiger(q, targetSedeUpper);
-    }
-    
-    if (potentialContacts && potentialContacts.length > 0) {
-      // [SEDE-SHIELD] Segunda barrera: toda fila ajena se descarta y se audita.
-      potentialContacts = potentialContacts.filter(v => belongsToSede(v, targetSedeUpper));
-
-      // Si no hay ningún contacto para esta sede, retorno NULL de inmediato (CERO FALLBACK A OTRAS SEDES)
-      if (potentialContacts.length === 0) {
-        return null;
-      }
-
-      // [REGLA 2 - BLINDAJE DE HOMÓNIMOS POR TELÉFONO]:
-      // Si el lead en GHL ya tiene un número telefónico conocido,
-      // comparamos contra los teléfonos que tenga el candidato en vTiger.
-      // Si el candidato tiene teléfonos y NINGUNO coincide con el lead, es un homónimo diferente -> DESCARTADO.
-      if (cleanPhone) {
-        const matchingByPhone = [];
-        const withoutPhone = [];
-        
-        for (const v of potentialContacts) {
-          const vPhones = [v.homephone, v.mobile, v.phone, v.otherphone].filter(Boolean);
-          if (vPhones.length > 0) {
-            if (vPhones.some(p => phonesMatch(cleanPhone, p))) {
-              matchingByPhone.push(v);
-            }
-            // Si tiene teléfonos pero ninguno coincide, NO se agrega (homónimo rechazado)
-          } else {
-            // El candidato en vTiger no tiene teléfono registrado
-            withoutPhone.push(v);
-          }
-        }
-
-        if (matchingByPhone.length > 0) {
-          const withSales = matchingByPhone.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
-          return withSales || matchingByPhone[0];
-        }
-
-        // Si todos los candidatos tenían teléfonos y ninguno coincidió, ABORTAR vinculación
-        if (withoutPhone.length === 0) {
-          console.log(`[VTiger API] [SEDE-SHIELD] Homónimo de ${firstName} ${lastName} en sede ${targetSedeUpper} descartado por teléfono en conflicto.`);
-          return null;
-        }
-
-        // Si hay candidatos en la misma sede sin teléfono registrado, nos quedamos con ellos
-        potentialContacts = withoutPhone;
-      }
-
-      // Prioridad: El que tenga compras dentro de la sede
-      const withSales = potentialContacts.find(v => parseInt(v.spl_num_compras || '0', 10) > 0);
-      if (withSales) return withSales;
-      
-      return potentialContacts[0];
-    }
-  }
-  
-  // ────────────────────────────────────────────
-  // ESTRATEGIA 2: Búsqueda por Email
-  // ────────────────────────────────────────────
-  const email = ghlContact.email;
-  if (email && email.includes('@')) {
-    const cleanEmail = sanitizeForVtigerQuery(email);
-    const q = `SELECT * FROM Contacts WHERE email = '${cleanEmail}'${sedeClause} LIMIT 1;`;
-    let contacts = await queryVTiger(q, targetSedeUpper);
-    if (contacts && contacts.length > 0) {
-      if (targetSedeUpper) {
-        contacts = contacts.filter(v => belongsToSede(v, targetSedeUpper));
-      }
-      if (contacts.length > 0) return contacts[0];
-    }
-  }
-  
-  // ────────────────────────────────────────────
-  // ESTRATEGIA 3: Búsqueda por solo nombre O solo apellido (último recurso)
-  // ────────────────────────────────────────────
-  if (cleanPhone && (firstName.length >= 3 || lastName.length >= 3)) {
-    const nameToSearch = lastName.length >= 3 ? lastName : firstName;
-    const field = lastName.length >= 3 ? 'lastname' : 'firstname';
-    const q = `SELECT * FROM Contacts WHERE ${field} = '${nameToSearch}'${sedeClause} LIMIT 20;`;
-    try {
-      let contacts = await queryVTiger(q, targetSedeUpper);
-      if (contacts && contacts.length > 0) {
-        if (targetSedeUpper) {
-          contacts = contacts.filter(v => belongsToSede(v, targetSedeUpper));
-        }
-        // Solo devolver si hay match de teléfono estricto
-        for (const v of contacts) {
-          const vPhones = [v.homephone, v.mobile, v.phone, v.otherphone].filter(Boolean);
-          if (vPhones.some(p => phonesMatch(cleanPhone, p))) {
-            return v;
-          }
-        }
-      }
-    } catch (e) {
-      // Silenciar errores de esta búsqueda de último recurso
-    }
-  }
-  
+  // ============================================================================
+  // [REGLA DE ORO — SOLO TELÉFONO] Se ELIMINAN las búsquedas por NOMBRE, EMAIL o
+  // APELLIDO. El teléfono es el ÚNICO factor de relación con vTiger (gobernanza
+  // innegociable). Sin match de teléfono, NO hay vinculación: se evita la
+  // homonimia y la contaminación de datos comerciales entre personas distintas
+  // que comparten el mismo nombre.
+  //
+  // DEFECTO CORREGIDO (reportado por el usuario): existían "Estrategia 1/2/3"
+  // que consultaban vTiger por nombre, email o apellido como fallback. Esa es
+  // la "acción antigua" que violaba el matching exclusivo por teléfono.
+  // ============================================================================
   return null;
 }
 
