@@ -1,6 +1,6 @@
 /**
  * ==============================================================================
- * CORRECTOR DE ORÍGENES — CONTACTOS DE LA FANPAGE "ULTR A" (BioNatural - Ultra)
+ * CORRECTOR DE ORÍGENES — CONTACTOS DE LA FANPAGE "ULTRA" (BioNatural - Ultra)
  * ==============================================================================
  * POR QUÉ EXISTE
  * La fanpage "BioNatural - Ultra" no estaba vinculada al System User de Meta, así
@@ -20,11 +20,18 @@
  *   · resolución del anuncio con los accesos nuevos de Meta,
  *   · escritura atómica de los campos claros (Anuncio / Campaña / Conjunto).
  *
+ * DOS MODOS
+ *   1. SÍNCRONO (para tandas chicas): `corregirOrigenesUltra({ limite })`.
+ *   2. BACKGROUND (para la cartera completa): `iniciarCorreccionUltraFondo()`.
+ *      Un request HTTP no aguanta ~40 minutos de trabajo, así que el barrido
+ *      completo corre en segundo plano y el avance se consulta aparte.
+ *
  * SEGURIDAD Y GOBERNANZA
- *   · DRY-RUN por defecto: solo reporta, NO escribe.
+ *   · DRY-RUN por defecto en modo síncrono: solo reporta, NO escribe.
  *   · Solo toca contactos etiquetados con la fanpage de Ultra.
  *   · Throttle de 150 ms para no saturar GHL ni vTiger.
  *   · vTiger se consulta en SOLO LECTURA (gobernanza intacta).
+ *   · Un solo barrido a la vez (flag en memoria) para no duplicar trabajo.
  * ==============================================================================
  */
 
@@ -46,6 +53,23 @@ const ULTRA_PAGE_SLUGS = [
 ];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/** Estado del barrido en segundo plano (consulta via estadoCorreccionUltra). */
+let estadoUltra = {
+  corriendo: false,
+  sede: null,
+  iniciadoEn: null,
+  total: 0,
+  procesados: 0,
+  errores: 0,
+  actual: null,
+  ultimoReporte: null
+};
+
+/** Devuelve una copia del estado actual del barrido. */
+export function estadoCorreccionUltra() {
+  return { ...estadoUltra };
+}
 
 /**
  * Recorre los contactos de una sede (paginado) y devuelve los de Ultra.
@@ -83,42 +107,53 @@ async function listarContactosUltra({ locId, headers, limitePaginas }) {
   return { encontrados, escaneados };
 }
 
-/**
- * Corrige (o simula corregir) los orígenes de los contactos de Ultra.
- *
- * @param {object} [opts]
- * @param {string} [opts.sede='PALACIOS']
- * @param {number} [opts.paginas=10]  páginas de 100 contactos a escanear (tope 200)
- * @param {boolean} [opts.ejecutar=false] false = DRY-RUN (no escribe)
- * @returns {Promise<object>} reporte con el conteo y el detalle por contacto
- */
-export async function corregirOrigenesUltra({ sede = 'PALACIOS', paginas = 10, ejecutar = false } = {}) {
-  const sedeId = String(sede).toUpperCase();
+/** Resuelve credenciales de una sede. */
+function resolverSede(sede) {
+  const sedeId = String(sede || 'PALACIOS').toUpperCase();
   const cfg = SEDES_GATEWAY[sedeId];
   const locId = cfg?.ghl?.locationId;
   const apiKey = cfg?.ghl?.apiKey;
+  if (!locId || !apiKey) return null;
+  return {
+    sedeId,
+    locId,
+    headers: { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' }
+  };
+}
 
-  if (!locId || !apiKey) {
-    return { ok: false, reason: `Sede ${sedeId} sin credenciales cargadas` };
-  }
+/**
+ * MODO SÍNCRONO — corrige una tanda chica (default DRY-RUN).
+ * Útil para simular y para aplicar de a poco sin exceder el timeout del request.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.sede='PALACIOS']
+ * @param {number} [opts.paginas=10]  páginas de 100 contactos a escanear (tope 500)
+ * @param {boolean} [opts.ejecutar=false] false = DRY-RUN (no escribe)
+ * @param {number} [opts.limite=50]   máximo de contactos de Ultra a procesar
+ * @returns {Promise<object>} reporte con el conteo y el detalle por contacto
+ */
+export async function corregirOrigenesUltra({ sede = 'PALACIOS', paginas = 10, ejecutar = false, limite = 50 } = {}) {
+  const ctx = resolverSede(sede);
+  if (!ctx) return { ok: false, reason: `Sede ${sede} sin credenciales cargadas` };
 
-  const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
-  const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 10, 1), 200);
+  const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 10, 1), 500);
+  const tope = Math.min(Math.max(parseInt(limite, 10) || 50, 1), 200);
 
-  const { encontrados, escaneados } = await listarContactosUltra({ locId, headers, limitePaginas });
+  const { encontrados, escaneados } = await listarContactosUltra({ ...ctx, limitePaginas });
+  const aProcesar = encontrados.slice(0, tope);
 
   let corregidos = 0;
   let errores = 0;
   const detalle = [];
 
-  for (const c of encontrados) {
+  for (const c of aProcesar) {
     try {
-      if (ejecutar) {
-        const resultado = await routeChatByContact(c.id, true, false, { locationId: locId, headers });
-        detalle.push({ id: c.id, nombre: c.nombre, resultado });
-      } else {
+      if (!ejecutar) {
         detalle.push({ id: c.id, nombre: c.nombre, resultado: 'DRY_RUN (no se escribio nada)' });
+        continue; // En simulación NO se cuenta como corregido.
       }
+      const resultado = await routeChatByContact(c.id, true, false, { locationId: ctx.locId, headers: ctx.headers });
+      detalle.push({ id: c.id, nombre: c.nombre, resultado });
       corregidos++;
     } catch (err) {
       errores++;
@@ -129,10 +164,11 @@ export async function corregirOrigenesUltra({ sede = 'PALACIOS', paginas = 10, e
 
   const reporte = {
     ok: true,
-    sede: sedeId,
+    sede: ctx.sedeId,
     modo: ejecutar ? 'EJECUTADO' : 'DRY-RUN',
     escaneados,
     contactosUltra: encontrados.length,
+    procesadosEnEstaTanda: aProcesar.length,
     corregidos,
     errores,
     detalle: detalle.slice(0, 100)
@@ -141,7 +177,7 @@ export async function corregirOrigenesUltra({ sede = 'PALACIOS', paginas = 10, e
   recordAuditEvent({
     type: ejecutar ? 'ULTRA_ORIGENES_CORREGIDOS' : 'ULTRA_ORIGENES_DRY_RUN',
     severity: 'info',
-    sede: sedeId,
+    sede: ctx.sedeId,
     escaneados,
     contactosUltra: encontrados.length,
     corregidos,
@@ -149,4 +185,83 @@ export async function corregirOrigenesUltra({ sede = 'PALACIOS', paginas = 10, e
   });
 
   return reporte;
+}
+
+/**
+ * MODO BACKGROUND — barre la cartera completa de Ultra en segundo plano.
+ * Devuelve de inmediato; el avance se consulta con `estadoCorreccionUltra()`.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.sede='PALACIOS']
+ * @param {number} [opts.paginas=200]
+ */
+export function iniciarCorreccionUltraFondo({ sede = 'PALACIOS', paginas = 200 } = {}) {
+  if (estadoUltra.corriendo) {
+    return { ok: false, reason: 'Ya hay una correccion de Ultra en curso', estado: estadoCorreccionUltra() };
+  }
+
+  const ctx = resolverSede(sede);
+  if (!ctx) return { ok: false, reason: `Sede ${sede} sin credenciales cargadas` };
+
+  const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 200, 1), 500);
+
+  estadoUltra = {
+    corriendo: true,
+    sede: ctx.sedeId,
+    iniciadoEn: new Date().toISOString(),
+    total: 0,
+    procesados: 0,
+    errores: 0,
+    actual: 'escaneando contactos...',
+    ultimoReporte: null
+  };
+
+  // Barrido asíncrono: NO se espera (el request responde al instante).
+  (async () => {
+    let total = 0;
+    try {
+      const { encontrados } = await listarContactosUltra({ ...ctx, limitePaginas });
+      total = encontrados.length;
+      estadoUltra.total = total;
+
+      for (const c of encontrados) {
+        estadoUltra.actual = c.nombre;
+        try {
+          await routeChatByContact(c.id, true, false, { locationId: ctx.locId, headers: ctx.headers });
+          estadoUltra.procesados++;
+        } catch {
+          estadoUltra.errores++;
+        }
+        await sleep(150);
+      }
+
+      recordAuditEvent({
+        type: 'ULTRA_ORIGENES_FONDO_COMPLETADO',
+        severity: 'info',
+        sede: ctx.sedeId,
+        total,
+        procesados: estadoUltra.procesados,
+        errores: estadoUltra.errores
+      });
+    } catch (err) {
+      recordAuditEvent({
+        type: 'ULTRA_ORIGENES_FONDO_ERROR',
+        severity: 'critical',
+        sede: ctx.sedeId,
+        message: err.message
+      });
+    } finally {
+      estadoUltra.corriendo = false;
+      estadoUltra.actual = null;
+      estadoUltra.ultimoReporte = {
+        sede: ctx.sedeId,
+        total,
+        procesados: estadoUltra.procesados,
+        errores: estadoUltra.errores,
+        finalizadoEn: new Date().toISOString()
+      };
+    }
+  })();
+
+  return { ok: true, iniciado: true, sede: ctx.sedeId, estado: estadoCorreccionUltra() };
 }

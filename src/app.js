@@ -28,7 +28,7 @@ import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
 import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
 import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audit.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
-import { corregirOrigenesUltra } from './services/ultra_origin_corrector.js';
+import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra } from './services/ultra_origin_corrector.js';
 
 /**
  * Resultado de la prueba REAL de la credencial de la Cuenta Empresa.
@@ -2211,19 +2211,40 @@ app.post('/api/leads/reprocesar-24h', async (req, res) => {
  * (historicos y recientes) quedaron con el origen erroneo o vacio.
  *
  * SEGURIDAD: DRY-RUN por defecto. Solo escribe si `ejecutar=true`.
- *   POST /api/ultra/corregir-origenes?sede=PALACIOS&paginas=10            (simula)
- *   POST /api/ultra/corregir-origenes?sede=PALACIOS&paginas=10&ejecutar=true (aplica)
+ *
+ *   TANDA CHICA (sincrono, respuesta inmediata):
+ *     POST /api/ultra/corregir-origenes?sede=PALACIOS&paginas=10                       (simula)
+ *     POST /api/ultra/corregir-origenes?sede=PALACIOS&paginas=10&limite=50&ejecutar=true
+ *
+ *   CARTERA COMPLETA (segundo plano, no bloquea el request):
+ *     POST /api/ultra/corregir-origenes?sede=PALACIOS&paginas=200&fondo=true
+ *     GET  /api/ultra/corregir-origenes/estado
  */
 app.post('/api/ultra/corregir-origenes', async (req, res) => {
   try {
     const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
     const paginas = parseInt(req.query.paginas || '10', 10);
     const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
-    const r = await corregirOrigenesUltra({ sede, paginas, ejecutar });
+    const fondo = String(req.query.fondo || '').toLowerCase() === 'true';
+    const limite = parseInt(req.query.limite || '50', 10);
+
+    // [MODO FONDO] Un barrido completo (miles de contactos) no cabe en un request
+    // HTTP: se lanza en segundo plano y el avance se consulta en /estado.
+    if (fondo) {
+      const r = iniciarCorreccionUltraFondo({ sede, paginas });
+      return res.json(r);
+    }
+
+    const r = await corregirOrigenesUltra({ sede, paginas, ejecutar, limite });
     res.json(r);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+/** [ESTADO] Avance del barrido de Ultra en segundo plano. */
+app.get('/api/ultra/corregir-origenes/estado', (req, res) => {
+  res.json(estadoCorreccionUltra());
 });
 
 /**
