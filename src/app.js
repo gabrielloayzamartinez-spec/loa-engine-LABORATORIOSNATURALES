@@ -2683,10 +2683,29 @@ export function registerBackgroundSchedulers() {
   //
   // El cursor persiste en StateStore (Postgres): cada ciclo AVANZA, sobrevive a
   // redeploys.
-  const esMadrugadaEst = () => {
-    const hora = new Date().toLocaleString('en-US', { hour: '2-digit', hour12: false, timeZone: 'America/New_York' });
-    const h = parseInt(hora, 10);
-    return h >= 1 && h < 6; // 1 AM - 6 AM (horas muertas)
+  // [PERFIL HORARIO DEL BACKFILL — CUIDA VTIGER EN LAS MAÑANAS]
+  // vTiger es un servidor COMPARTIDO con los asesores y su uso se concentra en la
+  // MAÑANA. El backfill debe ser MAS CONSERVADOR justo en esas horas para no
+  // competir con la atencion en vivo (que es la prioridad), y aprovechar la
+  // madrugada y la noche —cuando casi nadie lo usa— para avanzar mas rapido.
+  //
+  //   MADRUGADA (01-06)  -> agresivo    : lote 60 x 3, 6 en paralelo, pausa 100ms
+  //   PICO MAÑANA (06-13)-> conservador : lote 25 x 2, 2 en paralelo, pausa 400ms
+  //   TARDE (13-20)      -> medio       : lote 40 x 2, 3 en paralelo, pausa 250ms
+  //   NOCHE (20-01)      -> medio-alto  : lote 50 x 2, 4 en paralelo, pausa 150ms
+  //
+  // Se usa America/Lima (la zona del negocio) y NO una zona con horario de verano:
+  // antes se calculaba con America/New_York, que cambia de offset y desplazaba la
+  // ventana de madrugada en varios meses del año.
+  const perfilDelDia = () => {
+    const h = parseInt(
+      new Date().toLocaleString('en-US', { hour: '2-digit', hour12: false, timeZone: 'America/Lima' }),
+      10
+    );
+    if (h >= 1 && h < 6) return { nombre: 'MADRUGADA', tamano: 60, lotes: 3, pausa: 100, concurrencia: 6 };
+    if (h >= 6 && h < 13) return { nombre: 'PICO-MANANA', tamano: 25, lotes: 2, pausa: 400, concurrencia: 2 };
+    if (h >= 13 && h < 20) return { nombre: 'TARDE', tamano: 40, lotes: 2, pausa: 250, concurrencia: 3 };
+    return { nombre: 'NOCHE', tamano: 50, lotes: 2, pausa: 150, concurrencia: 4 };
   };
   let buyersBackfillCorriendo = false;
   let buyersBackfillIniciadoEn = 0;
@@ -2732,12 +2751,15 @@ export function registerBackgroundSchedulers() {
     // Dia       : lote 50 x 2, 3 contactos en paralelo
     // Madrugada : lote 60 x 3, 6 contactos en paralelo  (~2x caudal)
     // ======================================================================
-    const madrugada = esMadrugadaEst();
-    const tamano = madrugada ? 60 : 50;
-    const lotes = madrugada ? 3 : 2;
-    const pausa = madrugada ? 100 : 200;
-    const concurrencia = madrugada ? 6 : 3;
-    if (madrugada) console.log(`[Buyers Backfill] [MADRUGADA] Multisistematico: lote ${tamano} x ${lotes}, concurrencia ${concurrencia}.`);
+    // [PERFIL DEL DIA] Cada franja horaria tiene su propio ritmo. La MAÑANA es la
+    // mas conservadora porque es cuando los asesores usan mas vTiger: el backfill
+    // cede para no competir con la atencion en vivo.
+    const perfil = perfilDelDia();
+    const tamano = perfil.tamano;
+    const lotes = perfil.lotes;
+    const pausa = perfil.pausa;
+    const concurrencia = perfil.concurrencia;
+    console.log(`[Buyers Backfill] [PERFIL ${perfil.nombre}] lote ${tamano} x ${lotes}, concurrencia ${concurrencia}, pausa ${pausa}ms.`);
 
     // Tope del watchdog calculado para ESTE ciclo. Palacios lleva el doble de lote
     // por su prioridad, asi que es el que marca la duracion del ciclo.
