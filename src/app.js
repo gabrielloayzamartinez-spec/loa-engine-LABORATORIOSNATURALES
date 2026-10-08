@@ -372,10 +372,20 @@ async function runExpressAssignment() {
     }));
 
     let countNew = 0;
+    // [METRICA DE RETRASO] Se calcula durante el ciclo: la edad (en minutos) del
+    // lead mas antiguo atendido. Detecta el sintoma "mensajes de las 10 AM recien
+    // asignados por la tarde" ANTES de que se convierta en una queja.
+    let retrasoMaxMin = 0;
 
     await Promise.all(targetLocations.map(async (loc) => {
       if (!loc.id) return;
-      const url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc.id}&limit=20&sortBy=date_updated`;
+      // [COBERTURA DEL RADAR] Antes eran 20 contactos por sede, procesados en
+      // SERIE. Con vTiger a ~10 s por consulta, un ciclo tardaba ~10 min y la
+      // guarda `isFastSyncRunning` bloqueaba los disparos de 5 s: el radar solo
+      // alcanzaba ~120 contactos/hora. Si el trafico superaba eso, la cola CRECIA
+      // y un lead de las 10 AM podia quedar sin asignar hasta la tarde.
+      // Se sube a 60 (GHL admite hasta 100) para drenar el backlog de una pasada.
+      const url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc.id}&limit=60&sortBy=date_updated`;
       const res = await fetchWithRetry(url, { headers: loc.headers });
       if (res.status !== 200) {
         console.warn(`[${timeStr}] [Worker 1] Status API (${loc.name}): ${res.status} - Verifica credenciales de subcuenta.`);
@@ -384,6 +394,23 @@ async function runExpressAssignment() {
 
       const data = await res.json();
       const contacts = data.contacts || [];
+
+      // [ORDEN DE ATENCION — DEFECTO CORREGIDO: EL MAS ANTIGUO PRIMERO]
+      // GHL devuelve la lista por `date_updated` DESCENDENTE (el mas NUEVO
+      // primero). Procesando en ese orden, cada mensaje nuevo ADELANTA a los
+      // viejos y los leads de primera hora quedan STARVADOS: es exactamente el
+      // sintoma reportado ("mensajes de las 10 AM recien asignados por la tarde").
+      //
+      // Ahora se ordena asi:
+      //   1. SIN PROPIETARIO primero (nadie los esta atendiendo).
+      //   2. Dentro de cada grupo, el MAS ANTIGUO primero (FIFO: ningun lead se
+      //      queda atras, sin importar cuanto trafico siga entrando).
+      contacts.sort((a, b) => {
+        const ua = a.isUnassigned ? 0 : 1;
+        const ub = b.isUnassigned ? 0 : 1;
+        if (ua !== ub) return ua - ub;
+        return new Date(a.dateUpdated || a.dateAdded).getTime() - new Date(b.dateUpdated || b.dateAdded).getTime();
+      });
 
       // Capturar también actividad reciente en conversaciones (Facebook Messenger / DM)
       try {
@@ -409,33 +436,53 @@ async function runExpressAssignment() {
         }
       } catch (cErr) {}
 
-      for (const contact of contacts) {
-        const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
-        const lastProcessedUpdate = processedContactTimestamps.get(contact.id) || 0;
-        
-        // Si ya procesamos esta actualización exacta saltamos (previene loops). 
-        // [MOD]: Hemos quitado el check de (!contact.isUnassigned) para que el radar procese leads nuevos obligatoriamente aunque alguien ya se los haya asignado manualmente en GHL.
-        if (updatedAt <= lastProcessedUpdate) continue;
+      // [PARALELISMO MODERADO DEL RADAR]
+      // Procesar EN SERIE no da abasto: con vTiger a ~10 s por consulta, 60
+      // contactos tomaban ~30 min y la guarda bloqueaba los siguientes disparos,
+      // asi que el caudal quedaba en ~120 contactos/hora por sede. Con 3 en
+      // paralelo el ciclo baja a ~10 min y el backlog se drena 3x mas rapido.
+      // Se usa el MISMO tope que el backfill contra vTiger (3), y todas las
+      // llamadas siguen pasando por el rate limiter central de GHL.
+      const CONCURRENCIA_RADAR = Math.min(Math.max(parseInt(process.env.RADAR_CONCURRENCY || '3', 10) || 3, 1), 6);
 
-        const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
-        // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
-        if (hoursAgo > 24) continue;
+      for (let i = 0; i < contacts.length; i += CONCURRENCIA_RADAR) {
+        const grupo = contacts.slice(i, i + CONCURRENCIA_RADAR);
+        await Promise.all(grupo.map(async (contact) => {
+          const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
+          const lastProcessedUpdate = processedContactTimestamps.get(contact.id) || 0;
 
-        countNew++;
-        console.log(`[${timeStr}] [Worker 1] [PROCESSING] Lead fresco (${loc.name}): ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
-        
-        const result = await routeChatByContact(contact.id, true, false, { locationId: loc.id, headers: loc.headers });
-        
-        // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
-        if (result === 'RETRY' || result === 'RETRY_INDEXING') {
-          console.log(`[${timeStr}] [Worker 1] [RETRY] Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
-        } else {
-          // Guardamos el timestamp exacto de esta actualización para no volver a procesarla hasta que el lead vuelva a hacer algo
-          processedContactTimestamps.set(contact.id, updatedAt);
-          stats.contactsProcessed++;
-        }
-        
-        // Rate-Limit Shield Aislado: 100ms entre contactos (optimizado para velocidad extrema)
+          // Si ya procesamos esta actualización exacta saltamos (previene loops).
+          // [MOD]: Hemos quitado el check de (!contact.isUnassigned) para que el radar procese leads nuevos obligatoriamente aunque alguien ya se los haya asignado manualmente en GHL.
+          if (updatedAt <= lastProcessedUpdate) return;
+
+          const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
+          // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
+          if (hoursAgo > 24) return;
+
+          countNew++;
+          const edadMin = Math.round((Date.now() - updatedAt) / 60000);
+          if (edadMin > retrasoMaxMin) retrasoMaxMin = edadMin;
+          console.log(`[${timeStr}] [Worker 1] [PROCESSING] Lead fresco (${loc.name}, hace ${edadMin} min): ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
+
+          try {
+            const result = await routeChatByContact(contact.id, true, false, { locationId: loc.id, headers: loc.headers });
+
+            // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
+            if (result === 'RETRY' || result === 'RETRY_INDEXING') {
+              console.log(`[${timeStr}] [Worker 1] [RETRY] Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
+            } else {
+              // Guardamos el timestamp exacto de esta actualización para no volver a procesarla hasta que el lead vuelva a hacer algo
+              processedContactTimestamps.set(contact.id, updatedAt);
+              stats.contactsProcessed++;
+            }
+          } catch (oneErr) {
+            // Un contacto problemático NUNCA debe abortar el lote: se reintentará
+            // en el próximo ciclo porque no se registró su timestamp.
+            console.warn(`[${timeStr}] [Worker 1] [WARN] Fallo al procesar ${contact.id}: ${oneErr.message}`);
+          }
+        }));
+
+        // Rate-Limit Shield Aislado: 100ms entre grupos (optimizado para velocidad extrema)
         await sleep(100);
       }
     }));
@@ -446,6 +493,12 @@ async function runExpressAssignment() {
 
     lastSyncTime = new Date().toISOString();
     global.lastRadarActivity = Date.now();
+    // [METRICA DE RETRASO] Edad del lead mas antiguo que se atendio en este ciclo.
+    // Si sube, el radar no da abasto y hay que verlo ANTES de que un lead espere
+    // horas por su propietario (sintoma reportado: mensajes de las 10 AM asignados
+    // por la tarde). Se expone en /api/health como radar.retrasoMaxMin.
+    global.radarRetrasoMaxMin = retrasoMaxMin;
+    global.radarUltimoCicloContactos = countNew;
     stats.totalRuns++;
   } catch (err) {
     console.error("[Express Assignment Error]:", err.message);
@@ -534,6 +587,15 @@ app.get('/api/health', (req, res) => {
     // para que el health check nunca marque el deploy como fallido por una
     // dependencia externa lenta (Redis/PostgreSQL/vTiger).
     uptimeSeconds: Math.round(process.uptime()),
+    // [RADAR — SALUD DEL PRIMER NIVEL] El retraso del radar es la metrica que
+    // detecta un lead esperando por su propietario. Si `retrasoMaxMin` crece
+    // (p. ej. > 60), el radar no da abasto con el trafico entrante.
+    radar: {
+      ultimaActividadTs: global.lastRadarActivity ? new Date(global.lastRadarActivity).toISOString() : null,
+      inactividadMin: global.lastRadarActivity ? Math.floor((Date.now() - global.lastRadarActivity) / 60000) : null,
+      retrasoMaxMin: global.radarRetrasoMaxMin ?? null,
+      contactosUltimoCiclo: global.radarUltimoCicloContactos ?? null
+    },
     sedes: Object.fromEntries(
       Object.entries(SEDES_GATEWAY).map(([id, s]) => [id.toLowerCase(), {
         locationId: s.ghl.locationId || null,
