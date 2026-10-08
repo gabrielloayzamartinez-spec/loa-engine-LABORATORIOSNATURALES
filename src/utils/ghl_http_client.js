@@ -71,8 +71,82 @@ export function getConsumoPorServicio() {
 const rateLimiters = new Map();
 const consecutive429Counts = new Map();
 
+/**
+ * ==============================================================================
+ * [ESTADO REAL DE CUOTA — LEIDO DE LA PROPIA RESPUESTA DE GHL]
+ * ==============================================================================
+ * ERROR CORREGIDO (raiz de los 429): contabamos las llamadas POR NUESTRA CUENTA,
+ * con un contador propio que ademas solo sumaba las peticiones que pasaban por el
+ * freno. Las 8 fugas (fetch directo) NO se contaban, asi que el numero era una
+ * subestimacion. GHL ya nos avisaba en CADA respuesta, y lo ignorabamos.
+ *
+ * La documentacion oficial es explicita:
+ *   "Cada respuesta de la API lleva headers que describen tu posicion actual
+ *    frente a ambos limites. LELOS en lugar de contar tu mismo: son la fuente
+ *    autoritativa."
+ *
+ *   X-RateLimit-Daily-Remaining          -> peticiones que quedan HOY
+ *   X-RateLimit-Remaining                -> peticiones en la rafaga actual
+ *   X-RateLimit-Max                      -> maximo de la rafaga
+ *   X-RateLimit-Interval-Milliseconds    -> ventana de la rafaga
+ *   X-RateLimit-Limit-Daily              -> limite diario
+ *
+ * Ahora guardamos ese estado por subcuenta y lo usamos para:
+ *   1. exponer la cuota REAL en /api/health;
+ *   2. ceder ANTES de agotar la rafaga (no despues del 429);
+ *   3. detener el trabajo de fondo cuando la cuota diaria real esta baja.
+ * ==============================================================================
+ */
+const ghlRateState = new Map();
+
+/** Estado REAL de cuota por subcuenta (leido de los headers de GHL). */
+export function getGhlRateState() {
+  return Object.fromEntries(ghlRateState.entries());
+}
+
+// Umbrales proactivos (se pueden ajustar por entorno sin recompilar).
+const UMBRAL_RAFAGA_FONDO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_RAFAGA_FONDO || '15', 10) || 15, 1), 100);
+const UMBRAL_DIARIO_FONDO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_DIARIO_FONDO || '20000', 10) || 20000, 1000), 200000);
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Lee los headers de cuota de una respuesta de GHL y actualiza el estado real.
+ * Es tolerante: si el header no viene, no rompe nada.
+ */
+function registrarCuotaReal(subaccount, res) {
+  try {
+    const num = h => {
+      const v = parseInt(res.headers.get(h) || '', 10);
+      return Number.isFinite(v) ? v : null;
+    };
+    const intervalRemaining = num('X-RateLimit-Remaining');
+    const dailyRemaining = num('X-RateLimit-Daily-Remaining');
+    if (intervalRemaining === null && dailyRemaining === null) return;
+    const previo = ghlRateState.get(subaccount) || {};
+    ghlRateState.set(subaccount, {
+      ...previo,
+      intervalRemaining,
+      intervalMax: num('X-RateLimit-Max'),
+      intervalMs: num('X-RateLimit-Interval-Milliseconds'),
+      dailyRemaining,
+      dailyLimit: num('X-RateLimit-Limit-Daily'),
+      ts: new Date().toISOString()
+    });
+  } catch { /* nunca romper por telemetria */ }
+}
+
+/**
+ * ¿Queda cuota REAL para trabajo de fondo segun los headers de GHL?
+ * Fail-safe: si aun no hay datos, se permite (no bloquear por desconocimiento).
+ */
+export function hayCuotaRealDeFondo(subaccount = 'GENERAL') {
+  const st = ghlRateState.get(subaccount);
+  if (!st) return true;
+  if (Number.isFinite(st.dailyRemaining) && st.dailyRemaining <= UMBRAL_DIARIO_FONDO) return false;
+  return true;
 }
 
 /**
@@ -176,6 +250,20 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
     if (espera > 0) await sleep(espera);
   }
 
+  // [FRENO PROACTIVO POR RAFAGA REAL — CIERRA EL ERROR DE LOS 429]
+  // GHL informa en CADA respuesta cuantas peticiones quedan en la ventana de
+  // rafaga (X-RateLimit-Remaining). Si el trabajo de FONDO se acerca al borde,
+  // CEDE ANTES de provocar el 429: la rafaga queda reservada para el trabajo EN
+  // VIVO. Antes solo reaccionabamos DESPUES del 429 (tarde y con dano hecho).
+  if (!esVivo) {
+    const st = ghlRateState.get(subaccount);
+    if (st && Number.isFinite(st.intervalRemaining) && st.intervalRemaining <= UMBRAL_RAFAGA_FONDO) {
+      const espera = Math.min(Number.isFinite(st.intervalMs) ? st.intervalMs : 10000, 10000);
+      console.log(`[${caller}] [RAFAGA-REAL] Subcuenta [${subaccount}]: quedan ${st.intervalRemaining} peticiones en la ventana. El fondo cede ${espera}ms para reservar la rafaga al trabajo en vivo.`);
+      await sleep(espera);
+    }
+  }
+
   const startTime = Date.now();
   try {
     if (global.apiCounters) global.apiCounters.ghl++;
@@ -212,6 +300,11 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
     // Telemetría nativa (No bloqueante, alimenta telemetry.db)
     const duration = Date.now() - startTime;
     logApiTelemetry(`GHL-${caller}-${subaccount}`, options?.method || 'GET', url, res.status, duration);
+
+    // [CUOTA REAL] Se leen los headers autoritativos de GHL que describen cuanto
+    // queda (rafaga y dia). Esta es la fuente de verdad: ya NO dependemos de
+    // nuestro contador aproximado, que ademas no veia las llamadas sin freno.
+    registrarCuotaReal(subaccount, res);
 
     if (res.status === 429) {
       // Bloqueo inteligente con Backoff progresivo por subcuenta
