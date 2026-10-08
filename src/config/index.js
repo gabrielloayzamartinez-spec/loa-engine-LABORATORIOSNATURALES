@@ -134,7 +134,11 @@ export const CUSTOM_FIELDS_DEF = [
   },
   {
     name: "Ultima Interaccion",
-    dataType: "DATE"
+    // [CORREGIDO] En GHL el campo existe como TEXT (verificado en vivo con
+    // /api/sedes/campos), no como DATE: la config decia DATE y eso no coincidia
+    // con la realidad. El router escribe la fecha del dia (YYYY-MM-DD) y el
+    // dual sync el ISO completo, y ambos caben en TEXT.
+    dataType: "TEXT"
   }
 ];
 

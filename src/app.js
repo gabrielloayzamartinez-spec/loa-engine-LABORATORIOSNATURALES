@@ -2145,46 +2145,98 @@ function inicioDiaLima() {
  * leads que HABLARON hoy, para que el dealer trabaje SIEMPRE con el dato más reciente.
  * Cubre el día completo: de 12 AM a la próxima 12 AM (hora Lima).
  */
+/**
+ * [TRABAJO DEL DÍA — SINCRONIZACIÓN COMPLETA DEL DÍA]
+ * Reprocesa TODOS los contactos con actividad desde `desdeMs` (medianoche Lima),
+ * para que los IDs y NOMBRES de campaña / conjunto de anuncios / anuncio, el
+ * origen y la "Ultima Interaccion" queden SIEMPRE con el dato del DÍA (hay
+ * reingresos constantes por anuncios distintos).
+ *
+ * DEFECTO CORREGIDO: antes se leía UNA sola página de 100 conversaciones
+ * (`conversations/search?limit=100`). En una sede ocupada como Palacios el día
+ * supera esa cifra, así que los contactos que no entraban en esa página NUNCA se
+ * actualizaban: su "Ultima Interaccion" quedaba en el día anterior aunque
+ * hubieran escrito hoy.
+ *
+ * AHORA:
+ *   1. Se recorren los CONTACTOS ordenados por `date_updated` descendente,
+ *      paginando con `meta.nextPageUrl` (el cursor fiable de GHL).
+ *   2. Se corta en cuanto aparece un contacto MÁS ANTIGUO que la ventana: como el
+ *      orden es descendente, el resto ya no pertenece al día.
+ *   3. Se recuerda qué versión (`dateUpdated`) de cada contacto ya se procesó, así
+ *      el ciclo de 10 min NO repite trabajo innecesario ni satura vTiger.
+ */
+const procesadosDelDia = new Map(); // contactId -> dateUpdated ya procesado
+let diaProcesadosClave = null;
+
 async function reprocesarConversacionesDesde(desdeMs) {
   const targetLocations = getActiveSedes().filter(s => !s.isPaused).map(s => ({
     id: s.ghl.locationId,
     headers: getGhlHeaders({ locationId: s.ghl.locationId }),
     name: s.name
   }));
+
+  // Al cambiar de día (clave = fecha Lima), se limpia la memoria de procesados.
+  const claveDia = new Date(desdeMs).toISOString().slice(0, 10);
+  if (diaProcesadosClave !== claveDia) {
+    procesadosDelDia.clear();
+    diaProcesadosClave = claveDia;
+  }
+
   const resultado = [];
-  let totalConversaciones = 0;
+  let totalContactos = 0;
   let totalProcesados = 0;
 
   for (const loc of targetLocations) {
     if (!loc.id) continue;
     try {
-      const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=100`;
-      const convRes = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
-      if (convRes.status !== 200) { resultado.push({ sede: loc.name, error: `HTTP ${convRes.status}` }); continue; }
-      const convData = await convRes.json();
-      const conversaciones = (convData.conversaciones || convData.conversations || []).filter(c => {
-        const t = c.lastMessageDate || c.dateUpdated || c.dateAdded;
-        return t && new Date(t).getTime() >= desdeMs;
-      });
-      totalConversaciones += conversaciones.length;
-
+      let url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc.id}&limit=100&sortBy=date_updated`;
+      let paginas = 0;
       let procesados = 0;
-      for (const cv of conversaciones) {
-        if (!cv.contactId) continue;
-        try {
-          const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
-          if (r !== 'RETRY' && r !== 'RETRY_INDEXING') procesados++;
-        } catch { /* un contacto no aborta el lote */ }
-        await sleep(120);
+      let delDia = 0;
+      let finDeVentana = false;
+
+      // Tope de seguridad: 15 páginas = 1,500 contactos con actividad por sede.
+      while (url && paginas < 15 && !finDeVentana) {
+        paginas++;
+        const res = await fetchWithRetry(url, { headers: loc.headers });
+        if (res.status !== 200) break;
+        const d = await res.json();
+        const contactos = d.contacts || [];
+        if (contactos.length === 0) break;
+
+        for (const c of contactos) {
+          const t = new Date(c.dateUpdated || c.dateAdded).getTime();
+          // Orden descendente: al primer contacto fuera de la ventana, el resto
+          // tampoco es del día.
+          if (!t || t < desdeMs) { finDeVentana = true; break; }
+
+          delDia++;
+          // Ya se procesó EXACTAMENTE esta versión del contacto: no se repite.
+          if ((procesadosDelDia.get(c.id) || 0) >= t) continue;
+
+          try {
+            const r = await routeChatByContact(c.id, true, false, { locationId: loc.id, headers: loc.headers });
+            if (r !== 'RETRY' && r !== 'RETRY_INDEXING') {
+              procesados++;
+              procesadosDelDia.set(c.id, t);
+            }
+          } catch { /* un contacto no aborta el lote */ }
+          await sleep(120);
+        }
+
+        url = finDeVentana ? null : (d?.meta?.nextPageUrl || null);
       }
+
+      totalContactos += delDia;
       totalProcesados += procesados;
-      resultado.push({ sede: loc.name, conversaciones: conversaciones.length, procesados });
+      resultado.push({ sede: loc.name, contactosDelDia: delDia, procesados, paginas });
     } catch (e) {
       resultado.push({ sede: loc.name, error: e.message });
     }
   }
 
-  return { totalConversaciones, totalProcesados, resultado };
+  return { totalConversaciones: totalContactos, totalContactos, totalProcesados, resultado };
 }
 
 /**
