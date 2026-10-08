@@ -436,14 +436,23 @@ async function runExpressAssignment() {
         }
       } catch (cErr) {}
 
-      // [PARALELISMO MODERADO DEL RADAR]
-      // Procesar EN SERIE no da abasto: con vTiger a ~10 s por consulta, 60
-      // contactos tomaban ~30 min y la guarda bloqueaba los siguientes disparos,
-      // asi que el caudal quedaba en ~120 contactos/hora por sede. Con 3 en
-      // paralelo el ciclo baja a ~10 min y el backlog se drena 3x mas rapido.
-      // Se usa el MISMO tope que el backfill contra vTiger (3), y todas las
-      // llamadas siguen pasando por el rate limiter central de GHL.
-      const CONCURRENCIA_RADAR = Math.min(Math.max(parseInt(process.env.RADAR_CONCURRENCY || '3', 10) || 3, 1), 6);
+      // [PARALELISMO ADAPTATIVO DEL RADAR — ESTABILIDAD + LATENCIA MINIMA]
+      // Procesar EN SERIE no daba abasto: con vTiger a ~10 s por consulta, 60
+      // contactos tomaban ~30 min y la guarda bloqueaba los siguientes disparos
+      // (~120 contactos/hora). Pero subir el paralelismo a 3 de forma FIJA tiene
+      // un costo: el gate de vTiger tiene 3 slots COMPARTIDOS y el radar podria
+      // acapararlos todos, dejando al 2do nivel sin avanzar.
+      //
+      // Solucion estable para ambos: el radar usa 3 slots SOLO cuando tiene
+      // backlog real (el lead mas antiguo que atendio supera el umbral). Si esta
+      // al dia, baja a 2 y le deja SIEMPRE un slot de vTiger al backfill. Asi el
+      // primer nivel mantiene latencia minima cuando hace falta, sin matar de
+      // hambre al segundo.
+      const UMBRAL_BACKLOG_MIN = Math.min(Math.max(parseInt(process.env.RADAR_BACKLOG_MIN || '20', 10) || 20, 5), 240);
+      const retrasoPrevio = Number(global.radarRetrasoMaxMin) || 0;
+      const CONCURRENCIA_RADAR = retrasoPrevio > UMBRAL_BACKLOG_MIN
+        ? Math.min(Math.max(parseInt(process.env.RADAR_CONCURRENCY || '3', 10) || 3, 1), 6)   // con backlog: drena rapido
+        : Math.min(Math.max(parseInt(process.env.RADAR_CONCURRENCY_RELAX || '2', 10) || 2, 1), 6); // al dia: deja un slot al 2do nivel
 
       for (let i = 0; i < contacts.length; i += CONCURRENCIA_RADAR) {
         const grupo = contacts.slice(i, i + CONCURRENCIA_RADAR);
