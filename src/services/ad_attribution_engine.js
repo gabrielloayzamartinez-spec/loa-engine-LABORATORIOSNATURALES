@@ -4,6 +4,7 @@ import { findVTigerContact } from './vtiger_api_service.js';
 import fs from 'fs';
 import path from 'path';
 import { fetchConTimeout } from '../utils/http_timeout.js';
+import { ghlFetch } from '../utils/ghl_http_client.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -50,20 +51,11 @@ function sleep(ms) {
 }
 
 async function fetchWithRetry(url, options, attempt = 1) {
-  try {
-    const res = await fetchConTimeout(url, options);
-    if (res.status === 429) {
-      await sleep(2000 * attempt);
-      if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
-    }
-    return res;
-  } catch (e) {
-    if (attempt < 5) {
-      await sleep(2000);
-      return fetchWithRetry(url, options, attempt + 1);
-    }
-    throw e;
-  }
+  // [CIERRE DE FUGA — AUDITORIA DE RATE LIMIT] Antes hacia `fetchConTimeout`
+  // directo: se saltaba el token bucket, el backoff del 429 y el guardian de
+  // cuota diaria, y sus peticiones se sumaban a las controladas empujando a GHL
+  // al 429. Ahora usa el cliente centralizado (mismo freno para todos).
+  return ghlFetch(url, options, attempt, 'Atribucion');
 }
 
 /**

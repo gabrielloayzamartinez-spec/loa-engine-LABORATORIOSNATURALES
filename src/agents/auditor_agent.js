@@ -2,6 +2,7 @@ import { GHL_CONFIG, PAGE_TAG_MAP, PALACIOS_USERS } from '../config/index.js';
 import fs from 'fs';
 import path from 'path';
 import { fetchConTimeout } from '../utils/http_timeout.js';
+import { ghlFetch } from '../utils/ghl_http_client.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -17,21 +18,9 @@ async function sleep(ms) {
 }
 
 async function fetchWithRetry(url, options, attempt = 1) {
-  try {
-    if (global.apiCounters) global.apiCounters.ghl++;
-    const res = await fetchConTimeout(url, options);
-    if (res.status === 429) {
-      await sleep(1500 * attempt);
-      if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
-    }
-    return res;
-  } catch (err) {
-    if (attempt < 5) {
-      await sleep(1500);
-      return fetchWithRetry(url, options, attempt + 1);
-    }
-    throw err;
-  }
+  // [CIERRE DE FUGA — AUDITORIA DE RATE LIMIT] Antes hacia `fetchConTimeout`
+  // directo (sin freno central). Ahora usa el cliente centralizado.
+  return ghlFetch(url, options, attempt, 'Auditor');
 }
 
 export const auditorStats = {

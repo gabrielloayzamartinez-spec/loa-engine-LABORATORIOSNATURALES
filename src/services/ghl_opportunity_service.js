@@ -3,6 +3,7 @@ import path from 'path';
 import { GHL_CONFIG, getGhlHeaders, resolveSedeContext, resolveSedePipeline } from '../config/index.js';
 import { tokenBucketQueue } from './token_bucket_queue.js';
 import { fetchConTimeout } from '../utils/http_timeout.js';
+import { ghlFetch } from '../utils/ghl_http_client.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -34,20 +35,14 @@ async function sleep(ms) {
 }
 
 async function fetchWithRetry(url, options, attempt = 1) {
-  try {
-    const res = await fetchConTimeout(url, options);
-    if (res.status === 429) {
-      await sleep(2000 * attempt);
-      if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
-    }
-    return res;
-  } catch (e) {
-    if (attempt < 5) {
-      await sleep(2000);
-      return fetchWithRetry(url, options, attempt + 1);
-    }
-    throw e;
-  }
+  // [CIERRE DE FUGA — AUDITORIA DE RATE LIMIT]
+  // ANTES esta funcion hacia `fetchConTimeout` DIRECTO: se saltaba el token bucket,
+  // el backoff del 429 y el guardian de cuota diaria. Como el pipeline corre en
+  // CADA contacto ruteado, esas peticiones sin freno se sumaban a las que SI van
+  // controladas y empujaban a GHL al 429 (que despues frenaba al trabajo en vivo).
+  // Ahora usa el cliente centralizado: TODAS las llamadas a GHL pasan por el mismo
+  // freno. El pipeline es parte del trabajo EN VIVO, asi que se marca como 'Router'.
+  return ghlFetch(url, options, attempt, 'Router');
 }
 
 /**
