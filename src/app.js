@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders, getActiveSedes } from './config/index.js';
-import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio } from './utils/ghl_http_client.js';
+import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
@@ -583,7 +583,12 @@ app.get('/api/health', (req, res) => {
       // [OBSERVABILIDAD] Ranking de llamadas a GHL por servicio. Antes era
       // imposible saber quien gastaba la cuota: se aceleraron ritmos a ciegas y
       // aparecieron los 429. Con esto se ve de un vistazo antes de tocar nada.
-      consumoGhlPorServicio: getConsumoPorServicio()
+      consumoGhlPorServicio: getConsumoPorServicio(),
+      // [CUOTA REAL DE GHL] Leida de los headers autoritativos que GHL devuelve en
+      // CADA respuesta (X-RateLimit-Daily-Remaining / X-RateLimit-Remaining). Es la
+      // fuente de verdad: nuestro contador propio era una subestimacion porque no
+      // veia las llamadas que se saltaban el freno.
+      cuotaRealGhl: getGhlRateState()
     },
     timestamp: new Date().toISOString()
   });

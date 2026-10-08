@@ -29,7 +29,7 @@ import { readSecret } from '../config/secrets.js';
 import { syncVtigerContactDual, pickPhone } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { getStateStore } from './state/state_store.js';
-import { ghlFetch } from '../utils/ghl_http_client.js';
+import { ghlFetch, hayCuotaRealDeFondo } from '../utils/ghl_http_client.js';
 import { tokenBucketQueue } from './token_bucket_queue.js';
 
 const backfillStore = getStateStore('buyers_backfill');
@@ -288,9 +288,9 @@ export async function runBuyersBackfill({
   // detiene solo y deja el resto de la cuota al trabajo EN VIVO. Antes seguia
   // consumiendo hasta el 93% y empujaba a GHL al 429, que despues frenaba a los
   // leads que escribian.
-  const empresaConCupo = tokenBucketQueue.hayCupoPesado('EMPRESA');
+  const empresaConCupo = tokenBucketQueue.hayCupoPesado('EMPRESA') && hayCuotaRealDeFondo('EMPRESA');
   const sedesObjetivo = sedesSolicitadas.filter(s =>
-    tokenBucketQueue.hayCupoPesado(s) && empresaConCupo
+    tokenBucketQueue.hayCupoPesado(s) && hayCuotaRealDeFondo(s) && empresaConCupo
   );
   if (sedesObjetivo.length === 0) {
     const cuota = tokenBucketQueue.getCuotaDiaria();
