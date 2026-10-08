@@ -105,8 +105,15 @@ export function getGhlRateState() {
 }
 
 // Umbrales proactivos (se pueden ajustar por entorno sin recompilar).
+//
+// [RESERVA PARA EL PRIMER NIVEL DE TODAS LAS OFICINAS]
+// El trabajo EN VIVO (los leads que escriben) es la prioridad absoluta en las 4
+// sedes. El trabajo de fondo NUNCA debe dejar a una oficina sin cuota para
+// atender sus mensajes. Por eso la reserva diaria por subcuenta se sube a 50,000
+// (25% de las 200,000 de GHL): mientras queden menos de esas peticiones, el fondo
+// se detiene y deja TODO el margen a la atencion en vivo.
 const UMBRAL_RAFAGA_FONDO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_RAFAGA_FONDO || '15', 10) || 15, 1), 100);
-const UMBRAL_DIARIO_FONDO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_DIARIO_FONDO || '20000', 10) || 20000, 1000), 200000);
+const UMBRAL_DIARIO_FONDO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_DIARIO_FONDO || '50000', 10) || 50000, 1000), 200000);
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
