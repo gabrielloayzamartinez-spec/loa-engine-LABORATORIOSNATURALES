@@ -44,6 +44,27 @@ export const GHL_HEADERS_READ = {
  */
 const MAX_ESPERA_VIVO_MS = Math.min(Math.max(parseInt(process.env.GHL_MAX_ESPERA_VIVO_MS || '2000', 10) || 2000, 500), 10000);
 
+/**
+ * [OBSERVABILIDAD DE CONSUMO — POR SERVICIO]
+ *
+ * La auditoria de rate limit demostro que era IMPOSIBLE saber quien consumia la
+ * cuota de GHL: solo existia un total por subcuenta. Sin esa visibilidad se
+ * aceleraron ritmos a ciegas y aparecieron los 429.
+ *
+ * Ahora cada llamada registra su `caller` y /api/health expone el ranking de
+ * consumo: se ve DE UN VISTAZO quien gasta la cuota antes de tocarla.
+ */
+const consumoPorServicio = new Map();
+
+/** Ranking de llamadas a GHL por servicio (mayor consumo primero). */
+export function getConsumoPorServicio() {
+  const total = [...consumoPorServicio.values()].reduce((a, b) => a + b, 0);
+  return {
+    total,
+    porServicio: Object.fromEntries([...consumoPorServicio.entries()].sort((a, b) => b[1] - a[1]))
+  };
+}
+
 // ==========================================
 // RATE LIMITER AISLADO POR SUBCUENTA CON ETIQUETADO CLARO
 // ==========================================
@@ -158,6 +179,8 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
   const startTime = Date.now();
   try {
     if (global.apiCounters) global.apiCounters.ghl++;
+    // [OBSERVABILIDAD] Se registra el consumo por servicio para /api/health.
+    consumoPorServicio.set(caller, (consumoPorServicio.get(caller) || 0) + 1);
     // [AISLAMIENTO POR SUBCUENTA] Se pasa la subcuenta para que cada location use
     // su PROPIO cubo. Antes todas las sedes compartian una sola cola global y se
     // serializaban entre si, usando menos del 10% del limite de GHL. La cuota de

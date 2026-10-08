@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders, getActiveSedes } from './config/index.js';
-import { ghlFetch, GHL_HEADERS, getRateLimiterStatus } from './utils/ghl_http_client.js';
+import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
@@ -575,10 +575,15 @@ app.get('/api/health', (req, res) => {
       breakers: getBreakersStatus(),
       audit: getAuditMetrics(),
       // [GUARDIAN DE CUOTA DIARIA] Consumo de GHL por subcuenta en la ventana de
-      // 24 h. GHL permite 200,000/dia por location; el trabajo de fondo se frena
-      // al llegar a GHL_DAILY_QUOTA_GUARD (por defecto 150,000, 75%) para no
-      // quedarse sin cuota para la atencion en vivo.
-      cuotaDiaria: tokenBucketQueue.getCuotaDiaria()
+      // 24 h. GHL permite 200,000/dia por location. Dos umbrales:
+      //   · GHL_DAILY_QUOTA_GUARD  (150,000, 75%) -> frena el fondo ligero
+      //   · GHL_DAILY_QUOTA_PESADO (120,000, 80% del techo) -> frena el trabajo
+      //     PESADO (backfill) para preservar la cuota de la atencion en vivo.
+      cuotaDiaria: tokenBucketQueue.getCuotaDiaria(),
+      // [OBSERVABILIDAD] Ranking de llamadas a GHL por servicio. Antes era
+      // imposible saber quien gastaba la cuota: se aceleraron ritmos a ciegas y
+      // aparecieron los 429. Con esto se ve de un vistazo antes de tocar nada.
+      consumoGhlPorServicio: getConsumoPorServicio()
     },
     timestamp: new Date().toISOString()
   });
