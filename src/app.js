@@ -27,6 +27,7 @@ import { isCentralConfigured } from './services/dual_sync_service.js';
 import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
 import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
 import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audit.js';
+import { guardianDePropietario } from './services/owner_guardian.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -2435,6 +2436,29 @@ app.get('/api/routing/auditoria', async (req, res) => {
 });
 
 /**
+ * [GUARDIÁN DE PROPIETARIO] Corrige los contactos que TIENEN etiqueta de fanpage
+ * pero quedaron SIN propietario. El auditor AVISA de la anomalía; este la CORRIGE
+ * aplicando la regla estricta de cada página (p.ej. Palacios:
+ * "Naturales BioNatural" -> REDES 1 ERNESTO; "BioNatural - Ultra" y
+ * "Laboratorios Naturales BIO" -> REDES 2 CLICK2RING).
+ *
+ * DRY-RUN por defecto: solo escribe con `ejecutar=true`.
+ *   POST /api/routing/guardian-propietario?sede=PALACIOS&paginas=10            (simula)
+ *   POST /api/routing/guardian-propietario?sede=PALACIOS&paginas=10&ejecutar=true
+ */
+app.post('/api/routing/guardian-propietario', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const paginas = parseInt(req.query.paginas || '10', 10);
+    const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
+    const r = await guardianDePropietario({ sede, paginas, ejecutar });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * PROCEDENCIA DE LEADS (JSON) — agregador por anuncio/campaña.
  * GET /api/procedencia/leads?destino=EMPRESA&paginas=50
  */
@@ -2637,6 +2661,26 @@ export function registerBackgroundSchedulers() {
 
   // Guardián de bandejas sin asignar (multi-sede)
   timers.push(setInterval(runUnassignedConversationsGuardian, 60000));
+
+  // [GUARDIÁN DE PROPIETARIO — CORRIGE LOS HUÉRFANOS]
+  // El router solo asigna cuando el lead escribe. Un contacto migrado o sin chat
+  // reciente podia quedar SIN dueño aunque su etiqueta de fanpage fuera correcta
+  // (defecto reportado: 71 contactos de "Naturales BioNatural" sin propietario).
+  // Este guardián recorre las sedes y asigna el dueño que dicta la REGLA ESTRICTA,
+  // tocando únicamente contactos con fanpage CONOCIDA y sin propietario: nunca
+  // reasigna a alguien que ya tiene dueño (cero robos de cartera).
+  timers.push(setInterval(() => {
+    const guardianSede = (sedeId) => guardianDePropietario({ sede: sedeId, paginas: 5, ejecutar: true })
+      .then(r => {
+        if (r.corregidos > 0) {
+          console.log(`[Guardián Propietario] ${sedeId}: ${r.corregidos} contactos huerfanos asignados a su dueño (revisados ${r.escaneados}).`);
+        }
+      })
+      .catch(err => console.warn(`[Guardián Propietario] ${sedeId}: ${err.message}`));
+    // Una sede por disparo, rotando, para no concentrar la carga en una sola.
+    const activas = getActiveSedes().filter(s => !s.isPaused).map(s => s.sedeId);
+    activas.forEach((s, i) => setTimeout(() => guardianSede(s), i * 8000));
+  }, 30 * 60 * 1000));
 
   // Demonio inverso: sincroniza cambios de vTiger -> GHL cada 3 minutos
   timers.push(setInterval(() => {
