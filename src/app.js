@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders, getActiveSedes } from './config/index.js';
-import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState } from './utils/ghl_http_client.js';
+import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
@@ -2763,13 +2763,35 @@ export function registerBackgroundSchedulers() {
         // tiempo a la mitad o menos.
         // ======================================================================
         const palaciosCompleto = estado.porSede?.PALACIOS?.completo === true;
+
+        // [CUOTA REAL — NO DESPERDICIAR EL CICLO]
+        // DEFECTO CORREGIDO: cuando Palacios agotaba su cuota diaria de GHL, el
+        // ciclo se pausaba ENTERO y el 2do nivel quedaba detenido horas, aunque
+        // BENAVIDES / ROOSEVELT / PIURA tuvieran cupo disponible. Ahora se consulta
+        // la cuota REAL (headers de GHL) y, si Palacios no puede trabajar, el ciclo
+        // AVANZA con las demas sedes. La prioridad se mantiene intacta: en cuanto
+        // Palacios recupera cupo, vuelve a ser el unico destino del ciclo.
+        const palaciosConCupo = tokenBucketQueue.hayCupoPesado('PALACIOS') && hayCuotaRealDeFondo('PALACIOS');
+        const otrasSedes = ['BENAVIDES', 'ROOSEVELT', 'PIURA'];
         const sedesDelCiclo = palaciosCompleto
-          ? ['BENAVIDES', 'ROOSEVELT', 'PIURA']   // Palacios ya termino
-          : ['PALACIOS'];                          // Palacios primero
-        const concurrenciaFinal = palaciosCompleto
-          ? concurrencia
-          : Math.min(concurrencia * 2, 8);
-        if (!palaciosCompleto) console.log(`[Buyers Backfill] [PALACIOS-PRIORITARIO] Ciclo dedicado a Palacios (concurrencia ${concurrenciaFinal}).`);
+          ? otrasSedes                             // Palacios ya termino su cartera
+          : (palaciosConCupo ? ['PALACIOS'] : otrasSedes); // Palacios primero; si no tiene cupo, las demas
+        const usandoFallback = !palaciosCompleto && !palaciosConCupo;
+        const concurrenciaFinal = (!palaciosCompleto && palaciosConCupo)
+          ? Math.min(concurrencia * 2, 8)
+          : concurrencia;
+
+        if (palaciosConCupo && !palaciosCompleto) {
+          console.log(`[Buyers Backfill] [PALACIOS-PRIORITARIO] Ciclo dedicado a Palacios (concurrencia ${concurrenciaFinal}).`);
+        } else if (usandoFallback) {
+          console.log(`[Buyers Backfill] [CUOTA-REAL] Palacios sin cupo en GHL: el ciclo avanza con ${otrasSedes.join(', ')} en lugar de quedarse detenido.`);
+          recordAuditEvent({
+            type: 'BUYERS_BACKFILL_FALLBACK_SEDES',
+            severity: 'info',
+            sedes: otrasSedes,
+            reason: 'Palacios sin cuota real disponible en GHL: se aprovecha el ciclo con las demas sedes'
+          });
+        }
 
         return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia: concurrenciaFinal, sedes: sedesDelCiclo });
       })
