@@ -55,6 +55,25 @@ const DAILY_QUOTA_GUARD = (() => {
   const n = parseInt(process.env.GHL_DAILY_QUOTA_GUARD || '', 10);
   return Number.isFinite(n) && n > 0 ? n : 150000;
 })();
+
+/**
+ * [RESERVA PARA EL TRABAJO EN VIVO — UMBRAL DEL TRABAJO PESADO]
+ *
+ * DEFECTO REAL EN PRODUCCION: el unico tope era 150.000 (75% del limite de GHL).
+ * Cuando una subcuenta llegaba al 93% (139.329/150.000 en Palacios), el motor ya
+ * estaba frenando, pero el backfill seguia consumiendo hasta el ultimo punto y
+ * empujaba a GHL al 429. Ese 429 despues caia sobre el trabajo EN VIVO.
+ *
+ * Ahora el trabajo PESADO (backfill de compradores, historial de ordenes) tiene un
+ * umbral MAS BAJO (80% del techo = 120.000 por defecto). Al alcanzarlo se detiene
+ * solo y deja el resto de la cuota para los leads que escriben. El trabajo ligero
+ * de fondo (curador, puente de ventas) sigue con el techo original.
+ */
+const DAILY_QUOTA_PESADO = (() => {
+  const n = parseInt(process.env.GHL_DAILY_QUOTA_PESADO || '', 10);
+  if (Number.isFinite(n) && n > 0) return n;
+  return Math.floor(DAILY_QUOTA_GUARD * 0.8);
+})();
 const VENTANA_DIARIA_MS = 24 * 60 * 60 * 1000;
 
 class SubaccountBucket {
@@ -96,6 +115,16 @@ class SubaccountBucket {
   hayCupoDeFondo() {
     this.rotarVentanaSiCorresponde();
     return this.dailyCount < DAILY_QUOTA_GUARD;
+  }
+
+  /**
+   * ¿Queda cupo para trabajo PESADO (backfill, historial de ordenes)?
+   * Umbral mas bajo que el general: al 80% del techo el trabajo pesado se detiene
+   * solo y le deja la cuota al trabajo EN VIVO (los leads que escriben).
+   */
+  hayCupoPesado() {
+    this.rotarVentanaSiCorresponde();
+    return this.dailyCount < DAILY_QUOTA_PESADO;
   }
 
   async sleep(ms) {
@@ -223,6 +252,15 @@ class TokenBucketQueuePool {
    */
   hayCupoDeFondo(subaccount = 'GENERAL') {
     return this.bucketFor(subaccount).hayCupoDeFondo();
+  }
+
+  /**
+   * Cupo para trabajo PESADO (backfill de compradores, historial de ordenes).
+   * Umbral mas bajo que `hayCupoDeFondo`: al 80% del techo el trabajo pesado se
+   * detiene solo y preserva la cuota para el trabajo EN VIVO.
+   */
+  hayCupoPesado(subaccount = 'GENERAL') {
+    return this.bucketFor(subaccount).hayCupoPesado();
   }
 
   /** Consumo diario por subcuenta (para /api/health y diagnostico). */

@@ -278,13 +278,19 @@ export async function runBuyersBackfill({
   }
 
   // [GUARDIAN DE CUOTA DIARIA] Se comprueba ANTES de empezar. Toda sede escribe a
-  // la EMPRESA (ademas de a su propia subcuenta cuando la tiene), asi que se
+  // la EMPRESA (ademas de su propia subcuenta cuando la tiene), asi que se
   // verifica el cupo de LA SEDE y de LA EMPRESA: si cualquiera se acerco a su
   // techo del dia, esa sede se excluye del ciclo. Si NINGUNA tiene cupo, el ciclo
   // se omite y se audita. GHL: 200,000/dia por location.
-  const empresaConCupo = tokenBucketQueue.hayCupoDeFondo('EMPRESA');
+  //
+  // [UMBRAL PESADO] El backfill es el consumidor MAS pesado (~8 llamadas por
+  // contacto). Usa el umbral PESADO (80% del techo = 120,000): al alcanzarlo se
+  // detiene solo y deja el resto de la cuota al trabajo EN VIVO. Antes seguia
+  // consumiendo hasta el 93% y empujaba a GHL al 429, que despues frenaba a los
+  // leads que escribian.
+  const empresaConCupo = tokenBucketQueue.hayCupoPesado('EMPRESA');
   const sedesObjetivo = sedesSolicitadas.filter(s =>
-    tokenBucketQueue.hayCupoDeFondo(s) && empresaConCupo
+    tokenBucketQueue.hayCupoPesado(s) && empresaConCupo
   );
   if (sedesObjetivo.length === 0) {
     const cuota = tokenBucketQueue.getCuotaDiaria();
