@@ -1,5 +1,6 @@
 import { META_CONFIG, GHL_CONFIG, getMetaConfigBySede } from '../config/index.js';
 import { getMetaCandidateTokens } from '../services/meta_api_service.js';
+import { ghlFetch } from '../utils/ghl_http_client.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -15,21 +16,10 @@ async function sleep(ms) {
 }
 
 async function fetchWithRetry(url, options, attempt = 1) {
-  try {
-    if (global.apiCounters) global.apiCounters.ghl++;
-    const res = await fetchConTimeout(url, options);
-    if (res.status === 429) {
-      await sleep(1500 * attempt);
-      if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
-    }
-    return res;
-  } catch (e) {
-    if (attempt < 5) {
-      await sleep(1500);
-      return fetchWithRetry(url, options, attempt + 1);
-    }
-    throw e;
-  }
+  // [CIERRE DE FUGA — AUDITORIA DE RATE LIMIT] Antes hacia `fetchConTimeout`
+  // directo (sin freno central). Este agente atiende webhooks de Meta, es decir
+  // trabajo EN VIVO: se marca como 'Webhook' para tener prioridad alta.
+  return ghlFetch(url, options, attempt, 'Webhook-Meta');
 }
 
 /**

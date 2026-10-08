@@ -7,6 +7,7 @@ import { findVTigerContact } from './vtiger_api_service.js';
 import { learningBrain } from './learning_brain.js';
 import { evaluateCommercialTruth, buildSanitizedCommercialFields, COMMERCIAL_FIELD_IDS } from '../domain/commercial_engine.js';
 import { syncUnifiedPipelineOpportunity } from './ghl_opportunity_service.js';
+import { ghlFetch } from '../utils/ghl_http_client.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
@@ -54,20 +55,10 @@ async function sleep(ms) {
 }
 
 async function fetchWithRetry(url, options, attempt = 1) {
-  try {
-    const res = await fetchConTimeout(url, options);
-    if (res.status === 429) {
-      await sleep(2500 * attempt);
-      if (attempt < 5) return fetchWithRetry(url, options, attempt + 1);
-    }
-    return res;
-  } catch (e) {
-    if (attempt < 5) {
-      await sleep(2500);
-      return fetchWithRetry(url, options, attempt + 1);
-    }
-    throw e;
-  }
+  // [CIERRE DE FUGA — AUDITORIA DE RATE LIMIT] Antes hacia `fetchConTimeout`
+  // directo: se saltaba el freno central. Ahora todas las llamadas a GHL pasan
+  // por el mismo token bucket, backoff de 429 y guardian de cuota.
+  return ghlFetch(url, options, attempt, 'BackgroundCurator');
 }
 
 /**

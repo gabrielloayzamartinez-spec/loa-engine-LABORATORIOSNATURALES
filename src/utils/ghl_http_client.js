@@ -29,6 +29,21 @@ export const GHL_HEADERS_READ = {
   'Accept': 'application/json'
 };
 
+/**
+ * [AISLAMIENTO DE PRIORIDAD — TOPE DE ESPERA DEL TRABAJO EN VIVO]
+ *
+ * DEFECTO REAL EN PRODUCCION: cuando GHL devolvia 429, el motor bloqueaba la
+ * SUBCUENTA COMPLETA hasta 300 s. Ese castigo lo pagaba tambien el trabajo EN
+ * VIVO (radar y router): los mensajes de los leads dejaban de sincronizarse
+ * durante minutos por culpa de un 429 que habia provocado el BACKFILL.
+ *
+ * Un lead que escribe es la razon de ser del sistema; el relleno historico es
+ * prescindible. Por eso la via EN VIVO nunca espera mas de este tope: reintenta
+ * pronto en lugar de quedarse dormida. La via de fondo (LOW) sigue respetando el
+ * bloqueo completo para no empeorar el 429.
+ */
+const MAX_ESPERA_VIVO_MS = Math.min(Math.max(parseInt(process.env.GHL_MAX_ESPERA_VIVO_MS || '2000', 10) || 2000, 500), 10000);
+
 // ==========================================
 // RATE LIMITER AISLADO POR SUBCUENTA CON ETIQUETADO CLARO
 // ==========================================
@@ -106,6 +121,14 @@ function isSubaccountPaused(subaccount) {
 export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
   const subaccount = getSubaccountName(options, url);
 
+  // [PRIORIDAD — SE CALCULA ANTES DE CUALQUIER BLOQUEO]
+  // El trabajo EN VIVO (radar, router, webhooks) es la razon de ser del sistema:
+  // un lead que escribe no puede quedarse sin sincronizar porque el BACKFILL
+  // agoto la cuota y GHL devolvio 429. Por eso la prioridad se resuelve ARRIBA y
+  // gobierna tanto la espera previa como el backoff del 429.
+  const priority = (caller === 'Radar' || caller === 'Router' || caller.includes('Webhook')) ? 'HIGH' : 'LOW';
+  const esVivo = priority === 'HIGH';
+
   // [BLINDAJE 429]: Si la subcuenta está pausada preventivamente, omitir peticiones externas a GHL
   if (isSubaccountPaused(subaccount)) {
     console.log(`[${caller}] [SUBACCOUNT-PAUSED] Subcuenta [${subaccount}] pausada preventivamente por rate limit 429 activo en GHL. Petición omitida.`);
@@ -124,14 +147,17 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
 
   if (now < blockedUntil) {
     const waitMs = blockedUntil - now;
-    console.log(`[${caller}] [RATE-LIMIT-ACTIVE] Subcuenta [${subaccount}]: En espera de ventana (${Math.ceil(waitMs / 1000)}s restantes)...`);
-    await sleep(waitMs);
+    // [AISLAMIENTO DE PRIORIDAD] El trabajo de fondo (LOW) respeta el bloqueo
+    // completo. El trabajo EN VIVO solo espera un tope corto: nunca se queda
+    // minutos sin atender un mensaje por culpa de un 429 del backfill.
+    const espera = esVivo ? Math.min(waitMs, MAX_ESPERA_VIVO_MS) : waitMs;
+    console.log(`[${caller}] [RATE-LIMIT-ACTIVE] Subcuenta [${subaccount}]: en espera de ventana (${Math.ceil(waitMs / 1000)}s restantes)${esVivo ? ` — prioridad EN VIVO, espera acotada a ${espera}ms` : ''}.`);
+    if (espera > 0) await sleep(espera);
   }
 
   const startTime = Date.now();
   try {
     if (global.apiCounters) global.apiCounters.ghl++;
-    const priority = (caller === 'Radar' || caller === 'Router' || caller.includes('Webhook')) ? 'HIGH' : 'LOW';
     // [AISLAMIENTO POR SUBCUENTA] Se pasa la subcuenta para que cada location use
     // su PROPIO cubo. Antes todas las sedes compartian una sola cola global y se
     // serializaban entre si, usando menos del 10% del limite de GHL. La cuota de
@@ -175,8 +201,13 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
       rateLimiters.set(limiterKey, Date.now() + blockMs);
 
       console.warn(`[${caller}] [RATE-LIMIT-429] Subcuenta [${subaccount}]: GHL retorno 429 (racha x${currentConsecutive}). Pausa de ${retryAfter}s en esta subcuenta.`);
-      
-      await sleep(blockMs);
+
+      // [AISLAMIENTO DE PRIORIDAD] El bloqueo queda registrado para TODOS (asi el
+      // fondo frena de verdad), pero la via EN VIVO no duerme el backoff completo:
+      // espera un tope corto y reintenta. Un lead que escribe no puede quedar
+      // minutos sin sincronizar por un 429 que provoco el backfill.
+      const espera429 = esVivo ? Math.min(blockMs, MAX_ESPERA_VIVO_MS) : blockMs;
+      if (espera429 > 0) await sleep(espera429);
       if (attempt < 4) return ghlFetch(url, options, attempt + 1, caller);
     } else if (res.ok) {
       // Éxito: reiniciamos el contador de 429
