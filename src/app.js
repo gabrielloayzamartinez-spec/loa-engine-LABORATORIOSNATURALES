@@ -30,6 +30,7 @@ import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audi
 import { guardianDePropietario } from './services/owner_guardian.js';
 import { diagnosticarContacto } from './services/contact_diagnostic.js';
 import { auditarPrimerNivel } from './services/first_level_audit.js';
+import { auditarCamposComerciales } from './services/commercial_fields_audit.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -2431,6 +2432,27 @@ app.get('/api/routing/auditoria', async (req, res) => {
     const r = (sede === 'TODAS' || sede === 'ALL')
       ? await auditarRuteoTodasLasSedes({ paginas })
       : await auditarRuteo({ sede, paginas });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * [AUDITORÍA DE CAMPOS COMERCIALES — vTiger ↔ GHL]
+ * Responde la pregunta correcta ante un campo vacío en GHL:
+ * "¿está vacío TAMBIÉN en vTiger?".
+ *   · vTiger vacío  -> el dato no existe en el origen (no es fallo del motor).
+ *   · vTiger lleno y GHL vacío -> HUECO NUESTRO, accionable.
+ *
+ * SOLO LECTURA.
+ *   GET /api/auditoria/campos-comerciales?sede=PALACIOS&muestra=40
+ */
+app.get('/api/auditoria/campos-comerciales', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const muestra = parseInt(req.query.muestra || '40', 10);
+    const r = await auditarCamposComerciales({ sede, muestra });
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
