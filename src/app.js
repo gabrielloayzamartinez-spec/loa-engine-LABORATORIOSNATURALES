@@ -548,11 +548,29 @@ async function runExpressAssignment() {
         const grupo = contacts.slice(i, i + CONCURRENCIA_RADAR);
         await Promise.all(grupo.map(async (contact) => {
           const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
-          const lastProcessedUpdate = processedContactTimestamps.get(contact.id) || 0;
 
-          // Si ya procesamos esta actualización exacta saltamos (previene loops).
-          // [MOD]: Hemos quitado el check de (!contact.isUnassigned) para que el radar procese leads nuevos obligatoriamente aunque alguien ya se los haya asignado manualmente en GHL.
-          if (updatedAt <= lastProcessedUpdate) return;
+          // ==================================================================
+          // [ANTI-BUCLE DEL RADAR — CAUSA REAL DEL AGOTAMIENTO DE CUOTA]
+          //
+          // DEFECTO GRAVE: el radar guardaba el `dateUpdated` DEL CONTACTO para no
+          // repetirlo. Pero NUESTRA PROPIA escritura (el PUT que asigna propietario,
+          // etiquetas y campos) TAMBIÉN actualiza `dateUpdated` en GHL. Así, en el
+          // ciclo siguiente, el contacto parecía "nuevo" otra vez y se reprocesaba...
+          // y al reprocesarlo volvíamos a escribir, marcándolo como nuevo PARA
+          // SIEMPRE. Un BUCLE INFINITO.
+          //
+          // Medido en producción: 60 contactos por ciclo cada 5 s × ~7 llamadas a GHL
+          // = miles de peticiones por hora, los 7 días. Eso agotó las 200,000 diarias
+          // de Palacios y consumía ~13,300/hora en las demás sedes (agotaría
+          // cualquiera en ~15 h). Era la verdadera causa del "descontrol".
+          //
+          // CORRECCIÓN: se guarda CUÁNDO lo procesamos NOSOTROS, y se exige actividad
+          // POSTERIOR a esa marca más un margen que cubre nuestras propias
+          // escrituras. El lead se rutea cuando ESCRIBE, no porque lo hayamos tocado.
+          // ==================================================================
+          const MARGEN_ESCRITURA_PROPIA_MS = Math.max(parseInt(process.env.RADAR_MARGEN_ESCRITURA_MS || '90000', 10) || 90000, 10000);
+          const procesadoEn = processedContactTimestamps.get(contact.id) || 0;
+          if (updatedAt <= procesadoEn + MARGEN_ESCRITURA_PROPIA_MS) return;
 
           const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
           // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
@@ -570,8 +588,10 @@ async function runExpressAssignment() {
             if (result === 'RETRY' || result === 'RETRY_INDEXING') {
               console.log(`[${timeStr}] [Worker 1] [RETRY] Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
             } else {
-              // Guardamos el timestamp exacto de esta actualización para no volver a procesarla hasta que el lead vuelva a hacer algo
-              processedContactTimestamps.set(contact.id, updatedAt);
+              // [ANTI-BUCLE] Se guarda CUÁNDO lo procesamos NOSOTROS (no el
+              // `dateUpdated` del contacto, que nuestra propia escritura modifica).
+              // Es lo que rompe el bucle infinito de reprocesamiento.
+              processedContactTimestamps.set(contact.id, Date.now());
               stats.contactsProcessed++;
             }
           } catch (oneErr) {
@@ -2411,14 +2431,18 @@ async function reprocesarConversacionesDesde(desdeMs) {
           if (!t || t < desdeMs) { finDeVentana = true; break; }
 
           delDia++;
-          // Ya se procesó EXACTAMENTE esta versión del contacto: no se repite.
-          if ((procesadosDelDia.get(c.id) || 0) >= t) continue;
+          // [ANTI-BUCLE — MISMO DEFECTO QUE EL RADAR] Antes se comparaba contra el
+          // `dateUpdated` del contacto, pero NUESTRA propia escritura lo actualiza:
+          // el contacto se veía "nuevo" en cada pasada y se reprocesaba sin fin.
+          // Ahora se guarda CUÁNDO lo procesamos y se exige actividad posterior.
+          const procesadoEn = procesadosDelDia.get(c.id) || 0;
+          if (t <= procesadoEn + 90000) continue;
 
           try {
             const r = await routeChatByContact(c.id, true, false, { locationId: loc.id, headers: loc.headers });
             if (r !== 'RETRY' && r !== 'RETRY_INDEXING') {
               procesados++;
-              procesadosDelDia.set(c.id, t);
+              procesadosDelDia.set(c.id, Date.now());
             }
           } catch { /* un contacto no aborta el lote */ }
           await sleep(120);
