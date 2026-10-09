@@ -138,6 +138,11 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
 
   try {
     const contactIdsToProcess = new Set();
+    // [ARMONIZADOR] Fecha del último mensaje por contacto. Es la ÚNICA señal que
+    // refleja que el LEAD escribió: el `date_updated` de abajo lo mueve cualquier
+    // escritura del nivel 2 (backfill, sales bridge, reverse sync), y por eso el
+    // curador re-ruteaba justo lo que el fondo acababa de tocar.
+    const mensajePorContacto = new Map();
 
     // 1. Obtener los contactos modificados más recientemente
     const contactsUrl = `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=${limit}&sortBy=date_updated&order=desc`;
@@ -156,7 +161,11 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
       if (convRes.status === 200) {
         const convData = await convRes.json();
         for (const cv of (convData.conversations || [])) {
-          if (cv.contactId) contactIdsToProcess.add(cv.contactId);
+          if (cv.contactId) {
+            contactIdsToProcess.add(cv.contactId);
+            const t = new Date(cv.lastMessageDate || 0).getTime();
+            if (t > (mensajePorContacto.get(cv.contactId) || 0)) mensajePorContacto.set(cv.contactId, t);
+          }
         }
       }
     } catch (cvErr) {}
@@ -168,7 +177,11 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
       try {
         const result = await routeChatByContact(contactId, true, false, { origen: 'curador-bidireccional',
           locationId: locId,
-          sede: sedeUpper
+          sede: sedeUpper,
+          // Si viene de la lista de conversaciones se envía la fecha del mensaje y el
+          // armonizador resuelve SIN GASTAR NINGUNA LLAMADA. Si solo viene de
+          // `date_updated` se envía 0 y el router lo descarta tras leer la evidencia.
+          mensajeMs: mensajePorContacto.get(contactId) || 0
         });
         if (result === 'SUCCESS' || result === 'UNCHANGED' || result === 'RETRY') {
           healed++;
@@ -231,8 +244,22 @@ export async function runBackwardCure(sedeName = 'BENAVIDES', options = {}) {
     lastRunAt: null
   } : loadCursorState(sedeUpper);
 
+  // [ARMONIZADOR — BARRIDO HISTÓRICO QUE YA NO SE REPITE PARA SIEMPRE]
+  // ANTES: al terminar el recorrido se guardaba `isCompleted = true`, pero el ciclo
+  // siguiente lo ponía en false y VOLVÍA A EMPEZAR desde la página 1 de
+  // `date_added desc`. Eso convertía la curación en un barrido INFINITO de toda la
+  // base a 20 contactos por minuto: cientos de miles de llamadas al día.
+  // AHORA: al terminar, la sede queda marcada como COMPLETA y no se re-barre sola.
+  // Para reiniciar el barrido hay que pedirlo a propósito (`resetCursor`, o el
+  // endpoint de reinicio), que es lo correcto para una revisión histórica.
   if (state.isCompleted && !state.nextPageUrl) {
-    state.isCompleted = false;
+    return {
+      status: 'completed',
+      sede: sedeUpper,
+      message: `Barrido histórico de ${sedeUpper} ya completado. No se reinicia solo (evita el bucle infinito). Usa ?reset=true para volver a recorrerlo.`,
+      totalScanned: state.totalScanned || 0,
+      totalHealed: state.totalHealed || 0
+    };
   }
   let url = state.nextPageUrl || `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=${batchLimit}&sortBy=date_added&order=desc`;
 

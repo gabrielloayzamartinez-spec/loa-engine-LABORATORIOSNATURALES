@@ -35,6 +35,7 @@ import { auditarCamposComerciales } from './services/commercial_fields_audit.js'
 import { auditarTecnico } from './services/technical_audit.js';
 import { refillComercial, getRefillStatus, resetRefill } from './services/commercial_refill.js';
 import { getStateStore } from './services/state/state_store.js';
+import { cargarMemoriaActividad, persistirMemoriaActividad, getEstadoMemoriaActividad } from './services/lead_activity_memory.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -447,6 +448,9 @@ export function startMemoryGuard() {
     await persistirMemoriaRadar();
     // Persistir el tope del fondo: un reinicio no debe regalar cuota de nuevo.
     await persistirPresupuestoFondo();
+    // Persistir la memoria del armonizador: un reinicio no debe volver a atender
+    // mensajes que ya se atendieron (es la que garantiza "un mensaje = una atención").
+    await persistirMemoriaActividad();
   }, 10 * 60 * 1000);
 }
 
@@ -614,7 +618,7 @@ async function runExpressAssignment() {
           console.log(`[${timeStr}] [Worker 1] [PROCESSING] Lead fresco (${loc.name}, hace ${edadMin} min): ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
 
           try {
-            const result = await routeChatByContact(contact.id, true, false, { locationId: loc.id, headers: loc.headers, origen: 'radar' });
+            const result = await routeChatByContact(contact.id, true, false, { locationId: loc.id, headers: loc.headers, origen: 'radar', mensajeMs: ultimoMensajePorContacto.get(contact.id) || 0 });
 
             // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
             if (result === 'RETRY' || result === 'RETRY_INDEXING') {
@@ -696,7 +700,7 @@ export async function runUnassignedConversationsGuardian() {
       const unassigned = (data.conversations || []).filter(c => !c.assignedTo && c.contactId);
       for (const conv of unassigned) {
         console.log(`[Unassigned Guardian] [LEAD-UNASSIGNED] Lead sin asignar detectado en ${loc.name}: ${conv.contactName || 'Lead'} (${conv.contactId}). Enrutando...`);
-        await routeChatByContact(conv.contactId, true, false, { locationId: loc.id, headers: loc.headers, origen: 'radar-conversaciones' });
+        await routeChatByContact(conv.contactId, true, false, { locationId: loc.id, headers: loc.headers, origen: 'guardian-bandejas', mensajeMs: new Date(conv.lastMessageDate || 0).getTime() });
         await sleep(600);
       }
     }));
@@ -819,6 +823,10 @@ app.get('/api/health', (req, res) => {
       // El resto de la cuota queda RESERVADO a la atención en vivo y el fondo no
       // puede tocarlo, pase lo que pase.
       presupuestoFondo: getPresupuestoFondo(),
+      // [ARMONIZADOR] Memoria compartida de actividad: cuántos leads ya se atendieron.
+      // Garantiza "un mensaje del lead = una sola atención", sin importar cuántos
+      // procesos lo pidan.
+      memoriaActividad: getEstadoMemoriaActividad(),
       // [REPARTO INTELIGENTE EN 24 HORAS] Qué porcentaje del presupuesto del fondo
       // ya está liberado a esta hora, cuánto puede usar AHORA y en qué franja está.
       // El nivel 1 no se reparte: siempre pasa.
@@ -2477,7 +2485,7 @@ async function reprocesarConversacionesDesde(desdeMs) {
           if (t <= procesadoEn) continue;
 
           try {
-            const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers, origen: 'trabajo-del-dia' });
+            const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers, origen: 'trabajo-del-dia', mensajeMs: t });
             if (r !== 'RETRY' && r !== 'RETRY_INDEXING') {
               procesados++;
               procesadosDelDia.set(cv.contactId, Date.now());
@@ -3065,6 +3073,10 @@ export function registerBackgroundSchedulers() {
   // esto, un reinicio reprocesa toda la ventana de 24 h y dispara un pico de
   // miles de llamadas (fue la causa del agotamiento de la cuota de Palacios).
   cargarMemoriaRadar().catch(err => console.warn(`[Radar Memoria] ${err.message}`));
+  // [ARMONIZADOR] Memoria compartida de "qué mensaje ya se atendió": es lo que hace
+  // que el radar, el curador, el guardián y el trabajo del día no repitan la misma
+  // atención. Se carga ANTES de que arranquen los ciclos.
+  cargarMemoriaActividad().catch(err => console.warn(`[Armonizador] ${err.message}`));
   // [TOPE DEL FONDO] Restaurar lo ya consumido hoy por el trabajo de fondo.
   cargarPresupuestoFondo().catch(err => console.warn(`[Tope Fondo] ${err.message}`));
 
