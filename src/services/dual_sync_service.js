@@ -1198,7 +1198,18 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
       });
     } else {
       const construido = buildUpsertPayloads(vContact, {
-        incluirHistorial: !existenteCentral,
+        // [DEFECTO CORREGIDO — CAUSA DE ~37% DE CONTACTOS SIN FECHA DE COMPRA]
+        // ANTES: `incluirHistorial: !existenteCentral`. Si el contacto YA existia en
+        // GHL (caso normal: entro como LEAD por el router y DESPUES aparece como
+        // COMPRADOR en vTiger), el historial NO viajaba: se omitian totalCompras,
+        // Fecha Ultima Compra, Fecha Primera Compra, precioVenta e idClienteVt.
+        // Resultado real medido: contactos con 4 compras en vTiger quedaban en GHL
+        // como "No Comprador", sin fecha y sin monto, para siempre.
+        //
+        // AHORA: el historial viaja SIEMPRE. Es seguro porque `soloAvances` filtra
+        // campo por campo: escribe si GHL no lo tiene, o si el dato de vTiger es
+        // mas reciente; jamas pisa informacion buena con informacion vieja.
+        incluirHistorial: true,
         fieldIdsCentral: fieldsCentral,
         ghlExistenteCentral: existenteCentral
       });
@@ -1248,7 +1259,11 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
     const existenteSede = await findContactByPhone(sedeLocId, phone, sedeHeaders);
 
     const construidoSede = buildUpsertPayloads(vContact, {
-      incluirHistorial: !existenteSede,
+      // [MISMO DEFECTO CORREGIDO QUE EN LA EMPRESA] Si el contacto ya existia en
+      // la subcuenta (entro como LEAD y luego compro), el historial NO viajaba y
+      // el comprador quedaba sin Fecha Ultima Compra, sin monto y sin numero de
+      // compras. Ahora viaja SIEMPRE; `soloAvances` protege contra retrocesos.
+      incluirHistorial: true,
       fieldIdsSede: fieldsSede,
       ghlExistenteSede: existenteSede
     });
