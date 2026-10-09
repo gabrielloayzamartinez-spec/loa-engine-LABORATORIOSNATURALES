@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders, getActiveSedes } from './config/index.js';
-import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo, factorDeRitmoDeFondo } from './utils/ghl_http_client.js';
+import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo, factorDeRitmoDeFondo, getPresupuestoFondo, restaurarPresupuestoFondo, exportarPresupuestoFondo } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
@@ -32,6 +32,7 @@ import { diagnosticarContacto } from './services/contact_diagnostic.js';
 import { auditarPrimerNivel } from './services/first_level_audit.js';
 import { auditarCamposComerciales } from './services/commercial_fields_audit.js';
 import { refillComercial, getRefillStatus, resetRefill } from './services/commercial_refill.js';
+import { getStateStore } from './services/state/state_store.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -343,13 +344,92 @@ let stats = {
 
 const processedContactTimestamps = new Map();
 
+// ==========================================================================
+// [MEMORIA PERSISTENTE DEL RADAR — CORRECCIÓN DEL PICO DE CUOTA EN CADA DEPLOY]
+//
+// DEFECTO REAL (causa del agotamiento de la cuota de Palacios):
+// `processedContactTimestamps` vivía SOLO en memoria. En cada reinicio (y hoy hubo
+// muchos, uno por despliegue) el mapa arrancaba VACÍO, así que el radar creía que
+// TODOS los contactos de la ventana de 24 h eran nuevos y los reprocesaba otra vez.
+// Con 60 contactos por sede × 4 sedes × ~8 llamadas a GHL por contacto, cada
+// despliegue disparaba un pico de MILES de llamadas en pocos minutos. Ese pico,
+// repetido, consumió las 200,000 peticiones diarias de la subcuenta.
+//
+// AHORA el mapa se PERSISTE (se carga al arrancar y se guarda cada 10 minutos), así
+// que un reinicio NO vuelve a procesar lo ya procesado. Además queda acotado a las
+// últimas 48 h y a un máximo de entradas para no crecer sin límite.
+// ==========================================================================
+const radarMemoriaStore = getStateStore('radar_memoria');
+const RADAR_MEMORIA_KEY = 'procesados_v1';
+const RADAR_MEMORIA_MAX = 8000;
+
+// [PRESUPUESTO DEL FONDO PERSISTENTE] El tope diario del trabajo de fondo también
+// sobrevive a los reinicios: antes el contador vivía en memoria y cada despliegue
+// regalaba cuota de nuevo (parte del mismo descontrol que agotó Palacios).
+const PRESUPUESTO_KEY = 'presupuesto_fondo_v1';
+
+/** Carga el presupuesto del fondo consumido hoy (se llama al arrancar). */
+export async function cargarPresupuestoFondo() {
+  try {
+    const guardado = await radarMemoriaStore.get(PRESUPUESTO_KEY, null);
+    if (guardado) {
+      restaurarPresupuestoFondo(guardado);
+      const r = getPresupuestoFondo();
+      const resumen = Object.entries(r).map(([s, v]) => `${s}:${v.consumidas}`).join(' ');
+      console.log(`[Tope Fondo] Presupuesto restaurado (${resumen}).`);
+    }
+  } catch (err) {
+    console.warn(`[Tope Fondo] No se pudo restaurar: ${err.message}`);
+  }
+}
+
+/** Persiste el presupuesto consumido (para que un reinicio no lo ponga en cero). */
+async function persistirPresupuestoFondo() {
+  try {
+    await radarMemoriaStore.set(PRESUPUESTO_KEY, exportarPresupuestoFondo());
+  } catch (err) {
+    console.warn(`[Tope Fondo] No se pudo guardar: ${err.message}`);
+  }
+}
+
+/** Carga la memoria del radar desde el almacén persistente (se llama al arrancar). */
+export async function cargarMemoriaRadar() {
+  try {
+    const guardado = await radarMemoriaStore.get(RADAR_MEMORIA_KEY, null);
+    if (guardado && typeof guardado === 'object') {
+      const cutoff = Date.now() - (48 * 60 * 60 * 1000);
+      let cargados = 0;
+      for (const [id, ts] of Object.entries(guardado)) {
+        if (Number(ts) >= cutoff) { processedContactTimestamps.set(id, Number(ts)); cargados++; }
+      }
+      console.log(`[Radar Memoria] Cargados ${cargados} contactos ya procesados: un reinicio NO los vuelve a procesar.`);
+    }
+  } catch (err) {
+    console.warn(`[Radar Memoria] No se pudo cargar: ${err.message}`);
+  }
+}
+
+/** Guarda la memoria del radar (acotada) para sobrevivir a los reinicios. */
+async function persistirMemoriaRadar() {
+  try {
+    const cutoff = Date.now() - (48 * 60 * 60 * 1000);
+    const entradas = [...processedContactTimestamps.entries()]
+      .filter(([, ts]) => ts >= cutoff)
+      .sort((a, b) => b[1] - a[1])          // las más recientes primero
+      .slice(0, RADAR_MEMORIA_MAX);
+    await radarMemoriaStore.set(RADAR_MEMORIA_KEY, Object.fromEntries(entradas));
+  } catch (err) {
+    console.warn(`[Radar Memoria] No se pudo guardar: ${err.message}`);
+  }
+}
+
 /**
  * [RUNTIME] Poda automática del mapa de contactos procesados.
  * Se registra desde src/server.js (registerBackgroundSchedulers), NO al importar
  * el módulo, para que los smoke tests puedan cargar la app sin side effects.
  */
 export function startMemoryGuard() {
-  return setInterval(() => {
+  return setInterval(async () => {
     const cutoff = Date.now() - (48 * 60 * 60 * 1000);
     let pruned = 0;
     for (const [id, ts] of processedContactTimestamps) {
@@ -361,6 +441,10 @@ export function startMemoryGuard() {
     if (pruned > 0 || processedContactTimestamps.size > 100) {
       console.log(`[Memory Guard] [CLEANUP] Mapa podado: ${pruned} entradas eliminadas. Tamaño actual: ${processedContactTimestamps.size}`);
     }
+    // Persistir para que el próximo reinicio NO reprocese (causa del pico de cuota).
+    await persistirMemoriaRadar();
+    // Persistir el tope del fondo: un reinicio no debe regalar cuota de nuevo.
+    await persistirPresupuestoFondo();
   }, 10 * 60 * 1000);
 }
 
@@ -674,7 +758,11 @@ app.get('/api/health', (req, res) => {
           sede,
           { ...st, factorRitmoFondo: factorDeRitmoDeFondo(sede) }
         ])
-      )
+      ),
+      // [TOPE DURO DEL FONDO] Presupuesto diario del trabajo de fondo por subcuenta.
+      // El resto de la cuota queda RESERVADO a la atención en vivo y el fondo no
+      // puede tocarlo, pase lo que pase.
+      presupuestoFondo: getPresupuestoFondo()
     },
     timestamp: new Date().toISOString()
   });
@@ -2840,6 +2928,13 @@ export function registerBackgroundSchedulers() {
 
   // Poda del mapa de contactos procesados (anti memory-leak)
   timers.push(startMemoryGuard());
+
+  // [MEMORIA DEL RADAR] Cargar ANTES de que el radar haga su primer ciclo. Sin
+  // esto, un reinicio reprocesa toda la ventana de 24 h y dispara un pico de
+  // miles de llamadas (fue la causa del agotamiento de la cuota de Palacios).
+  cargarMemoriaRadar().catch(err => console.warn(`[Radar Memoria] ${err.message}`));
+  // [TOPE DEL FONDO] Restaurar lo ya consumido hoy por el trabajo de fondo.
+  cargarPresupuestoFondo().catch(err => console.warn(`[Tope Fondo] ${err.message}`));
 
   // [TICKET 1] Puente de ventas vTiger -> GHL (upsert dual con protección de historial).
   // Cada 10 min busca ventas nuevas en vTiger POR SEDE y las publica en GHL,

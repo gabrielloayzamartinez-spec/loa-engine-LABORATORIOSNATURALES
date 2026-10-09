@@ -183,11 +183,97 @@ export function factorDeRitmoDeFondo(subaccount = 'GENERAL') {
 }
 
 /**
+ * ==============================================================================
+ * PRESUPUESTO DIARIO DEL TRABAJO DE FONDO — EL LÍMITE DURO
+ * ==============================================================================
+ * POR QUÉ EXISTE (falla real reportada por el usuario)
+ * El trabajo de fondo (backfill, re-llenado, guardianes, curadores) no tenía TOPE
+ * PROPIO: solo se frenaba si la cuota de GHL bajaba. Así podía consumir casi toda
+ * la ventana y dejar a una oficina al borde de quedarse sin atender sus mensajes.
+ *
+ * Regla de negocio: el fondo NUNCA puede gastar más de una fracción fija del
+ * límite diario. El resto queda RESERVADO a la atención en vivo, pase lo que pase.
+ *
+ *   Límite de GHL por subcuenta ...... 200,000
+ *   Presupuesto del FONDO ............ 120,000  (60%, configurable)
+ *   Reservado para EN VIVO ...........  80,000  (40%, intocable por el fondo)
+ *
+ * El contador se lleva por DÍA CALENDARIO de Lima y se persiste, así que un
+ * reinicio NO lo pone en cero (antes el contador vivía en memoria y cada despliegue
+ * regalaba cuota de nuevo: parte del mismo descontrol).
+ *
+ * El trabajo EN VIVO no se cuenta ni se limita: siempre pasa.
+ * ==============================================================================
+ */
+const PRESUPUESTO_FONDO_DIARIO = Math.min(Math.max(parseInt(process.env.GHL_PRESUPUESTO_FONDO_DIARIO || '120000', 10) || 120000, 0), 200000);
+
+/** Fecha (día de Lima, UTC-5 sin horario de verano) en formato YYYY-MM-DD. */
+function diaLima() {
+  return new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+/** sede -> { fecha, n } (llamadas de FONDO consumidas en el día de Lima). */
+const consumoFondo = new Map();
+
+function leerConsumoFondo(sede) {
+  const reg = consumoFondo.get(sede);
+  const hoy = diaLima();
+  if (!reg || reg.fecha !== hoy) return { fecha: hoy, n: 0 };
+  return reg;
+}
+
+/** Registra una llamada de FONDO (nunca del trabajo en vivo). */
+export function registrarConsumoFondo(subaccount = 'GENERAL') {
+  const reg = leerConsumoFondo(subaccount);
+  reg.n += 1;
+  consumoFondo.set(subaccount, reg);
+}
+
+/** ¿Le queda presupuesto diario al trabajo de fondo en esta subcuenta? */
+export function quedaPresupuestoFondo(subaccount = 'GENERAL') {
+  if (PRESUPUESTO_FONDO_DIARIO === 0) return true;   // 0 = sin tope (explícito)
+  return leerConsumoFondo(subaccount).n < PRESUPUESTO_FONDO_DIARIO;
+}
+
+/** Estado del presupuesto por subcuenta (para /api/health y reportes). */
+export function getPresupuestoFondo() {
+  const salida = {};
+  for (const sede of new Set([...consumoFondo.keys(), 'PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA', 'EMPRESA', 'GENERAL'])) {
+    const reg = leerConsumoFondo(sede);
+    salida[sede] = {
+      fecha: reg.fecha,
+      consumidas: reg.n,
+      presupuesto: PRESUPUESTO_FONDO_DIARIO,
+      restante: Math.max(0, PRESUPUESTO_FONDO_DIARIO - reg.n)
+    };
+  }
+  return salida;
+}
+
+/** Restaura el contador persistido (se llama al arrancar). */
+export function restaurarPresupuestoFondo(guardado) {
+  if (!guardado || typeof guardado !== 'object') return;
+  const hoy = diaLima();
+  for (const [sede, reg] of Object.entries(guardado)) {
+    // Solo se restaura el MISMO día de Lima: al cambiar el día el contador arranca en cero.
+    if (reg && reg.fecha === hoy && Number.isFinite(Number(reg.n))) {
+      consumoFondo.set(sede, { fecha: hoy, n: Number(reg.n) });
+    }
+  }
+}
+
+/** Exporta el contador para persistirlo. */
+export function exportarPresupuestoFondo() {
+  return Object.fromEntries(consumoFondo.entries());
+}
+
+/**
  * ¿Queda cuota REAL para trabajo de fondo segun los headers de GHL?
  * Fail-safe: si aun no hay datos, se permite (no bloquear por desconocimiento).
  */
 export function hayCuotaRealDeFondo(subaccount = 'GENERAL') {
-  return factorDeRitmoDeFondo(subaccount) > 0;
+  if (!quedaPresupuestoFondo(subaccount)) return false;   // tope propio del día
+  return factorDeRitmoDeFondo(subaccount) > 0;            // cuota real de GHL
 }
 
 /** Estado de cuota real (para auditoría y reportes). */
@@ -276,6 +362,26 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
   const priority = (caller === 'Radar' || caller === 'Router' || caller.includes('Webhook')) ? 'HIGH' : 'LOW';
   const esVivo = priority === 'HIGH';
 
+  // ==========================================================================
+  // [TOPE DURO DEL TRABAJO DE FONDO — LÍMITE CLARO Y NO NEGOCIABLE]
+  // Si el fondo ya agotó su presupuesto del día en esta subcuenta, NO se emite la
+  // petición: se devuelve un 429 sintético (sin tocar la red ni gastar cuota).
+  // Esto es lo que garantiza que la atención en vivo SIEMPRE tenga su reserva.
+  // El trabajo EN VIVO (leads que escriben) nunca entra aquí.
+  // ==========================================================================
+  if (!esVivo && !quedaPresupuestoFondo(subaccount)) {
+    const reg = leerConsumoFondo(subaccount);
+    console.log(`[${caller}] [TOPE-FONDO] Subcuenta [${subaccount}]: el fondo agotó su presupuesto diario (${reg.n}/${PRESUPUESTO_FONDO_DIARIO}). Reserva intacta para atención en vivo.`);
+    return {
+      status: 429,
+      ok: false,
+      topeFondo: true,
+      headers: new Headers({ 'retry-after': '3600' }),
+      json: async () => ({ message: `Presupuesto diario del trabajo de fondo agotado en ${subaccount} (${reg.n}/${PRESUPUESTO_FONDO_DIARIO}). La cuota restante queda reservada a la atención en vivo.` }),
+      text: async () => `Presupuesto diario del trabajo de fondo agotado en ${subaccount}.`
+    };
+  }
+
   // [BLINDAJE 429]: Si la subcuenta está pausada preventivamente, omitir peticiones externas a GHL
   if (isSubaccountPaused(subaccount)) {
     console.log(`[${caller}] [SUBACCOUNT-PAUSED] Subcuenta [${subaccount}] pausada preventivamente por rate limit 429 activo en GHL. Petición omitida.`);
@@ -335,6 +441,9 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
     if (global.apiCounters) global.apiCounters.ghl++;
     // [OBSERVABILIDAD] Se registra el consumo por servicio para /api/health.
     consumoPorServicio.set(caller, (consumoPorServicio.get(caller) || 0) + 1);
+    // [PRESUPUESTO DIARIO DEL FONDO] Solo se cuenta el trabajo de FONDO: el de
+    // atención en vivo tiene reserva intocable y nunca se limita.
+    if (!esVivo) registrarConsumoFondo(subaccount);
     // [AISLAMIENTO POR SUBCUENTA] Se pasa la subcuenta para que cada location use
     // su PROPIO cubo. Antes todas las sedes compartian una sola cola global y se
     // serializaban entre si, usando menos del 10% del limite de GHL. La cuota de
