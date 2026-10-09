@@ -504,24 +504,33 @@ async function runExpressAssignment() {
       });
 
       // Capturar también actividad reciente en conversaciones (Facebook Messenger / DM)
+      // [SEÑAL DE ACTIVIDAD REAL] Se guarda la FECHA DEL ÚLTIMO MENSAJE por contacto.
+      // Es el ÚNICO dato que refleja que el LEAD escribió: el `dateUpdated` del
+      // contacto lo mueve CUALQUIER escritura (el backfill, el re-llenado, el sales
+      // bridge, el propio radar...), así que usarlo como señal provoca reprocesos en
+      // cadena. Verificado en producción: contactos ruteados 15 veces en 20 minutos.
+      const ultimoMensajePorContacto = new Map();
       try {
-        const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=20`;
+        const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=100`;
         const convRes = await fetchWithRetry(convUrl, { headers: { ...loc.headers, 'Version': '2021-04-15' } });
         if (convRes.status === 200) {
           const convData = await convRes.json();
           for (const cv of (convData.conversations || [])) {
-            if (cv.contactId) {
-              const existing = contacts.find(c => c.id === cv.contactId);
-              if (!existing) {
-                contacts.push({
-                  id: cv.contactId,
-                  dateUpdated: cv.lastMessageDate,
-                  firstName: cv.contactName || 'Lead Chat',
-                  isUnassigned: !cv.assignedTo
-                });
-              } else if (!cv.assignedTo) {
-                existing.isUnassigned = true;
-              }
+            if (!cv.contactId) continue;
+            const fechaMsg = new Date(cv.lastMessageDate || 0).getTime();
+            if (fechaMsg > (ultimoMensajePorContacto.get(cv.contactId) || 0)) {
+              ultimoMensajePorContacto.set(cv.contactId, fechaMsg);
+            }
+            const existing = contacts.find(c => c.id === cv.contactId);
+            if (!existing) {
+              contacts.push({
+                id: cv.contactId,
+                dateUpdated: cv.lastMessageDate,
+                firstName: cv.contactName || 'Lead Chat',
+                isUnassigned: !cv.assignedTo
+              });
+            } else if (!cv.assignedTo) {
+              existing.isUnassigned = true;
             }
           }
         }
@@ -548,30 +557,38 @@ async function runExpressAssignment() {
       for (let i = 0; i < contacts.length; i += CONCURRENCIA_RADAR) {
         const grupo = contacts.slice(i, i + CONCURRENCIA_RADAR);
         await Promise.all(grupo.map(async (contact) => {
-          const updatedAt = new Date(contact.dateUpdated || contact.dateAdded).getTime();
-
           // ==================================================================
-          // [ANTI-BUCLE DEL RADAR — CAUSA REAL DEL AGOTAMIENTO DE CUOTA]
+          // [SEÑAL DE ACTIVIDAD REAL — CORRECCIÓN DEFINITIVA DEL BUCLE]
           //
-          // DEFECTO GRAVE: el radar guardaba el `dateUpdated` DEL CONTACTO para no
-          // repetirlo. Pero NUESTRA PROPIA escritura (el PUT que asigna propietario,
-          // etiquetas y campos) TAMBIÉN actualiza `dateUpdated` en GHL. Así, en el
-          // ciclo siguiente, el contacto parecía "nuevo" otra vez y se reprocesaba...
-          // y al reprocesarlo volvíamos a escribir, marcándolo como nuevo PARA
-          // SIEMPRE. Un BUCLE INFINITO.
+          // El radar NO debe decidir por el `dateUpdated` del contacto: ese campo lo
+          // mueve CUALQUIER escritura, no sólo el mensaje del lead. Lo mueven el
+          // backfill, el re-llenado, el sales bridge, el reverse sync y el propio
+          // radar al asignar. Usarlo como señal genera reprocesos en cadena entre
+          // procesos: medido en producción, contactos ruteados 15 veces en 20 minutos
+          // con 61% de desperdicio y ~13,000 llamadas/hora.
           //
-          // Medido en producción: 60 contactos por ciclo cada 5 s × ~7 llamadas a GHL
-          // = miles de peticiones por hora, los 7 días. Eso agotó las 200,000 diarias
-          // de Palacios y consumía ~13,300/hora en las demás sedes (agotaría
-          // cualquiera en ~15 h). Era la verdadera causa del "descontrol".
+          // La señal correcta es la FECHA DEL ÚLTIMO MENSAJE de la conversación: eso
+          // SÓLO cambia cuando el lead escribe. Si el lead escribió después de nuestro
+          // último ruteo, se atiende; si no, se ignora aunque mil procesos hayan
+          // tocado el contacto.
           //
-          // CORRECCIÓN: se guarda CUÁNDO lo procesamos NOSOTROS, y se exige actividad
-          // POSTERIOR a esa marca más un margen que cubre nuestras propias
-          // escrituras. El lead se rutea cuando ESCRIBE, no porque lo hayamos tocado.
+          // Respaldo: cuando no hay conversación (formulario, SMS, llamada) se usa el
+          // `dateUpdated` con un margen amplio que absorbe las escrituras ajenas.
           // ==================================================================
-          const MARGEN_ESCRITURA_PROPIA_MS = Math.max(parseInt(process.env.RADAR_MARGEN_ESCRITURA_MS || '90000', 10) || 90000, 10000);
+          const MARGEN_RESPALDO_MS = Math.max(parseInt(process.env.RADAR_MARGEN_RESPALDO_MS || '1200000', 10) || 1200000, 60000);
           const procesadoEn = processedContactTimestamps.get(contact.id) || 0;
-          if (updatedAt <= procesadoEn + MARGEN_ESCRITURA_PROPIA_MS) return;
+          const fechaMensaje = ultimoMensajePorContacto.get(contact.id) || 0;
+          const fechaRespaldo = new Date(contact.dateUpdated || contact.dateAdded).getTime();
+
+          if (fechaMensaje > 0) {
+            // Camino principal: manda el mensaje del lead.
+            if (fechaMensaje <= procesadoEn) return;
+          } else {
+            // Sin conversación: respaldo con margen amplio (20 min) para no confundir
+            // las escrituras de otros procesos con actividad del lead.
+            if (fechaRespaldo <= procesadoEn + MARGEN_RESPALDO_MS) return;
+          }
+          const updatedAt = fechaMensaje || fechaRespaldo;
 
           const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
           // ==================================================================
@@ -2424,40 +2441,46 @@ async function reprocesarConversacionesDesde(desdeMs) {
   for (const loc of targetLocations) {
     if (!loc.id) continue;
     try {
-      let url = `https://services.leadconnectorhq.com/contacts/?locationId=${loc.id}&limit=100&sortBy=date_updated`;
+      // [SEÑAL REAL — MISMO ARREGLO QUE EL RADAR]
+      // Antes se recorrian los CONTACTOS por `date_updated`. Ese campo lo mueve
+      // CUALQUIER escritura (backfill, re-llenado, sales bridge, reverse sync), asi
+      // que el ciclo del dia reprocesaba contactos que el lead NUNCA volvio a tocar:
+      // medido en produccion, ~13,000 llamadas/hora y 61% de desperdicio.
+      // Ahora se recorren las CONVERSACIONES, cuya `lastMessageDate` SOLO cambia
+      // cuando el lead escribe. Ese es el sentido real de "los leads que hablaron hoy".
+      let url = `https://services.leadconnectorhq.com/conversations/search?locationId=${loc.id}&limit=100`;
       let paginas = 0;
       let procesados = 0;
       let delDia = 0;
       let finDeVentana = false;
 
-      // Tope de seguridad: 15 páginas = 1,500 contactos con actividad por sede.
+      // Tope de seguridad: 15 paginas = 1,500 conversaciones con actividad por sede.
       while (url && paginas < 15 && !finDeVentana) {
         paginas++;
-        const res = await fetchWithRetry(url, { headers: loc.headers });
+        const res = await fetchWithRetry(url, { headers: { ...loc.headers, Version: '2021-04-15' } });
         if (res.status !== 200) break;
         const d = await res.json();
-        const contactos = d.contacts || [];
-        if (contactos.length === 0) break;
+        const conversaciones = d.conversations || [];
+        if (conversaciones.length === 0) break;
 
-        for (const c of contactos) {
-          const t = new Date(c.dateUpdated || c.dateAdded).getTime();
-          // Orden descendente: al primer contacto fuera de la ventana, el resto
-          // tampoco es del día.
+        for (const cv of conversaciones) {
+          if (!cv.contactId) continue;
+          const t = new Date(cv.lastMessageDate || 0).getTime();
+          // Orden descendente por ultimo mensaje: al primero fuera de la ventana,
+          // el resto tampoco es del dia.
           if (!t || t < desdeMs) { finDeVentana = true; break; }
 
           delDia++;
-          // [ANTI-BUCLE — MISMO DEFECTO QUE EL RADAR] Antes se comparaba contra el
-          // `dateUpdated` del contacto, pero NUESTRA propia escritura lo actualiza:
-          // el contacto se veía "nuevo" en cada pasada y se reprocesaba sin fin.
-          // Ahora se guarda CUÁNDO lo procesamos y se exige actividad posterior.
-          const procesadoEn = procesadosDelDia.get(c.id) || 0;
-          if (t <= procesadoEn + 90000) continue;
+          // Se guarda CUANDO lo procesamos y se exige un MENSAJE POSTERIOR: asi el
+          // ciclo de 10 min no repite trabajo ni satura vTiger.
+          const procesadoEn = procesadosDelDia.get(cv.contactId) || 0;
+          if (t <= procesadoEn) continue;
 
           try {
-            const r = await routeChatByContact(c.id, true, false, { locationId: loc.id, headers: loc.headers });
+            const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
             if (r !== 'RETRY' && r !== 'RETRY_INDEXING') {
               procesados++;
-              procesadosDelDia.set(c.id, Date.now());
+              procesadosDelDia.set(cv.contactId, Date.now());
             }
           } catch { /* un contacto no aborta el lote */ }
           await sleep(120);
