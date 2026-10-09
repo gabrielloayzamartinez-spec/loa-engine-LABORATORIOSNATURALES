@@ -114,8 +114,27 @@ export async function auditarCamposComerciales({ sede = 'PALACIOS', muestra = 40
 
     if (rG.status !== 200) continue;
     const dG = await rG.json();
-    const g = (dG.contacts || []).find(c => String(c.phone || '').replace(/\D/g, '').endsWith(last10)) || (dG.contacts || [])[0];
-    if (!g) { ausentesEnGhl.push({ vTigerId: v.id, telefono: last10 }); continue; }
+    const encontrado = (dG.contacts || []).find(c => String(c.phone || '').replace(/\D/g, '').endsWith(last10)) || (dG.contacts || [])[0];
+    if (!encontrado) { ausentesEnGhl.push({ vTigerId: v.id, telefono: last10 }); continue; }
+
+    // [CRÍTICO] El endpoint de BUSQUEDA/LISTA de GHL NO devuelve `customFields`
+    // (solo los campos basicos del contacto). Sin este segundo llamado, TODOS los
+    // campos personalizados se leian como vacios y la auditoria daba un 100% FALSO
+    // de huecos. Se pide el contacto individual, que SI trae customFields.
+    let g = encontrado;
+    try {
+      const rDet = await ghlFetch(
+        `https://services.leadconnectorhq.com/contacts/${encontrado.id}`,
+        { headers },
+        1,
+        'Auditoria-Comercial'
+      );
+      if (rDet.status === 200) {
+        const det = await rDet.json();
+        if (det?.contact) g = det.contact;
+      }
+    } catch { /* si falla el detalle se continua con lo que trajo la busqueda */ }
+    await sleep(120);
 
     comparados++;
     const fila = { nombre: `${v.firstname || ''} ${v.lastname || ''}`.trim(), vTigerId: v.id, ghlId: g.id, campos: {} };
