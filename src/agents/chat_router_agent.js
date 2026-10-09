@@ -5,6 +5,7 @@ import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
+import { extraerAdIdDeMensaje, extraerAdIdDeMensajes, extraerPageIdDeMensaje, resolverAdId } from '../services/ad_id_resolver.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
@@ -277,17 +278,20 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         allMessages = todasMsgs.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
 
         for (const m of allMessages) {
-          const fbMeta = m.meta?.fb || {};
-          const pageId = fbMeta.fromPageId || fbMeta.pageId;
-          if (pageId) {
-            const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
-            const validAd = rawAd && rawAd !== 'N/A' && isValidMetaAdId(rawAd) ? String(rawAd).trim() : null;
+          // [EXTRACCION SISTEMATICA] El Ad ID se extrae SIEMPRE, aunque el mensaje
+          // no traiga page id. DEFECTO CORREGIDO: antes la lectura del Ad ID estaba
+          // DENTRO de `if (pageId)`, asi que un anuncio de WhatsApp/Instagram o un
+          // referido sin `fromPageId` perdia el ID por completo y el lead quedaba
+          // como ORGANICO aunque en Meta Business Suite tuviera su ID.
+          const pageId = extraerPageIdDeMensaje(m);
+          const adIdMsg = extraerAdIdDeMensaje(m);
+          if (pageId || adIdMsg) {
             fbMessages.push({
               id: m.id,
-              pageId: String(pageId),
+              pageId: pageId ? String(pageId) : null,
               timestamp: new Date(m.dateAdded).getTime(),
               dateStr: m.dateAdded,
-              adId: validAd
+              adId: adIdMsg || null
             });
           }
         }
@@ -581,14 +585,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let latestMedium = null;
     let latestAdSetName = null;
 
-    // 1. Mensajes de Facebook más recientes (prioridad máxima para Ad ID)
-    for (const m of allMessages) {
-      const fbMeta = m.meta?.fb || {};
-      const rawAd = fbMeta.adId || fbMeta.ad_id || m.meta?.referral?.ad_id || m.meta?.referral?.adId;
-      if (rawAd && rawAd !== 'N/A' && isValidMetaAdId(rawAd)) {
-        latestAdId = String(rawAd).trim();
-        break;
-      }
+    // 1. Referral del mensaje (prioridad máxima para Ad ID). Se usa el resolutor
+    //    SISTEMATICO: busca el ID en cualquier canal y en cualquier clave del
+    //    metadata (Messenger, WhatsApp, Instagram, ads_context_data...), en vez de
+    //    4 rutas fijas que dejaban fuera los formatos no previstos.
+    const deMensajes = extraerAdIdDeMensajes(allMessages);
+    if (deMensajes.adId) {
+      latestAdId = deMensajes.adId;
+      console.log(`[Agente 3] [AD-ID] Resuelto desde referral del mensaje (${deMensajes.fecha || 'sin fecha'}): ${latestAdId}`);
     }
 
     // 2. Recopilar todas las fuentes de atribución disponibles en GHL ordenadas por recencia
