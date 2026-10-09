@@ -31,6 +31,7 @@
 
 import { queryVTiger } from './vtiger_api_service.js';
 import { SEDES_GATEWAY, getActiveSedes } from '../config/index.js';
+import { sedeClause } from './vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { getGhlHeaders } from '../config/index.js';
