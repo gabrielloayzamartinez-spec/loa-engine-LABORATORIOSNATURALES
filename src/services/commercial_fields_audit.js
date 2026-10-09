@@ -38,7 +38,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 /** Campos auditados: nombre legible + clave en vTiger + nombres en GHL. */
 const CAMPOS = [
   { clave: 'fechaUltimaCompra', vTiger: VTIGER_FIELDS.FECHA_ULTIMA_COMPRA, ghl: ['Fecha Última Compra', 'vTiger Fecha Ultima Compra'], etiqueta: 'Fecha Última Compra' },
-  { clave: 'monto', vTiger: VTIGER_FIELDS.MONTO_INVERTIDO, ghl: ['Total Histórico Gastado USD', 'Monto Invertido'], etiqueta: 'Monto / Total Histórico' },
+  // [CAMPO CORREGIDO] En las SUBCUENTAS el monto NO vive en "Total Historico Gastado
+  // USD" (ese campo existe pero está en desuso ahí): el sincronizador escribe
+  // "Precio venta" (resuelto por `precioVenta` en CAMPOS_REQUERIDOS). Buscar el
+  // nombre equivocado producía un 100% de huecos FALSO. Se aceptan ambos nombres
+  // para que la auditoría sirva igual en la Cuenta Empresa, donde sí se usa el
+  // histórico acumulado.
+  { clave: 'monto', vTiger: VTIGER_FIELDS.MONTO_INVERTIDO, ghl: ['Precio venta', 'Total Historico Gastado USD', 'Monto Invertido'], etiqueta: 'Monto / Total Histórico' },
   { clave: 'tratamiento', vTiger: VTIGER_FIELDS.TRATAMIENTO, ghl: ['Tratamiento comprado'], etiqueta: 'Tratamiento comprado' },
   { clave: 'sexo', vTiger: VTIGER_FIELDS.SEXO, ghl: ['Sexo'], etiqueta: 'Sexo' },
   { clave: 'canal', vTiger: VTIGER_FIELDS.CANAL, ghl: ['Canal Captación', 'Origen Lead'], etiqueta: 'Canal / Origen' },

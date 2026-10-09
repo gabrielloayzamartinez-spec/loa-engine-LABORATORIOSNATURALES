@@ -109,11 +109,30 @@ export function getGhlRateState() {
 // [RESERVA PARA EL PRIMER NIVEL DE TODAS LAS OFICINAS]
 // El trabajo EN VIVO (los leads que escriben) es la prioridad absoluta en las 4
 // sedes. El trabajo de fondo NUNCA debe dejar a una oficina sin cuota para
-// atender sus mensajes. Por eso la reserva diaria por subcuenta se sube a 50,000
-// (25% de las 200,000 de GHL): mientras queden menos de esas peticiones, el fondo
-// se detiene y deja TODO el margen a la atencion en vivo.
+// atender sus mensajes.
+//
+// [VENTANA MÓVIL — ACLARACIÓN OPERATIVA IMPORTANTE]
+// El límite diario de GHL NO es un reset fijo a medianoche: es una VENTANA MÓVIL
+// de 24 horas. La cuota se libera de forma PROGRESIVA, exactamente 24 h después de
+// cada petición. Por eso el único dato fiable es el header
+// `X-RateLimit-Daily-Remaining` de cada respuesta (que ya se lee aquí), y no un
+// contador propio ni una hora del día.
+//
+// Consecuencia práctica: no sirve "esperar a medianoche". Lo correcto es
+// ESPACIAR el consumo por TRAMOS según lo que queda, tal como recomienda la
+// documentación: por debajo del 10% hay que introducir retrasos más largos.
+//
+//   >= 100,000 (50%)  -> ritmo normal       (factor 1)
+//   50,000-100,000    -> la mitad del ritmo (factor 0.5)
+//   20,000-50,000     -> un cuarto del ritmo (factor 0.25)
+//   < 20,000 (10%)    -> el fondo se DETIENE y solo atiende lo EN VIVO (factor 0)
+//
+// Los cortes son configurables por entorno, pero el valor de referencia es SIEMPRE
+// el header de GHL, nunca una estimación propia.
 const UMBRAL_RAFAGA_FONDO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_RAFAGA_FONDO || '15', 10) || 15, 1), 100);
-const UMBRAL_DIARIO_FONDO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_DIARIO_FONDO || '50000', 10) || 50000, 1000), 200000);
+const UMBRAL_DIARIO_PARADA = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_DIARIO_PARADA || '20000', 10) || 20000, 0), 200000);
+const UMBRAL_DIARIO_CUARTO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_DIARIO_CUARTO || '50000', 10) || 50000, 0), 200000);
+const UMBRAL_DIARIO_MEDIO = Math.min(Math.max(parseInt(process.env.GHL_UMBRAL_DIARIO_MEDIO || '100000', 10) || 100000, 0), 200000);
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -146,14 +165,40 @@ function registrarCuotaReal(subaccount, res) {
 }
 
 /**
+ * FACTOR DE RITMO del trabajo de fondo según la cuota diaria REAL que queda.
+ *
+ * Devuelve 1 · 0.5 · 0.25 · 0 y se usa para ESPACIAR el consumo en lugar de
+ * detenerlo de golpe: con una ventana móvil de 24 h, frenar por tramos deja que la
+ * cuota se libere de forma natural mientras el fondo sigue avanzando despacio.
+ *
+ * Fail-safe: sin datos del header se devuelve 1 (no bloquear por desconocimiento).
+ */
+export function factorDeRitmoDeFondo(subaccount = 'GENERAL') {
+  const st = ghlRateState.get(subaccount);
+  if (!st || !Number.isFinite(st.dailyRemaining)) return 1;
+  if (st.dailyRemaining < UMBRAL_DIARIO_PARADA) return 0;    // <10%: solo EN VIVO
+  if (st.dailyRemaining < UMBRAL_DIARIO_CUARTO) return 0.25;
+  if (st.dailyRemaining < UMBRAL_DIARIO_MEDIO) return 0.5;
+  return 1;
+}
+
+/**
  * ¿Queda cuota REAL para trabajo de fondo segun los headers de GHL?
  * Fail-safe: si aun no hay datos, se permite (no bloquear por desconocimiento).
  */
 export function hayCuotaRealDeFondo(subaccount = 'GENERAL') {
-  const st = ghlRateState.get(subaccount);
-  if (!st) return true;
-  if (Number.isFinite(st.dailyRemaining) && st.dailyRemaining <= UMBRAL_DIARIO_FONDO) return false;
-  return true;
+  return factorDeRitmoDeFondo(subaccount) > 0;
+}
+
+/** Estado de cuota real (para auditoría y reportes). */
+export function getCuotaRealEstado(subaccount = 'GENERAL') {
+  return {
+    ...(ghlRateState.get(subaccount) || {}),
+    factorRitmoFondo: factorDeRitmoDeFondo(subaccount),
+    umbralParada: UMBRAL_DIARIO_PARADA,
+    umbralCuarto: UMBRAL_DIARIO_CUARTO,
+    umbralMedio: UMBRAL_DIARIO_MEDIO
+  };
 }
 
 /**
@@ -268,6 +313,20 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
       const espera = Math.min(Number.isFinite(st.intervalMs) ? st.intervalMs : 10000, 10000);
       console.log(`[${caller}] [RAFAGA-REAL] Subcuenta [${subaccount}]: quedan ${st.intervalRemaining} peticiones en la ventana. El fondo cede ${espera}ms para reservar la rafaga al trabajo en vivo.`);
       await sleep(espera);
+    }
+  }
+
+  // [ESPACIADO POR TRAMOS DE CUOTA DIARIA — VENTANA MÓVIL DE 24 H]
+  // Como la cuota diaria de GHL se libera de forma PROGRESIVA (no hay reset a
+  // medianoche), no sirve detener el fondo de golpe: lo correcto es ESPACIARLO
+  // según lo que queda. Con el factor 0.5 el fondo hace una pausa extra; con 0.25
+  // la pausa es el triple; con 0 el trabajo de fondo ni se intenta (lo decide
+  // `hayCuotaRealDeFondo` antes de llegar aquí).
+  if (!esVivo) {
+    const factor = factorDeRitmoDeFondo(subaccount);
+    if (factor > 0 && factor < 1) {
+      const pausaExtra = Math.round(400 * (1 / factor - 1));   // 0.5 -> 400ms · 0.25 -> 1200ms
+      if (pausaExtra > 0) await sleep(pausaExtra);
     }
   }
 
