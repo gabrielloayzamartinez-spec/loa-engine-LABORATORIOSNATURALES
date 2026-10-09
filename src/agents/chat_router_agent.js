@@ -166,9 +166,81 @@ const costosRuteo = [];              // últimos ruteos medidos
 const COSTOS_MAX = 50;
 const estadisticasCosto = { ultimo: null, promedio: null, maximo: null, minimo: null, muestras: 0, ultimoContacto: null, ultimoTs: null };
 
+// ==========================================================================
+// [DETECTOR DE BUCLES — LA AUDITORÍA TÉCNICA QUE FALTABA]
+// El defecto más grave del sistema (un bucle infinito que reprocesaba los mismos
+// contactos cada 5 s y consumía ~13,300 llamadas/hora) NO aparecía en ninguna de las
+// auditorías existentes: todas revisaban la EXACTITUD DE LOS DATOS (campos, ruteo,
+// atribución), ninguna la SALUD DE LAS FUNCIONES. Este contador cierra ese hueco:
+// registra cuántas veces se rutea cada contacto en una hora. Si un contacto se rutea
+// decenas de veces, hay un bucle, y se ve de inmediato.
+// ==========================================================================
+const ruteosPorContacto = new Map();          // contactId -> { count, primera, ultima }
+const VENTANA_BUCLES_MS = 60 * 60 * 1000;     // ventana de 1 hora
+
+function contarRuteoDeContacto(contactId) {
+  const ahora = Date.now();
+  const reg = ruteosPorContacto.get(contactId);
+  if (!reg || (ahora - reg.primera) > VENTANA_BUCLES_MS) {
+    ruteosPorContacto.set(contactId, { count: 1, primera: ahora, ultima: ahora });
+  } else {
+    reg.count++;
+    reg.ultima = ahora;
+  }
+  // Poda oportunista para que el mapa no crezca sin control.
+  if (ruteosPorContacto.size > 5000) {
+    for (const [id, r] of ruteosPorContacto) {
+      if ((ahora - r.ultima) > VENTANA_BUCLES_MS) ruteosPorContacto.delete(id);
+    }
+  }
+}
+
+/**
+ * Diagnóstico de reprocesamiento: cuántos contactos se rutearon más de una vez en la
+ * última hora y cuáles fueron los peores. Un valor alto delata un bucle.
+ */
+export function getReprocesos(umbralVeces = 3) {
+  const ahora = Date.now();
+  const vigentes = [...ruteosPorContacto.entries()].filter(([, r]) => (ahora - r.ultima) <= VENTANA_BUCLES_MS);
+  const repetidos = vigentes.filter(([, r]) => r.count > 1);
+  const bucle = vigentes.filter(([, r]) => r.count >= umbralVeces);
+
+  const ruteosTotales = vigentes.reduce((a, [, r]) => a + r.count, 0);
+  const contactosUnicos = vigentes.length;
+  const desperdicioPct = ruteosTotales > 0
+    ? Math.round(((ruteosTotales - contactosUnicos) / ruteosTotales) * 1000) / 10
+    : 0;
+
+  const peores = bucle
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 15)
+    .map(([id, r]) => ({
+      contactId: id,
+      ruteos: r.count,
+      minutosActivo: Math.round((r.ultima - r.primera) / 60000),
+      ultimoRuteo: new Date(r.ultima).toISOString()
+    }));
+
+  return {
+    ventanaMin: 60,
+    contactosUnicos,
+    ruteosTotales,
+    contactosRepetidos: repetidos.length,
+    contactosEnBucle: bucle.length,
+    desperdicioPct,
+    veredicto: bucle.length === 0
+      ? '🟢 SIN BUCLES: ningún contacto se rutea en exceso.'
+      : (desperdicioPct > 50
+        ? '🔴 BUCLE PROBABLE: más de la mitad de los ruteos son repeticiones sobre los mismos contactos.'
+        : '🟡 REINTENTOS ALTOS: hay contactos ruteados varias veces; revisar la causa.'),
+    peores
+  };
+}
+
 function registrarCostoRuteo(contactId) {
   const costo = contadorLlamadasGhl - llamadasAlIniciarRuteo;
   if (costo <= 0) return;           // rutas abortadas antes de llamar (no ensucian la media)
+  contarRuteoDeContacto(contactId);
   costosRuteo.push(costo);
   if (costosRuteo.length > COSTOS_MAX) costosRuteo.shift();
   estadisticasCosto.ultimo = costo;
@@ -177,8 +249,7 @@ function registrarCostoRuteo(contactId) {
   estadisticasCosto.muestras++;
   estadisticasCosto.promedio = Math.round((costosRuteo.reduce((a, b) => a + b, 0) / costosRuteo.length) * 10) / 10;
   estadisticasCosto.maximo = Math.max(...costosRuteo);
-  estadisticoMinimo();
-  function estadisticoMinimo() { estadisticasCosto.minimo = Math.min(...costosRuteo); }
+  estadisticasCosto.minimo = Math.min(...costosRuteo);
 }
 
 /** Estadísticas del costo de atender un contacto de nivel 1 (para /api/health). */

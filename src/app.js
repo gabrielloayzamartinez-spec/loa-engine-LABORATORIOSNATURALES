@@ -32,6 +32,7 @@ import { guardianDePropietario } from './services/owner_guardian.js';
 import { diagnosticarContacto } from './services/contact_diagnostic.js';
 import { auditarPrimerNivel } from './services/first_level_audit.js';
 import { auditarCamposComerciales } from './services/commercial_fields_audit.js';
+import { auditarTecnico } from './services/technical_audit.js';
 import { refillComercial, getRefillStatus, resetRefill } from './services/commercial_refill.js';
 import { getStateStore } from './services/state/state_store.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
@@ -2620,6 +2621,28 @@ app.post('/api/auditoria/refill-reset', async (req, res) => {
 });
 
 /**
+ * [AUDITORÍA TÉCNICA Y DE FUNCIONES]
+ * Revisa la SALUD DEL MOTOR (no la exactitud de los datos): consumo por proceso y su
+ * velocidad, bucles de reproceso, costo unitario por contacto, cuota real, presupuesto
+ * del fondo y alertas con su causa. Es la auditoría que habría detectado el bucle
+ * infinito que agotó la cuota.
+ *
+ * Para obtener VELOCIDADES (llamadas/hora) hay que llamarla DOS veces separadas por
+ * 1-2 minutos: la primera fija la muestra base y la segunda calcula las tasas.
+ *
+ * SOLO LECTURA.
+ *   GET /api/auditoria/tecnica[?umbralBucle=3]
+ */
+app.get('/api/auditoria/tecnica', async (req, res) => {
+  try {
+    const umbralBucle = parseInt(req.query.umbralBucle || '3', 10);
+    res.json(await auditarTecnico({ umbralBucle }));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * [AUDITORÍA DE CAMPOS COMERCIALES — vTiger ↔ GHL]
  * Responde la pregunta correcta ante un campo vacío en GHL:
  * "¿está vacío TAMBIÉN en vTiger?".
@@ -2936,6 +2959,33 @@ export function registerBackgroundSchedulers() {
   timers.push(setInterval(() => {
     runVTigerToGHLPoller(4).catch(err => console.error("Error en Reverse Sync:", err));
   }, 180000));
+
+  // [AUDITORÍA TÉCNICA AUTOMÁTICA — VIGILANCIA DE FUNCIONES]
+  // Se ejecuta sola cada 15 minutos y deja constancia en la auditoría cuando detecta
+  // algo grave. La lección del bucle infinito: una auditoría que hay que pedir a mano
+  // llega tarde. Esta corre por sí sola y avisa en los LOGS y en el registro de
+  // auditoría (evento TECHNICAL_AUDIT_ALERT), así el problema se ve ANTES de que
+  // consuma la cuota.
+  timers.push(setInterval(() => {
+    auditarTecnico()
+      .then(r => {
+        const graves = (r.alertas || []).filter(a => a.nivel === 'CRITICO' || a.nivel === 'ALTO');
+        if (graves.length > 0) {
+          console.warn(`[Auditoría Técnica] ${r.saludTecnica} — ${graves.map(a => `${a.codigo}: ${a.mensaje}`).join(' | ')}`);
+          recordAuditEvent({
+            type: 'TECHNICAL_AUDIT_ALERT',
+            severity: graves.some(a => a.nivel === 'CRITICO') ? 'error' : 'warn',
+            salud: r.saludTecnica,
+            alertas: graves.map(a => ({ codigo: a.codigo, nivel: a.nivel, mensaje: a.mensaje })),
+            bucles: r.bucles ? { contactosEnBucle: r.bucles.contactosEnBucle, desperdicioPct: r.bucles.desperdicioPct } : null,
+            tasaTotalPorHora: r.resumenConsumo?.tasaTotalPorHora ?? null
+          });
+        } else {
+          console.log(`[Auditoría Técnica] ${r.saludTecnica} — sin hallazgos graves.`);
+        }
+      })
+      .catch(err => console.warn(`[Auditoría Técnica] ${err.message}`));
+  }, 15 * 60 * 1000));
 
   // [RE-LLENADO COMERCIAL — SEGUNDA PASADA CORRECTIVA]
   // El historial comercial solo viajaba cuando el contacto NO existia en GHL, asi
