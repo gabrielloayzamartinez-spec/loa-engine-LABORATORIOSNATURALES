@@ -12,6 +12,7 @@ import { GHL_CONFIG, SEDES_GATEWAY } from '../config/index.js';
 import { readSecret } from '../config/secrets.js';
 import { tokenBucketQueue } from '../services/token_bucket_queue.js';
 import { logApiTelemetry } from './telemetry.js';
+import { presupuestoDisponible, fraccionDisponible, horaLima, franjaDeHora, planDelDia } from '../config/quota_curve.js';
 
 const { apiKey } = GHL_CONFIG;
 
@@ -206,7 +207,6 @@ export function factorDeRitmoDeFondo(subaccount = 'GENERAL') {
  * ==============================================================================
  */
 const PRESUPUESTO_FONDO_DIARIO = Math.min(Math.max(parseInt(process.env.GHL_PRESUPUESTO_FONDO_DIARIO || '120000', 10) || 120000, 0), 200000);
-
 /** Fecha (día de Lima, UTC-5 sin horario de verano) en formato YYYY-MM-DD. */
 function diaLima() {
   return new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10);
@@ -232,7 +232,35 @@ export function registrarConsumoFondo(subaccount = 'GENERAL') {
 /** ¿Le queda presupuesto diario al trabajo de fondo en esta subcuenta? */
 export function quedaPresupuestoFondo(subaccount = 'GENERAL') {
   if (PRESUPUESTO_FONDO_DIARIO === 0) return true;   // 0 = sin tope (explícito)
-  return leerConsumoFondo(subaccount).n < PRESUPUESTO_FONDO_DIARIO;
+  const reg = leerConsumoFondo(subaccount);
+  // 1) TOPE DURO del día: garantiza la reserva intocable del nivel 1.
+  if (reg.n >= PRESUPUESTO_FONDO_DIARIO) return false;
+  // 2) REPARTO POR HORA: el fondo sólo puede usar lo que la curva del día ya liberó.
+  //    Si no gastó su cuota de la madrugada, ese saldo NO se pierde: se acumula y
+  //    queda disponible más tarde. Así el consumo se reparte solo durante las 24 h.
+  const permisoHora = presupuestoDisponible(PRESUPUESTO_FONDO_DIARIO);
+  return reg.n < permisoHora;
+}
+
+/**
+ * Diagnóstico del reparto del día: cuánto puede usar el fondo AHORA y por qué.
+ * Se expone en /api/health para que el límite sea visible y auditable.
+ */
+export function getRepartoCuota(subaccount = 'GENERAL') {
+  const reg = leerConsumoFondo(subaccount);
+  const permisoHora = presupuestoDisponible(PRESUPUESTO_FONDO_DIARIO);
+  const hora = horaLima();
+  return {
+    fecha: reg.fecha,
+    hora,
+    franja: franjaDeHora(hora),
+    liberadoDelDiaPct: Math.round(fraccionDisponible() * 1000) / 10,
+    presupuestoDiario: PRESUPUESTO_FONDO_DIARIO,
+    disponibleHastaAhora: permisoHora,
+    consumidoFondo: reg.n,
+    restanteDelDia: Math.max(0, PRESUPUESTO_FONDO_DIARIO - reg.n),
+    puedeTrabajar: quedaPresupuestoFondo(subaccount)
+  };
 }
 
 /** Estado del presupuesto por subcuenta (para /api/health y reportes). */
