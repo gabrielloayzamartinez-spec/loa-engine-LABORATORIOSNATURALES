@@ -614,7 +614,7 @@ async function runExpressAssignment() {
           console.log(`[${timeStr}] [Worker 1] [PROCESSING] Lead fresco (${loc.name}, hace ${edadMin} min): ${contact.firstName || ''} ${contact.lastName || ''} (${contact.id})...`);
 
           try {
-            const result = await routeChatByContact(contact.id, true, false, { locationId: loc.id, headers: loc.headers });
+            const result = await routeChatByContact(contact.id, true, false, { locationId: loc.id, headers: loc.headers, origen: 'radar' });
 
             // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
             if (result === 'RETRY' || result === 'RETRY_INDEXING') {
@@ -696,7 +696,7 @@ export async function runUnassignedConversationsGuardian() {
       const unassigned = (data.conversations || []).filter(c => !c.assignedTo && c.contactId);
       for (const conv of unassigned) {
         console.log(`[Unassigned Guardian] [LEAD-UNASSIGNED] Lead sin asignar detectado en ${loc.name}: ${conv.contactName || 'Lead'} (${conv.contactId}). Enrutando...`);
-        await routeChatByContact(conv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
+        await routeChatByContact(conv.contactId, true, false, { locationId: loc.id, headers: loc.headers, origen: 'radar-conversaciones' });
         await sleep(600);
       }
     }));
@@ -1448,9 +1448,9 @@ app.post('/webhook/ghl-contact', async (req, res) => {
     } else {
       setImmediate(async () => {
         try {
-          const routeResult = await routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId });
+          const routeResult = await routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId, origen: 'webhook' });
           if (routeResult === 'RETRY') {
-            setTimeout(() => routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId }), 1500);
+            setTimeout(() => routeChatByContact(contactData.id, true, false, { locationId: effectiveLocId, origen: 'webhook' }), 1500);
           }
           if (global.pushLiveLog) global.pushLiveLog(`[WORKER] Worker 1 Webhook: Ruteado e hidratado ${contactData.id} (${effectiveLocId})`);
         } catch (err) {
@@ -1493,7 +1493,7 @@ app.post('/webhook/chat-router', async (req, res) => {
     // Llamar al Agente 3 de forma asíncrona inmediata
     setImmediate(async () => {
       try {
-        await routeChatByContact(contactId, true, false, targetLoc ? { locationId: targetLoc } : {});
+        await routeChatByContact(contactId, true, false, { ...(targetLoc ? { locationId: targetLoc } : {}), origen: 'limpiador-bandejas' });
       } catch (rErr) {
         console.error("[Chat Router Webhook Error]:", rErr.message);
       }
@@ -2477,7 +2477,7 @@ async function reprocesarConversacionesDesde(desdeMs) {
           if (t <= procesadoEn) continue;
 
           try {
-            const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers });
+            const r = await routeChatByContact(cv.contactId, true, false, { locationId: loc.id, headers: loc.headers, origen: 'trabajo-del-dia' });
             if (r !== 'RETRY' && r !== 'RETRY_INDEXING') {
               procesados++;
               procesadosDelDia.set(cv.contactId, Date.now());
@@ -2921,7 +2921,7 @@ function registerQueueProcessors() {
   webhooks.registerProcessor(JOBS.GHL_CONTACT_WEBHOOK, async (data) => {
     const { contactId, locationId, sede } = data || {};
     if (!contactId) throw new Error('Job sin contactId');
-    const result = await routeChatByContact(contactId, true, false, { locationId, sede });
+    const result = await routeChatByContact(contactId, true, false, { locationId, sede, origen: 'cola-webhook' });
     if (result === 'RETRY' || result === 'RETRY_INDEXING') {
       // Forzar reintento durable (BullMQ aplica el backoff exponencial).
       throw new Error(`Ruteo diferido para ${contactId} (${result})`);

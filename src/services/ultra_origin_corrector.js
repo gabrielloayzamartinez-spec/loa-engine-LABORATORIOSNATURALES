@@ -152,7 +152,7 @@ export async function corregirOrigenesUltra({ sede = 'PALACIOS', paginas = 10, e
         detalle.push({ id: c.id, nombre: c.nombre, resultado: 'DRY_RUN (no se escribio nada)' });
         continue; // En simulación NO se cuenta como corregido.
       }
-      const resultado = await routeChatByContact(c.id, true, false, { locationId: ctx.locId, headers: ctx.headers });
+      const resultado = await routeChatByContact(c.id, true, false, { locationId: ctx.locId, headers: ctx.headers, origen: 'ultra-corrector' });
       detalle.push({ id: c.id, nombre: c.nombre, resultado });
       corregidos++;
     } catch (err) {
@@ -227,7 +227,7 @@ export function iniciarCorreccionUltraFondo({ sede = 'PALACIOS', paginas = 200 }
       for (const c of encontrados) {
         estadoUltra.actual = c.nombre;
         try {
-          await routeChatByContact(c.id, true, false, { locationId: ctx.locId, headers: ctx.headers });
+          await routeChatByContact(c.id, true, false, { locationId: ctx.locId, headers: ctx.headers, origen: 'ultra-corrector' });
           estadoUltra.procesados++;
         } catch {
           estadoUltra.errores++;
