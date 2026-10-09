@@ -31,6 +31,7 @@ import { guardianDePropietario } from './services/owner_guardian.js';
 import { diagnosticarContacto } from './services/contact_diagnostic.js';
 import { auditarPrimerNivel } from './services/first_level_audit.js';
 import { auditarCamposComerciales } from './services/commercial_fields_audit.js';
+import { refillComercial, getRefillStatus, resetRefill } from './services/commercial_refill.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -2439,6 +2440,49 @@ app.get('/api/routing/auditoria', async (req, res) => {
 });
 
 /**
+ * [RE-LLENADO COMERCIAL — SEGUNDA PASADA CORRECTIVA]
+ * El historial comercial (nº de compras, Fecha Última Compra, monto, Sexo) solo
+ * viajaba cuando el contacto NO existía en GHL. Como el lead ENTRA primero y
+ * DESPUÉS aparece como comprador en vTiger, esos compradores quedaron congelados
+ * como "No Comprador" sin fecha ni monto. El defecto ya está corregido, pero el
+ * cursor del backfill SOLO AVANZA: los que quedaron atrás no se reprocesan nunca.
+ * Estos endpoints hacen la SEGUNDA PASADA para rellenarlos.
+ *
+ *   POST /api/auditoria/refill-comercial?sede=PALACIOS&lote=50&lotes=2[&ejecutar=true]
+ *   GET  /api/auditoria/refill-status
+ *   POST /api/auditoria/refill-reset?sede=PALACIOS   (reinicia el cursor)
+ */
+app.post('/api/auditoria/refill-comercial', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const lote = parseInt(req.query.lote || '50', 10);
+    const lotes = parseInt(req.query.lotes || '1', 10);
+    const ejecutar = String(req.query.ejecutar || 'false').toLowerCase() === 'true';
+    const r = await refillComercial({ sede, lote, lotes, ejecutar });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/auditoria/refill-status', async (req, res) => {
+  try {
+    res.json({ ok: true, estado: await getRefillStatus() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/auditoria/refill-reset', async (req, res) => {
+  try {
+    const sede = req.query.sede ? String(req.query.sede).toUpperCase() : null;
+    res.json(await resetRefill(sede));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * [AUDITORÍA DE CAMPOS COMERCIALES — vTiger ↔ GHL]
  * Responde la pregunta correcta ante un campo vacío en GHL:
  * "¿está vacío TAMBIÉN en vTiger?".
@@ -2755,6 +2799,28 @@ export function registerBackgroundSchedulers() {
   timers.push(setInterval(() => {
     runVTigerToGHLPoller(4).catch(err => console.error("Error en Reverse Sync:", err));
   }, 180000));
+
+  // [RE-LLENADO COMERCIAL — SEGUNDA PASADA CORRECTIVA]
+  // El historial comercial solo viajaba cuando el contacto NO existia en GHL, asi
+  // que los compradores que entraron primero como LEAD quedaron congelados como
+  // "No Comprador", sin Fecha Ultima Compra ni monto. El defecto ya esta corregido,
+  // pero el cursor del backfill solo AVANZA: esos contactos no se reprocesan solos.
+  // Esta pasada los RELLENA. Va en lotes pequeños cada 20 minutos y el propio
+  // servicio se detiene si la cuota real no da margen para la atencion en vivo.
+  timers.push(setInterval(() => {
+    const sedesActivas = getActiveSedes().filter(s => !s.isPaused).map(s => s.sedeId);
+    if (sedesActivas.length === 0) return;
+    // Prioridad Palacios (la regla de negocio), luego el resto.
+    const orden = ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'].filter(s => sedesActivas.includes(s));
+    const sedeDelTurno = orden[0] || sedesActivas[0];
+    refillComercial({ sede: sedeDelTurno, lote: 40, lotes: 1, ejecutar: true })
+      .then(r => {
+        if (r?.rellenados > 0) {
+          console.log(`[Re-llenado Comercial] ${sedeDelTurno}: ${r.rellenados} compradores rellenados (cursor ${r.cursor?.offset}).`);
+        }
+      })
+      .catch(err => console.warn(`[Re-llenado Comercial] ${sedeDelTurno}: ${err.message}`));
+  }, 20 * 60 * 1000));
 
   // Cola de reintentos vTiger (1 vez por minuto)
   timers.push(setInterval(() => {
