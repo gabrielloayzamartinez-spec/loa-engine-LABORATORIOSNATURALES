@@ -178,7 +178,15 @@ const estadisticasCosto = { ultimo: null, promedio: null, maximo: null, minimo: 
 const ruteosPorContacto = new Map();          // contactId -> { count, primera, ultima }
 const VENTANA_BUCLES_MS = 60 * 60 * 1000;     // ventana de 1 hora
 
-function contarRuteoDeContacto(contactId) {
+// [ORIGEN DE CADA RUTEO] Sin esto es imposible saber QUÉ proceso dispara el consumo:
+// el contador por servicio agrupa TODAS las llamadas internas del router bajo
+// "Agente 3", así que un pico puede venir del radar, del sync del día, de un curador
+// o de un corrector, y todos se ven igual. Aquí se registra quién lo pidió.
+let origenRuteoActual = 'desconocido';
+const ruteosPorOrigen = new Map();            // origen -> { count, primera, ultima }
+const contactosPorOrigen = new Map();         // origen -> Set(contactId)
+
+function contarRuteoDeContacto(contactId, origen = 'desconocido') {
   const ahora = Date.now();
   const reg = ruteosPorContacto.get(contactId);
   if (!reg || (ahora - reg.primera) > VENTANA_BUCLES_MS) {
@@ -187,7 +195,19 @@ function contarRuteoDeContacto(contactId) {
     reg.count++;
     reg.ultima = ahora;
   }
-  // Poda oportunista para que el mapa no crezca sin control.
+
+  // Conteo por origen: permite responder "quién consume" sin adivinar.
+  const ro = ruteosPorOrigen.get(origen);
+  if (!ro || (ahora - ro.primera) > VENTANA_BUCLES_MS) {
+    ruteosPorOrigen.set(origen, { count: 1, primera: ahora, ultima: ahora });
+    contactosPorOrigen.set(origen, new Set([contactId]));
+  } else {
+    ro.count++;
+    ro.ultima = ahora;
+    contactosPorOrigen.get(origen)?.add(contactId);
+  }
+
+  // Poda oportunista para que los mapas no crezcan sin control.
   if (ruteosPorContacto.size > 5000) {
     for (const [id, r] of ruteosPorContacto) {
       if ((ahora - r.ultima) > VENTANA_BUCLES_MS) ruteosPorContacto.delete(id);
@@ -228,6 +248,19 @@ export function getReprocesos(umbralVeces = 3) {
     contactosRepetidos: repetidos.length,
     contactosEnBucle: bucle.length,
     desperdicioPct,
+    // [QUIÉN CONSUME] Desglose por proceso que pidió el ruteo. Es la respuesta
+    // directa a "de dónde viene el consumo" cuando el contador por servicio agrupa
+    // todo bajo "Agente 3".
+    porOrigen: [...ruteosPorOrigen.entries()]
+      .filter(([, r]) => (ahora - r.ultima) <= VENTANA_BUCLES_MS)
+      .map(([origen, r]) => ({
+        origen,
+        ruteos: r.count,
+        contactosUnicos: contactosPorOrigen.get(origen)?.size || 0,
+        minutosActivo: Math.max(1, Math.round((r.ultima - r.primera) / 60000)),
+        ruteosPorHora: Math.round(r.count / Math.max(1, (r.ultima - r.primera) / 3600000))
+      }))
+      .sort((a, b) => b.ruteosPorHora - a.ruteosPorHora),
     veredicto: bucle.length === 0
       ? '🟢 SIN BUCLES: ningún contacto se rutea en exceso.'
       : (desperdicioPct > 50
@@ -240,7 +273,7 @@ export function getReprocesos(umbralVeces = 3) {
 function registrarCostoRuteo(contactId) {
   const costo = contadorLlamadasGhl - llamadasAlIniciarRuteo;
   if (costo <= 0) return;           // rutas abortadas antes de llamar (no ensucian la media)
-  contarRuteoDeContacto(contactId);
+  contarRuteoDeContacto(contactId, origenRuteoActual);
   costosRuteo.push(costo);
   if (costosRuteo.length > COSTOS_MAX) costosRuteo.shift();
   estadisticasCosto.ultimo = costo;
@@ -299,6 +332,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
   await acquireContactLock(contactId);
   // Punto de partida del medidor de costo (llamadas a GHL que consumirá este ruteo).
   llamadasAlIniciarRuteo = contadorLlamadasGhl;
+  // Quién pidió este ruteo (radar, day-sync, webhook, curador...). Se refleja en
+  // /api/auditoria/tecnica para saber de dónde viene el consumo.
+  origenRuteoActual = options.origen || 'desconocido';
   try {
     console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive}, DryRun: ${isDryRun})`);
 

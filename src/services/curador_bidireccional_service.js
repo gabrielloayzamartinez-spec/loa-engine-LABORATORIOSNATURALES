@@ -166,7 +166,7 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
     // 3. Procesar y curar cada contacto fresco con Sede-Lock
     for (const contactId of contactIdsToProcess) {
       try {
-        const result = await routeChatByContact(contactId, true, false, {
+        const result = await routeChatByContact(contactId, true, false, { origen: 'curador-bidireccional',
           locationId: locId,
           sede: sedeUpper
         });
@@ -268,7 +268,7 @@ export async function runBackwardCure(sedeName = 'BENAVIDES', options = {}) {
             }
           }
 
-          const result = await routeChatByContact(c.id, true, false, {
+          const result = await routeChatByContact(c.id, true, false, { origen: 'curador-bidireccional',
             locationId: locId,
             sede: sedeUpper
           });
