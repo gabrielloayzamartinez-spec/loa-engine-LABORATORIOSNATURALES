@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders, getActiveSedes } from './config/index.js';
-import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo } from './utils/ghl_http_client.js';
+import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo, factorDeRitmoDeFondo } from './utils/ghl_http_client.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
@@ -664,7 +664,17 @@ app.get('/api/health', (req, res) => {
       // CADA respuesta (X-RateLimit-Daily-Remaining / X-RateLimit-Remaining). Es la
       // fuente de verdad: nuestro contador propio era una subestimacion porque no
       // veia las llamadas que se saltaban el freno.
-      cuotaRealGhl: getGhlRateState()
+      //
+      // IMPORTANTE: la cuota diaria de GHL es una VENTANA MÓVIL de 24 h (no hay
+      // reset a medianoche); se libera de forma progresiva. Por eso el fondo no se
+      // detiene de golpe: se ESPACIA por tramos según `factorRitmoFondo`
+      // (1 · 0.5 · 0.25 · 0 = solo trabajo en vivo).
+      cuotaRealGhl: Object.fromEntries(
+        Object.entries(getGhlRateState()).map(([sede, st]) => [
+          sede,
+          { ...st, factorRitmoFondo: factorDeRitmoDeFondo(sede) }
+        ])
+      )
     },
     timestamp: new Date().toISOString()
   });
