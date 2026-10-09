@@ -2,7 +2,8 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders, getActiveSedes } from './config/index.js';
-import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo, factorDeRitmoDeFondo, getPresupuestoFondo, restaurarPresupuestoFondo, exportarPresupuestoFondo } from './utils/ghl_http_client.js';
+import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo, factorDeRitmoDeFondo, getPresupuestoFondo, restaurarPresupuestoFondo, exportarPresupuestoFondo, getRepartoCuota } from './utils/ghl_http_client.js';
+import { planDelDia, horaLima, franjaDeHora } from './config/quota_curve.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
@@ -762,7 +763,18 @@ app.get('/api/health', (req, res) => {
       // [TOPE DURO DEL FONDO] Presupuesto diario del trabajo de fondo por subcuenta.
       // El resto de la cuota queda RESERVADO a la atención en vivo y el fondo no
       // puede tocarlo, pase lo que pase.
-      presupuestoFondo: getPresupuestoFondo()
+      presupuestoFondo: getPresupuestoFondo(),
+      // [REPARTO INTELIGENTE EN 24 HORAS] Qué porcentaje del presupuesto del fondo
+      // ya está liberado a esta hora, cuánto puede usar AHORA y en qué franja está.
+      // El nivel 1 no se reparte: siempre pasa.
+      repartoCuota: {
+        hora: horaLima(),
+        franja: franjaDeHora(horaLima()),
+        porSede: Object.fromEntries(
+          ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA', 'EMPRESA'].map(s => [s, getRepartoCuota(s)])
+        ),
+        planDelDia: planDelDia(120000)
+      }
     },
     timestamp: new Date().toISOString()
   });
