@@ -3,7 +3,14 @@
 **Proyecto:** LOA Engine — Laboratorios Naturales
 **Objetivo del dueño:** que cada cliente que **cierra una compra** reciba el **PDF de su factura** por **WhatsApp/SMS con enlace**, disparado por un **workflow en la Cuenta Empresa Central** de GHL.
 **Alcance acordado:** solo **compras nuevas** (no backfill histórico).
-**Estado:** DISEÑO VALIDADO CON DIAGNÓSTICO REAL. Hay **2 bloqueantes externos** que dependen de accesos (ver §2).
+**Estado:** DISEÑO APROBADO + DIAGNÓSTICO REAL.
+**Decisiones tomadas:** **Vía A** (se usa el PDF OFICIAL de vTiger) y **todo el flujo desde la Cuenta Empresa Central**.
+**Bloqueantes:** B1 (token de la Empresa) → **RESUELTO en producción** (`credencial.valida = true`, HTTP 200); **pendiente replicar el PIT nuevo en el `.env` local**. B2 (PDF oficial) → requiere cargar las credenciales **web** de vTiger en `.env`.
+
+> 📦 **IMPLEMENTACIÓN ENTREGADA EN UN REPOSITORIO INDEPENDIENTE**
+> El flujo completo (detector de compras + PDF + publicación + puente) vive ahora en un proyecto **autónomo y separado**, listo para ejecutarse por sí solo:
+> **`C:\Users\Lenovo\Desktop\LOA_INVOICE_ENGINE`** — cero dependencias externas, CLI propia, 7 suites de pruebas (261 asserts) en verde y commit inicial creado (rama `main`, 23 archivos).
+> Este documento queda como **diseño de referencia**; los módulos de este motor son el prototipo del que se portó el código.
 
 ---
 
@@ -43,8 +50,24 @@ El token actual responde **401 "Invalid Private Integration token"** mientras el
 3. Pegar el token nuevo en `.env` → `GHL_API_KEY_CENTRAL` y actualizarlo **también en Render**.
 4. Re-ejecutar `node scratch/diag_invoice_pdf.js` → C.1 y C.2 deben quedar `[VIABLE]`.
 
+**Estado verificado el 2026-10-09:**
+- ✅ **Producción (Render):** `GET /api/health` → `cuentaEmpresa.credencial = { valida: true, status: 200 }` y `cuotaRealGhl.EMPRESA.dailyRemaining = 174944`. El PIT nuevo **funciona**.
+- ⏳ **Local:** el `.env` de la máquina de trabajo conserva el PIT viejo (401). **Falta copiar el mismo valor nuevo** a `GHL_API_KEY_CENTRAL` en `.env` para poder desarrollar y probar sin tocar producción.
+- ⏳ Verificar los *scopes* de media (`medias.read` / `medias.write`) del PIT nuevo: se comprueba con C.1 y C.2 del diagnóstico en cuanto el `.env` local quede al día.
+
 ### B2 — Decidir cómo se obtiene el PDF (el PDF de vTiger está detrás del login web)
-La ruta existe, pero el `access key` de la API **no sirve** para el PDF: se necesita un **usuario web** de vTiger con contraseña y permiso de exportar. Hay dos caminos:
+La ruta existe, pero el `access key` de la API **no sirve** para el PDF: se necesita un **usuario web** de vTiger con contraseña y permiso de exportar.
+
+> ✅ **DECISIÓN TOMADA: Vía A** (PDF oficial de vTiger). El formulario de login ya fue inspeccionado (`scratch/diag_vtiger_login_form.js`) y **NO tiene captcha**, así que es automatizable: `POST index.php` con `__vtrftk` (CSRF, formato `sid:...`), `module=Users`, `action=Login`, `username`, `password`, y cookie `PHPSESSID`.
+>
+> **Variables nuevas requeridas en `.env`** (agregarlas a mano; nunca pegarlas en un chat):
+> ```
+> VTIGER_WEB_USERNAME=usuario_web_vtiger
+> VTIGER_WEB_PASSWORD=contrasena_web_vtiger
+> ```
+> El probe que valida todo el camino ya está escrito: `node scratch/probe_vtiger_pdf.js` (login → descubre `folderid` → descarga el PDF → valida `%PDF` → guarda en `scratch/out/`).
+
+Comparativa de los dos caminos (la Vía B queda solo como plan de contingencia si el rol de vTiger no permite exportar):
 
 | | **Vía A — Descargar el PDF de vTiger** | **Vía B — Generar el PDF en el motor** *(recomendada)* |
 |---|---|---|
@@ -105,10 +128,17 @@ flowchart LR
 
 | Fase | Entregable | Archivos | Prueba |
 |---|---|---|---|
-| **F1** | Plantilla PDF propia (logo, nº orden, fecha, producto, total) | `src/services/invoice_pdf_builder.js` (nuevo) + dep. `pdfkit` | `node src/tests/test_invoice_pdf.js` (nuevo): genera PDF válido y verifica encabezado `%PDF`. |
+| **F1** ✅ | **Sesión web de vTiger + descarga del PDF oficial** (Vía A decidida) | `src/services/vtiger_web_session.js` (nuevo) + `src/tests/test_vtiger_web_session.js` | **52/52 PASS** (red simulada); prueba contra vTiger real vía probe |
 | **F2** | Publicar el PDF y escribir el campo/tag puente en la Empresa | `src/services/invoice_publish_service.js` (nuevo) | Test offline con `fetch` simulado + prueba real de 1 caso. |
 | **F3** | Detector de **compra nueva** + enganche idempotente | Enganche en `src/services/vtiger_order_history_service.js` (donde ya se escribe a la Central) | `npm run test:orders` + `npm test` completo (14 suites). |
 | **F4** | Documentar y activar (feature flag) | `docs/` + `.env.example` | `npm run preflight` y `npm test` en verde. |
+
+**Estado de avance (2026-10-09):**
+- ✅ **Puente de datos implementado y probado:** `src/services/invoice_bridge_service.js` + `src/tests/test_invoice_bridge.js` (**27/27 PASS**). Decide con idempotencia estricta (compra nueva → publica; misma orden → bloquea con motivo `YA_PUBLICADA`), arma el payload con los 2 campos y el tag `FACTURA_LISTA`, es fail-safe si un ID no se resuelve, y lee el estado puente desde el contacto de GHL.
+- ✅ **Suite integrada:** `npm test` corre ahora **15 suites** → `EXITCODE=0`, con el pre-flight interno en 29/29 reglas. La idempotencia del envío queda blindada de forma permanente.
+- ✅ **F1 (sesión web + PDF oficial) IMPLEMENTADO y probado:** `src/services/vtiger_web_session.js` + `src/tests/test_vtiger_web_session.js` (**52/52 PASS**). Maneja el CSRF `__vtrftk`, el jar de cookies, la **sesión cacheada con single-flight** (1 solo login para N facturas), la **renovación automática** si la sesión cae a mitad de camino, el descubrimiento del `folderid` y la validación de los bytes `%PDF`. El candado de solo lectura se **extiende al canal web**: el único POST es el login y la allow-list de acciones es cerrada (`Login`, `ExportPDF`, `Detail`, `index`); `Save/Edit/Delete/MassEdit/Import` se rechazan **antes** de tocar la red.
+- ✅ **Probe alineado al módulo real:** `node scratch/probe_vtiger_pdf.js` ejercita el código de producción y se detiene con mensaje claro mientras falten credenciales.
+- ⏳ **Pendiente de llaves:** F1 solo espera la **prueba contra vTiger real** (probe) y **F2** (publicación en la Media Library) espera el PIT nuevo en el `.env` local.
 
 **Reglas de seguridad respetadas:**
 - El candado de solo lectura de vTiger **no se toca** (`VTIGER_ALLOWED_OPERATIONS` intacto).
