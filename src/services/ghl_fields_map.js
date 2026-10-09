@@ -58,8 +58,26 @@ export async function obtenerMapaCamposGhl(locationId, headers) {
 }
 
 /**
+ * Normaliza un nombre de campo para comparar: minúsculas, sin tildes/diacríticos y
+ * con espacios colapsados.
+ *
+ * DEFECTO REAL (detectado auditando): GHL tiene el campo como
+ * "Total Historico Gastado USD" (SIN tilde) mientras el código lo buscaba como
+ * "Total Histórico Gastado USD" (CON tilde). La comparación exacta fallaba y la
+ * auditoría reportaba un 100% de huecos INEXISTENTES en el monto.
+ */
+export function normalizarNombreCampo(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')   // quita tildes
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Lee un valor del contacto por NOMBRE del campo, resolviendo el id->nombre.
- * Tolerante: acepta varias variantes de nombre y devuelve '' si no existe.
+ * Tolerante: acepta varias variantes y compara SIN tildes ni diferencias de caja.
  *
  * @param {object} contacto  el `contact` de GHL (con customFields [{id,value}])
  * @param {Map<string,string>} porId  mapa id->nombre de la subcuenta
@@ -67,9 +85,9 @@ export async function obtenerMapaCamposGhl(locationId, headers) {
  */
 export function leerCampoPorNombre(contacto, porId, nombres = []) {
   const lista = contacto?.customFields || [];
-  const buscados = nombres.map(n => String(n).toLowerCase());
+  const buscados = nombres.map(normalizarNombreCampo);
   for (const cf of lista) {
-    const nombre = String(porId.get(cf.id) || cf.name || '').toLowerCase();
+    const nombre = normalizarNombreCampo(porId.get(cf.id) || cf.name || '');
     if (!nombre) continue;
     if (buscados.includes(nombre)) {
       const v = cf.value ?? cf.field_value;
