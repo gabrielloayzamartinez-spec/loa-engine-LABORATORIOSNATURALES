@@ -38,6 +38,13 @@ const store = getStateStore('actividad_leads');
 const CLAVE = 'atendidos_v1';
 const TTL_MS = 48 * 60 * 60 * 1000;     // 48 h, igual que la ventana del radar
 const MAX_ENTRADAS = 20000;
+// Ventana de gracia para contactos SIN fecha de mensaje (formularios, SMS, o
+// contactos que solo aparecen porque el nivel 2 los escribió). Evita re-atenderlos
+// en cada ciclo. Configurable con GHL_VENTANA_SIN_MENSAJE_HORAS.
+const VENTANA_SIN_MENSAJE_MS = Math.max(
+  (parseInt(process.env.GHL_VENTANA_SIN_MENSAJE_HORAS || '12', 10) || 12) * 60 * 60 * 1000,
+  30 * 60 * 1000
+);
 
 /** contactId -> { mensajeMs, atendidoEn } */
 const memoria = new Map();
@@ -82,26 +89,43 @@ export async function persistirMemoriaActividad() {
 /**
  * ¿Ya se atendió este mensaje (o uno más nuevo) de este contacto?
  *
+ * DOS CASOS:
+ *  · CON fecha de mensaje: se compara contra la marca. Un mensaje posterior al
+ *    último atendido se atiende; el mismo mensaje (o uno anterior) no.
+ *  · SIN fecha de mensaje (un formulario, un SMS, o un contacto que el nivel 2
+ *    acaba de escribir y por eso aparece en la lista por `date_updated`): se usa una
+ *    VENTANA DE GRACIA desde la última atención.
+ *
+ * EL SEGUNDO CASO ERA EL RESIDUO MEDIDO: los contactos sin mensaje se marcaban con
+ * fecha 0, y la comparación `0 <= 0` nunca bloqueaba nada, así que volvían a
+ * atenderse en CADA ciclo (medido: 2,320 ruteos/hora para ~40 mensajes reales).
+ *
  * @param {string} contactId
- * @param {number} mensajeMs fecha del último mensaje del lead (ms). Si es 0 o
- *   inválida se devuelve false: sin evidencia de mensaje no se bloquea nada.
+ * @param {number} mensajeMs fecha del último mensaje del lead (ms). 0 si no hay.
  */
 export function yaAtendido(contactId, mensajeMs) {
-  if (!contactId || !Number.isFinite(mensajeMs) || mensajeMs <= 0) return false;
+  if (!contactId) return false;
   const reg = memoria.get(contactId);
   if (!reg) return false;
-  return mensajeMs <= reg.mensajeMs;
+
+  if (Number.isFinite(mensajeMs) && mensajeMs > 0) {
+    return mensajeMs <= reg.mensajeMs;
+  }
+  // Sin evidencia de mensaje: ventana de gracia (por defecto 12 h).
+  return (Date.now() - reg.atendidoEn) <= VENTANA_SIN_MENSAJE_MS;
 }
 
 /**
- * Marca que se atendió al contacto hasta este mensaje.
- * Solo avanza: un mensaje más antiguo nunca retrocede la marca.
+ * Marca que se atendió al contacto.
+ * Solo avanza: una fecha de mensaje más antigua nunca retrocede la marca.
  */
 export function marcarAtendido(contactId, mensajeMs) {
   if (!contactId) return;
   const ahora = Date.now();
   const reg = memoria.get(contactId);
   const nuevoMs = Math.max(Number(mensajeMs) || 0, reg?.mensajeMs || 0);
+  // `atendidoEn` SIEMPRE se refresca: es lo que sostiene la ventana de gracia para
+  // los contactos que no traen fecha de mensaje.
   memoria.set(contactId, { mensajeMs: nuevoMs, atendidoEn: ahora });
 
   // Poda oportunista.
