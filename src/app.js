@@ -612,6 +612,31 @@ async function runExpressAssignment() {
           const ventanaHoras = procesadoEn > 0 ? 24 : (VENTANA_ARRANQUE_MIN / 60);
           if (hoursAgo > ventanaHoras) return;
 
+          // ==================================================================
+          // [ARMONIZADOR — POR QUÉ EL RADAR NO DEBE ATENDER TODO LO QUE "CAMBIA"]
+          //
+          // La lista de contactos viene ordenada por `date_updated`, un campo que
+          // mueve CUALQUIER escritura: el backfill, el re-llenado, el sales bridge,
+          // el reverse sync y hasta nuestro propio PUT. Es decir: los contactos que
+          // aparecen arriba NO son leads que escribieron, son contactos que el
+          // nivel 2 acaba de tocar.
+          //
+          // Medido: el radar seguía evaluando esos 60 contactos por sede en cada
+          // ciclo y, aunque el armonizador cortaba barato (2 llamadas en vez de 7),
+          // el volumen (60 × 2 sedes × ciclos por minuto) sostenía ~11.000
+          // llamadas/hora sin producir NINGUNA atención real.
+          //
+          // Regla: de la lista por `date_updated` solo se atiende lo que tiene
+          // EVIDENCIA DE MENSAJE NUEVO (viene de las conversaciones) o lo que es un
+          // lead REALMENTE NUEVO (creado hace poco: un formulario que aún no tiene
+          // conversación). El resto se descarta SIN GASTAR NINGUNA LLAMADA.
+          // ==================================================================
+          const tieneMensajeNuevo = ultimoMensajePorContacto.has(contact.id);
+          const LEAD_NUEVO_MIN = Math.max(parseInt(process.env.RADAR_LEAD_NUEVO_MIN || '30', 10) || 30, 5);
+          const creadoMs = new Date(contact.dateAdded || 0).getTime();
+          const esLeadNuevo = Number.isFinite(creadoMs) && (Date.now() - creadoMs) <= LEAD_NUEVO_MIN * 60000;
+          if (!tieneMensajeNuevo && !esLeadNuevo) return;
+
           countNew++;
           const edadMin = Math.round((Date.now() - updatedAt) / 60000);
           if (edadMin > retrasoMaxMin) retrasoMaxMin = edadMin;
