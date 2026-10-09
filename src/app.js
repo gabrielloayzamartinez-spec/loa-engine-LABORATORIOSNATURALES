@@ -7,7 +7,7 @@ import { planDelDia, horaLima, franjaDeHora } from './config/quota_curve.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
-import { routeChatByContact, runChatRouterPoller, runInboxSedeCleaner } from './agents/chat_router_agent.js';
+import { routeChatByContact, runChatRouterPoller, runInboxSedeCleaner, getCostoRuteo } from './agents/chat_router_agent.js';
 import { processMetaWebhook } from './agents/meta_webhook_agent.js';
 import { runSupervisorAuditor, auditorStats } from './agents/auditor_agent.js';
 import { setupAllPipelines } from './scripts/pipeline_manager.js';
@@ -695,6 +695,9 @@ app.get('/api/health', (req, res) => {
       retrasoMaxMin: global.radarRetrasoMaxMin ?? null,
       contactosUltimoCiclo: global.radarUltimoCicloContactos ?? null
     },
+    // [COSTO REAL DEL NIVEL 1] Cuántas llamadas a GHL consume atender UN contacto.
+    // Medido en vivo, no estimado: sirve para planificar la cuota del día.
+    costoNivel1PorContacto: getCostoRuteo(),
     sedes: Object.fromEntries(
       Object.entries(SEDES_GATEWAY).map(([id, s]) => [id.toLowerCase(), {
         locationId: s.ghl.locationId || null,

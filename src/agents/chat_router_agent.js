@@ -152,8 +152,43 @@ async function sleep(ms) {
 let liveRateLimitBlockedUntil = 0;
 let backgroundRateLimitBlockedUntil = 0;
 
+// ==========================================================================
+// [MEDIDOR DE COSTO POR CONTACTO — nivel 1]
+// Responde con datos reales, no estimaciones, la pregunta:
+// "¿cuánta cuota de API consume atender a UN contacto nuevo de nivel 1?".
+// Cada llamada que sale del router pasa por `fetchWithRetry`, así que basta con
+// contar ahí y comparar el total al entrar y al salir de cada ruteo. El resultado
+// se publica en /api/health para poder planificar la cuota del día.
+// ==========================================================================
+let contadorLlamadasGhl = 0;
+let llamadasAlIniciarRuteo = 0;
+const costosRuteo = [];              // últimos ruteos medidos
+const COSTOS_MAX = 50;
+const estadisticasCosto = { ultimo: null, promedio: null, maximo: null, minimo: null, muestras: 0, ultimoContacto: null, ultimoTs: null };
+
+function registrarCostoRuteo(contactId) {
+  const costo = contadorLlamadasGhl - llamadasAlIniciarRuteo;
+  if (costo <= 0) return;           // rutas abortadas antes de llamar (no ensucian la media)
+  costosRuteo.push(costo);
+  if (costosRuteo.length > COSTOS_MAX) costosRuteo.shift();
+  estadisticasCosto.ultimo = costo;
+  estadisticasCosto.ultimoContacto = contactId;
+  estadisticasCosto.ultimoTs = new Date().toISOString();
+  estadisticasCosto.muestras++;
+  estadisticasCosto.promedio = Math.round((costosRuteo.reduce((a, b) => a + b, 0) / costosRuteo.length) * 10) / 10;
+  estadisticasCosto.maximo = Math.max(...costosRuteo);
+  estadisticoMinimo();
+  function estadisticoMinimo() { estadisticasCosto.minimo = Math.min(...costosRuteo); }
+}
+
+/** Estadísticas del costo de atender un contacto de nivel 1 (para /api/health). */
+export function getCostoRuteo() {
+  return { ...estadisticasCosto, llamadasTotalesRouter: contadorLlamadasGhl };
+}
+
 // fetchWithRetry ahora es un wrapper delgado sobre ghlFetch (centralizado en ghl_http_client.js)
 async function fetchWithRetry(url, options, attempt = 1, _isLive = false) {
+  contadorLlamadasGhl++;
   return ghlFetch(url, options, attempt, 'Agente 3');
 }
 
@@ -191,6 +226,8 @@ export { acquireContactLock, releaseContactLock };
  */
 export async function routeChatByContact(contactId, isLive = false, isDryRun = false, options = {}) {
   await acquireContactLock(contactId);
+  // Punto de partida del medidor de costo (llamadas a GHL que consumirá este ruteo).
+  llamadasAlIniciarRuteo = contadorLlamadasGhl;
   try {
     console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive}, DryRun: ${isDryRun})`);
 
@@ -1440,6 +1477,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     console.error(`[Agente 3] Error crítico en routeChatByContact:`, error.message);
     return 'ERROR';
   } finally {
+    registrarCostoRuteo(contactId);
     releaseContactLock(contactId);
   }
 }
