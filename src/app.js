@@ -28,6 +28,7 @@ import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
 import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoEmpresa } from './services/empresa_data_audit.js';
 import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audit.js';
 import { guardianDePropietario } from './services/owner_guardian.js';
+import { diagnosticarContacto } from './services/contact_diagnostic.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -2429,6 +2430,28 @@ app.get('/api/routing/auditoria', async (req, res) => {
     const r = (sede === 'TODAS' || sede === 'ALL')
       ? await auditarRuteoTodasLasSedes({ paginas })
       : await auditarRuteo({ sede, paginas });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * [DIAGNÓSTICO DE ATRIBUCIÓN DE UN CONTACTO]
+ * Responde "¿por qué este lead de pauta quedó como orgánico?". Muestra TODAS las
+ * fuentes que consulta el motor (campos del contacto, atribución de GHL y el
+ * referral de los mensajes) y dice de dónde DEBERÍA haber salido el Ad ID.
+ *
+ * SOLO LECTURA.
+ *   GET /api/contacto/diagnostico?contactId=<id>&sede=PALACIOS[&crudos=true]
+ */
+app.get('/api/contacto/diagnostico', async (req, res) => {
+  try {
+    const contactId = String(req.query.contactId || '').trim();
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const crudos = String(req.query.crudos || '').toLowerCase() === 'true';
+    if (!contactId) return res.status(400).json({ ok: false, reason: 'falta ?contactId=' });
+    const r = await diagnosticarContacto({ contactId, sede, crudos });
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
