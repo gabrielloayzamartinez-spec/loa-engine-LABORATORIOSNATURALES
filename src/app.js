@@ -574,8 +574,22 @@ async function runExpressAssignment() {
           if (updatedAt <= procesadoEn + MARGEN_ESCRITURA_PROPIA_MS) return;
 
           const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
-          // Ampliamos la ventana a 24 horas para que el servidor "recupere" los leads que llegaron mientras Render estaba dormido
-          if (hoursAgo > 24) return;
+          // ==================================================================
+          // [VENTANA ACOTADA EN ARRANQUE FRÍO — EL PICO QUE QUEDABA]
+          // Con la memoria del radar persistida, un reinicio ya no reprocesa todo.
+          // Pero el PRIMER arranque (memoria vacía: primer despliegue tras el
+          // arreglo, o base reiniciada) seguía recorriendo la ventana completa de
+          // 24 h y procesando de golpe hasta 60 contactos × 4 sedes: un pico de
+          // miles de llamadas en pocos minutos.
+          //
+          // Regla: si la memoria está FRÍA (este contacto nunca se procesó), solo se
+          // atiende lo de los últimos RADAR_VENTANA_ARRANQUE_MIN minutos, que cubre
+          // con holgura la caída del servidor. Con la memoria caliente rige la
+          // ventana normal de 24 h.
+          // ==================================================================
+          const VENTANA_ARRANQUE_MIN = Math.max(parseInt(process.env.RADAR_VENTANA_ARRANQUE_MIN || '30', 10) || 30, 1);
+          const ventanaHoras = procesadoEn > 0 ? 24 : (VENTANA_ARRANQUE_MIN / 60);
+          if (hoursAgo > ventanaHoras) return;
 
           countNew++;
           const edadMin = Math.round((Date.now() - updatedAt) / 60000);
