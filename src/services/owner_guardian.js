@@ -6,8 +6,8 @@
  * La regla del dealer es estricta y ya está codificada en el router:
  *
  *   PALACIOS   · Naturales BioNatural        (566501466542620) -> REDES 1 ERNESTO
+ *              · Laboratorios Naturales BIO  (718150351371765) -> REDES 1 ERNESTO
  *              · BioNatural - Ultra          (111906554968800) -> REDES 2 CLICK2RING
- *              · Laboratorios Naturales BIO  (718150351371765) -> REDES 2 CLICK2RING
  *
  *   BENAVIDES  · Naturales Bio Corp          (510617778807469) -> REDES 1 BENAVIDES
  *              · Bio Natural / Fuerza        (126154270581792 / 1147742788423762) -> REDES 2 BENAVIDES
@@ -69,14 +69,18 @@ function construirReglas() {
 }
 
 /**
- * Corrige (o simula corregir) los contactos con fanpage conocida pero SIN dueño.
+ * Corrige (o simula corregir) los contactos cuya fanpage exige un dueño distinto
+ * del que tienen, o que no tienen dueño.
  *
  * @param {object} [opts]
  * @param {string} [opts.sede='PALACIOS']
  * @param {number} [opts.paginas=10] páginas de 100 contactos a escanear (tope 200)
  * @param {boolean} [opts.ejecutar=false] false = DRY-RUN (no escribe)
+ * @param {boolean} [opts.incluirMalAsignados=false] true = también corrige contactos
+ *   que YA tienen dueño pero la regla de su fanpage exige otro (cambio de designación)
+ * @param {string[]} [opts.soloSlugs] limita el trabajo a ciertas fanpages (por slug)
  */
-export async function guardianDePropietario({ sede = 'PALACIOS', paginas = 10, ejecutar = false } = {}) {
+export async function guardianDePropietario({ sede = 'PALACIOS', paginas = 10, ejecutar = false, incluirMalAsignados = false, soloSlugs = null } = {}) {
   const sedeId = String(sede).toUpperCase();
   const cfg = SEDES_GATEWAY[sedeId];
   const locId = cfg?.ghl?.locationId;
@@ -86,9 +90,13 @@ export async function guardianDePropietario({ sede = 'PALACIOS', paginas = 10, e
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', 'Content-Type': 'application/json', Accept: 'application/json' };
   const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 10, 1), 200);
   const porSlug = construirReglas();
+  const filtroSlugs = Array.isArray(soloSlugs) && soloSlugs.length > 0
+    ? new Set(soloSlugs.map(s => slugificar(s)))
+    : null;
 
   let escaneados = 0;
   let sinDuenio = 0;
+  let malAsignados = 0;
   let corregidos = 0;
   let errores = 0;
   const detalle = [];
@@ -103,18 +111,33 @@ export async function guardianDePropietario({ sede = 'PALACIOS', paginas = 10, e
 
     for (const c of contactos) {
       escaneados++;
-      // Solo interesan los que NO tienen dueño.
-      if (c.assignedTo) continue;
-
       const tags = (c.tags || []).map(t => String(t).toLowerCase().trim());
       let esperado = null;
+      let slugEncontrado = null;
       for (const [slug, asesor] of porSlug.entries()) {
-        if (tags.includes(slug)) { esperado = asesor; break; }
+        if (tags.includes(slug)) { esperado = asesor; slugEncontrado = slug; break; }
       }
       if (!esperado) continue; // sin fanpage conocida: no se inventa un dueño
+      // Filtro opcional: permite aplicar el cambio a UNA fanpage concreta sin tocar
+      // el resto de la cartera (p. ej. solo "laboratorios naturales bio").
+      if (filtroSlugs && !filtroSlugs.has(slugEncontrado)) continue;
 
-      sinDuenio++;
-      const item = { id: c.id, nombre: `${c.firstName || ''} ${c.lastName || ''}`.trim(), asesor: esperado.name, sedeAsesor: esperado.sede };
+      if (!c.assignedTo) {
+        // Caso 1: contacto HUÉRFANO (sin dueño). Siempre se corrige.
+        sinDuenio++;
+      } else if (incluirMalAsignados && c.assignedTo !== esperado.id) {
+        // Caso 2: MAL DESIGNADO — tiene dueño, pero la regla de su fanpage exige
+        // otro. Se corrige SOLO si se pide explícitamente (`incluirMalAsignados`),
+        // porque reasignar una cartera que un asesor ya está trabajando es una
+        // decisión de negocio, no una reparación automática. Sirve para aplicar un
+        // CAMBIO DE DESIGNACIÓN (p. ej. "Laboratorios Naturales BIO" que pasa de
+        // CLICK2RING a ERNESTO) a los contactos que ya existían.
+        malAsignados++;
+      } else {
+        continue; // ya está bien asignado
+      }
+
+      const item = { id: c.id, nombre: `${c.firstName || ''} ${c.lastName || ''}`.trim(), asesor: esperado.name, sedeAsesor: esperado.sede, tipo: c.assignedTo ? 'REASIGNACION' : 'HUERFANO' };
 
       if (!ejecutar) {
         item.resultado = 'DRY_RUN (no se escribio nada)';
@@ -151,8 +174,11 @@ export async function guardianDePropietario({ sede = 'PALACIOS', paginas = 10, e
     ok: true,
     sede: sedeId,
     modo: ejecutar ? 'EJECUTADO' : 'DRY-RUN',
+    soloSlugs: filtroSlugs ? [...filtroSlugs] : null,
+    incluirMalAsignados,
     escaneados,
     sinPropietarioConFanpage: sinDuenio,
+    malAsignadosDetectados: malAsignados,
     corregidos,
     errores,
     detalle: detalle.slice(0, 100)
@@ -164,6 +190,7 @@ export async function guardianDePropietario({ sede = 'PALACIOS', paginas = 10, e
     sede: sedeId,
     escaneados,
     sinDuenio,
+    malAsignados,
     corregidos,
     errores
   });

@@ -84,10 +84,11 @@ export async function runHistoricalAssignment() {
     let targetUserId = null;
     let targetUserName = "";
 
-    if (c.detectedPage === 'Naturales BioNatural') {
+    if (c.detectedPage === 'Naturales BioNatural' || c.detectedPage === 'Laboratorios Naturales BIO') {
+      // [CAMBIO DE DESIGNACION] "Laboratorios Naturales BIO" paso de CLICK2RING a ERNESTO.
       targetUserId = PALACIOS_USERS['naturales bionatural'].id;
       targetUserName = PALACIOS_USERS['naturales bionatural'].name;
-    } else if (c.detectedPage === 'BioNatural - Ultra' || c.detectedPage === 'Laboratorios Naturales BIO') {
+    } else if (c.detectedPage === 'BioNatural - Ultra') {
       targetUserId = PALACIOS_USERS['bionatural ultra'].id;
       targetUserName = PALACIOS_USERS['bionatural ultra'].name;
     } else if (c.detectedPage === 'Naturales Bio Corp') {

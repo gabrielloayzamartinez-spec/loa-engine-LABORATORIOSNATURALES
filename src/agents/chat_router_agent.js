@@ -539,9 +539,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         // [REGLA ESTRICTA DE PROPIETARIO — PALACIOS]
         //   CLICK2RING (REDES 2):
         //     - BioNatural - Ultra (111906554968800)
-        //     - Laboratorios Naturales BIO (718150351371765) — formularios
         //   ERNESTO (REDES 1):
         //     - Naturales BioNatural (566501466542620)
+        //     - Laboratorios Naturales BIO (718150351371765) — formularios
+        //
+        // [CAMBIO DE DESIGNACION] "Laboratorios Naturales BIO" estaba en CLICK2RING
+        // y por decision del negocio paso a REDES 1 ERNESTO. Se movio la evidencia
+        // (page id y nombre) de un grupo al otro: no se agrego logica nueva.
         //
         // DEFECTO ANTERIOR: el `else` asignaba ERNESTO a CUALQUIER cosa que no
         // fuera ULTRA, incluso cuando la pagina NO se pudo confirmar (mensaje sin
@@ -551,11 +555,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         // continuidad operativa (ERNESTO) PERO se marca "revisar-ruteo".
         // ================================================================
         const esClick2Ring = targetPageId === '111906554968800'
-          || targetPageId === '718150351371765'
-          || (targetPageName || '').toLowerCase().includes('ultra')
-          || (targetPageName || '').toLowerCase().includes('laboratorios naturales bio');
+          || (targetPageName || '').toLowerCase().includes('ultra');
         const esErnesto = targetPageId === '566501466542620'
-          || (targetPageName || '').toLowerCase().includes('bionatural');
+          || targetPageId === '718150351371765'
+          || (targetPageName || '').toLowerCase().includes('bionatural')
+          || (targetPageName || '').toLowerCase().includes('laboratorios naturales bio');
 
         if (esClick2Ring) {
           targetAdvisorId = resolvedSede.users.ultra.id;
