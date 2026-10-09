@@ -30,6 +30,7 @@
 
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { SEDES_GATEWAY } from '../config/index.js';
+import { obtenerMapaCamposGhl } from './ghl_fields_map.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -75,18 +76,26 @@ export async function diagnosticarContacto({ contactId, sede = 'PALACIOS', crudo
 
   // -------- 1. Contacto + sus campos personalizados --------
   try {
+    // GHL entrega `customFields: [{id, value}]` SIN nombre: hay que resolver el
+    // diccionario id->nombre de la subcuenta o se leería todo vacío.
+    const mapaCampos = await obtenerMapaCamposGhl(locId, headers);
     const rC = await ghlFetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers }, 1, 'Diag-Atribucion');
     if (rC.status === 200) {
       const c = (await rC.json())?.contact || {};
       const porNombre = {};
+      const todos = {};
       for (const cf of (c.customFields || [])) {
-        const nombre = cf.name || cf.id;
+        const nombre = mapaCampos.porId.get(cf.id) || cf.name || cf.id;
         const valor = cf.value ?? cf.field_value ?? null;
-        // Solo lo relacionado con atribución (evita ruido).
+        const v = Array.isArray(valor) ? valor.join(', ') : valor;
+        todos[nombre] = v;
+        // Se listan los relacionados con atribución, pero además se conserva el
+        // volcado completo cuando se pide `crudos` (para diagnosticar sin dudas).
         if (/anuncio|ad_id|adset|campa|conjunto|utm|origen|interacc|canal|fuente/i.test(String(nombre))) {
-          porNombre[nombre] = Array.isArray(valor) ? valor.join(', ') : valor;
+          porNombre[nombre] = v;
         }
       }
+      salida.camposGhlTodos = todos;
       salida.camposGhl = {
         id: c.id,
         nombre: `${c.firstName || ''} ${c.lastName || ''}`.trim(),

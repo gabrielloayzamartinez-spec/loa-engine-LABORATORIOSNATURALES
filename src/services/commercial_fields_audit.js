@@ -31,6 +31,7 @@
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { SEDES_GATEWAY } from '../config/index.js';
 import { query as vtigerQuery, VTIGER_CONTACT_SELECT, VTIGER_FIELDS, sedeClause } from './vtigerClient.js';
+import { obtenerMapaCamposGhl, leerCampoPorNombre } from './ghl_fields_map.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -51,18 +52,10 @@ function vacio(v) {
   return s === '' || s === '--' || s === 'null' || s === 'undefined';
 }
 
-/** Lee un campo personalizado de GHL por nombre (tolerante a variantes). */
-function campoGhl(c, nombres) {
-  for (const n of nombres) {
-    const f = (c.customFields || []).find(x => String(x.name || '').toLowerCase() === n.toLowerCase());
-    if (f) {
-      const v = f.value ?? f.field_value;
-      if (Array.isArray(v)) return v.join(', ');
-      if (v !== undefined && v !== null) return String(v).trim();
-    }
-  }
-  return '';
-}
+// La lectura de campos se hace con `leerCampoPorNombre` (ghl_fields_map.js), que
+// resuelve id->nombre. Es imprescindible porque `GET /contacts/{id}` devuelve
+// `customFields: [{id, value}]` SIN nombre: leer por nombre sobre esa respuesta
+// daba SIEMPRE vacío y producía reportes 100% falsos.
 
 /**
  * Ejecuta la auditoría comparativa.
@@ -80,6 +73,10 @@ export async function auditarCamposComerciales({ sede = 'PALACIOS', muestra = 40
 
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
   const n = Math.min(Math.max(parseInt(muestra, 10) || 40, 5), 100);
+
+  // 0. Diccionario de campos de la subcuenta (id -> nombre). SIN esto es imposible
+  //    leer los valores: GHL los entrega por id, sin nombre.
+  const mapaCampos = await obtenerMapaCamposGhl(locId, headers);
 
   // 1. Muestra de compradores REALES desde vTiger (los más recientes primero).
   const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeClause(sedeId)} ORDER BY id DESC LIMIT ${n};`;
@@ -141,7 +138,7 @@ export async function auditarCamposComerciales({ sede = 'PALACIOS', muestra = 40
 
     for (const campo of CAMPOS) {
       const valorV = v[campo.vTiger];
-      const valorG = campoGhl(g, campo.ghl);
+      const valorG = leerCampoPorNombre(g, mapaCampos.porId, campo.ghl);
       const vVacio = vacio(valorV);
       const gVacio = vacio(valorG);
       if (vVacio) vaciosVTiger[campo.clave]++;
