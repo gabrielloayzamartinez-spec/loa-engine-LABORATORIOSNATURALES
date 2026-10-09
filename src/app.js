@@ -2749,8 +2749,8 @@ app.get('/api/contacto/diagnostico', async (req, res) => {
  * [GUARDIÁN DE PROPIETARIO] Corrige los contactos que TIENEN etiqueta de fanpage
  * pero quedaron SIN propietario. El auditor AVISA de la anomalía; este la CORRIGE
  * aplicando la regla estricta de cada página (p.ej. Palacios:
- * "Naturales BioNatural" -> REDES 1 ERNESTO; "BioNatural - Ultra" y
- * "Laboratorios Naturales BIO" -> REDES 2 CLICK2RING).
+ * "Naturales BioNatural" y "Laboratorios Naturales BIO" -> REDES 1 ERNESTO;
+ * "BioNatural - Ultra" -> REDES 2 CLICK2RING).
  *
  * DRY-RUN por defecto: solo escribe con `ejecutar=true`.
  *   POST /api/routing/guardian-propietario?sede=PALACIOS&paginas=10            (simula)
@@ -2761,7 +2761,13 @@ app.post('/api/routing/guardian-propietario', async (req, res) => {
     const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
     const paginas = parseInt(req.query.paginas || '10', 10);
     const ejecutar = String(req.query.ejecutar || '').toLowerCase() === 'true';
-    const r = await guardianDePropietario({ sede, paginas, ejecutar });
+    // [CAMBIO DE DESIGNACIÓN] `incluirMalAsignados=true` corrige también los
+    // contactos que YA tienen dueño pero cuya fanpage exige otro (p. ej. mover
+    // "Laboratorios Naturales BIO" de CLICK2RING a ERNESTO). `soloSlugs` limita el
+    // trabajo a una fanpage concreta: "laboratorios-naturales-bio".
+    const incluirMalAsignados = String(req.query.incluirMalAsignados || '').toLowerCase() === 'true';
+    const soloSlugs = req.query.soloSlugs ? String(req.query.soloSlugs).split(',').map(s => s.trim()).filter(Boolean) : null;
+    const r = await guardianDePropietario({ sede, paginas, ejecutar, incluirMalAsignados, soloSlugs });
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
