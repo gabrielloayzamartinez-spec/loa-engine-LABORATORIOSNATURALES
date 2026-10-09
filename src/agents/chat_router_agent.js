@@ -6,6 +6,7 @@ import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
 import { extraerAdIdDeMensaje, extraerAdIdDeMensajes, extraerPageIdDeMensaje, resolverAdId } from '../services/ad_id_resolver.js';
+import { yaAtendido, marcarAtendido } from '../services/lead_activity_memory.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
@@ -336,6 +337,20 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
   // /api/auditoria/tecnica para saber de dónde viene el consumo.
   origenRuteoActual = options.origen || 'desconocido';
   try {
+    // ========================================================================
+    // [ARMONIZADOR — SALIDA TEMPRANA SIN COSTO]
+    // Si quien llama YA nos dice la fecha del último mensaje del lead y esa
+    // actividad ya fue atendida (por este u otro proceso), se sale de inmediato
+    // sin gastar NI UNA llamada. Así da igual que el radar, el curador, el
+    // guardián y el trabajo del día pidan el mismo contacto: el mensaje se atiende
+    // UNA sola vez.
+    // ========================================================================
+    const mensajeMsEntrante = Number(options.mensajeMs) || 0;
+    if (!isDryRun && mensajeMsEntrante > 0 && yaAtendido(contactId, mensajeMsEntrante)) {
+      console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
+      return 'UNCHANGED';
+    }
+
     console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive}, DryRun: ${isDryRun})`);
 
     let activeLocationId = options.locationId || SEDES_GATEWAY.PALACIOS.ghl.locationId;
@@ -448,6 +463,22 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     } else {
       console.log(`[Agente 3] [FAST-PATH] Conversaciones no disponibles (Status ${convRes.status}). Ruteando directamente por subcuenta.`);
+    }
+
+    // ========================================================================
+    // [ARMONIZADOR — SEGUNDA SALIDA, YA CON LA EVIDENCIA REAL]
+    // Cuando quien llama NO nos dijo la fecha del mensaje, aquí ya la tenemos
+    // (recién leímos las conversaciones). Si esa actividad ya fue atendida por
+    // cualquier otro proceso, se corta AQUÍ: se ahorran las llamadas caras que
+    // siguen (vTiger, búsqueda por nombre, PUT, etiquetas, nota).
+    // ========================================================================
+    const mensajeRealMs = allMessages.length > 0
+      ? Math.max(...allMessages.map(m => new Date(m.dateAdded || 0).getTime()).filter(Number.isFinite))
+      : 0;
+    const actividadMs = mensajeMsEntrante || mensajeRealMs || 0;
+    if (!isDryRun && actividadMs > 0 && yaAtendido(contactId, actividadMs)) {
+      console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya atendido para la actividad ${new Date(actividadMs).toISOString()} (${origenRuteoActual}). Se evita el resto del trabajo.`);
+      return 'UNCHANGED';
     }
 
     // ==========================================================================
@@ -1415,6 +1446,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     if (!hasChanges) {
       console.log(`[Agente 3] [SYNC] Contacto ${contactId} ya está 100% sincronizado. Omitiendo PUT para evitar parpadeos en pantalla.`);
+      // [ARMONIZADOR] El contacto está al día: se marca la actividad como atendida
+      // para que NINGÚN otro proceso vuelva a hacer el mismo trabajo.
+      marcarAtendido(contactId, actividadMs);
       return 'UNCHANGED';
     }
 
@@ -1442,6 +1476,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         global.pushLiveLog(`[ROUTING] Agente 3: ${contact.name || 'Lead'} -> ${targetAdvisorName} | Src: ${vtigerSource}`);
       }
       console.log(`[Agente 3] [SUCCESS] ${contact.firstName || ''} ${contact.lastName || ''} (${contactId}) | Ad ID: ${targetAdId || 'N/A'} | Fuente: ${vtigerSource} | Estado: ${updatePayload.state || contact.state || '--'} | Actualizado OK.`);
+      // [ARMONIZADOR] Se marca la actividad como atendida: este mensaje del lead
+      // queda cerrado para TODOS los procesos. Es lo que evita que el curador, el
+      // radar, el guardián y el trabajo del día repitan la misma atención.
+      marcarAtendido(contactId, actividadMs);
 
  // H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA ANTE NUEVO AD, CAMBIO DE TRATAMIENTO O REINGRESO DE PAUTA (>20H)
       const adChanged = Boolean(
