@@ -29,6 +29,7 @@ import { auditarDuplicadosEmpresa, depurarDuplicadosEmpresa, depurarSinTelefonoE
 import { auditarRuteo, auditarRuteoTodasLasSedes } from './services/routing_audit.js';
 import { guardianDePropietario } from './services/owner_guardian.js';
 import { diagnosticarContacto } from './services/contact_diagnostic.js';
+import { auditarPrimerNivel } from './services/first_level_audit.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -2430,6 +2431,29 @@ app.get('/api/routing/auditoria', async (req, res) => {
     const r = (sede === 'TODAS' || sede === 'ALL')
       ? await auditarRuteoTodasLasSedes({ paginas })
       : await auditarRuteo({ sede, paginas });
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * [AUDITORÍA DE PRIMER NIVEL — DE ESQUINA A ESQUINA]
+ * Verifica contacto por contacto las 7 dimensiones del primer nivel y devuelve
+ * la cobertura de cada una + los huecos concretos + un veredicto de salud.
+ *
+ *   1. Propietario   2. Regla de página   3. Ad ID   4. Campaña/Anuncio
+ *   5. UTM           6. Ultima Interaccion   7. Dato del día
+ *
+ * SOLO LECTURA.
+ *   GET /api/auditoria/primer-nivel?sede=PALACIOS&paginas=10[&soloRecientes=false]
+ */
+app.get('/api/auditoria/primer-nivel', async (req, res) => {
+  try {
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const paginas = parseInt(req.query.paginas || '10', 10);
+    const soloRecientes = String(req.query.soloRecientes || 'true').toLowerCase() !== 'false';
+    const r = await auditarPrimerNivel({ sede, paginas, soloRecientes });
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
