@@ -969,10 +969,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
  // C. FUZZY MATCHING FORENSE (Deduplicación Contextual de Historial)
-    const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
-    if ((!targetVtigerNota || !targetAdId || !targetTratamiento) && fullName.length >= 3) {
+    const phoneParaDedupe = String(contact.phone || '').replace(/\D/g, '');
+    if ((!targetVtigerNota || !targetAdId || !targetTratamiento) && phoneParaDedupe.length >= 7) {
       try {
-        const searchRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/?locationId=${activeLocationId}&query=${encodeURIComponent(fullName)}`, { headers: activeHeaders }, 1, isLive);
+        const searchRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/?locationId=${activeLocationId}&query=${phoneParaDedupe.slice(-10)}`, { headers: activeHeaders }, 1, isLive);
         if (searchRes.status === 200) {
           const sData = await searchRes.json();
           const matches = (sData.contacts || []).filter(c => c.id !== contact.id);
@@ -997,7 +997,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           }
         }
       } catch (err) {
-        console.error(`[Agente 3 Fuzzy Error] ${fullName}:`, err.message);
+        console.error(`[Agente 3 Dedupe-Telefono Error]:`, err.message);
       }
     }
 
@@ -1329,6 +1329,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         : (targetPageName ? targetPageName.replace(/Naturales\s*/i, '').trim().toUpperCase() : 'SEDE');
       const campaignSnippet = (latestCampaign || targetAdName || 'Directa').substring(0, 32);
       const prodPrefix = targetTratamiento && targetTratamiento !== 'General' ? `[${targetTratamiento.toUpperCase()}] ` : '';
+      // [SOLO TÍTULO DE PANTALLA] El nombre aquí es únicamente la ETIQUETA de la
+      // oportunidad en el pipeline (visual), NO un dato de emparejamiento. El
+      // emparejamiento y la sincronización siguen siendo SOLO por teléfono.
+      const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Lead';
       const cardTitle = `${prodPrefix}${fullName} | ${cleanSede} | ${campaignSnippet}`;
       await syncUnifiedPipelineOpportunity(contactId, cardTitle, finalCustomerWon, true, finalMonetaryValue, targetAdvisorId, { locationId: activeLocationId, headers: activeHeaders });
     } catch (oppErr) {
