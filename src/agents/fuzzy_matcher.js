@@ -73,39 +73,14 @@ export function calculateSimilarity(str1, str2) {
  * @param {number} threshold - Umbral de similitud (Default 0.90)
  */
 export function isContextualDuplicate(contactA, contactB, threshold = 0.90) {
-  // 1. Si ambos tienen teléfono, el teléfono US (10 dígitos) es la clave primaria inequívoca
+  // [DIRECTIVA: SOLO TELÉFONO — NUNCA POR NOMBRE]
+  // El ÚNICO dato que empareja dos contactos es el NÚMERO de teléfono. El nombre,
+  // la geografía y las etiquetas se ELIMINARON como señales de duplicado: un nombre
+  // nunca sincroniza ni empareja. Si no hay un teléfono común válido, NO hay duplicado.
   const phoneA = (contactA.phone || '').replace(/\D/g, '');
   const phoneB = (contactB.phone || '').replace(/\D/g, '');
   if (phoneA.length >= 10 && phoneB.length >= 10) {
     return phoneA.slice(-10) === phoneB.slice(-10);
   }
-
-  // 2. Si no hay teléfono común, evaluar similitud de Nombre Completo
-  const nameA = `${contactA.firstName || ''} ${contactA.lastName || ''}`.trim() || contactA.contactName || '';
-  const nameB = `${contactB.firstName || ''} ${contactB.lastName || ''}`.trim() || contactB.contactName || '';
-
-  const sim = calculateSimilarity(nameA, nameB);
-  if (sim < threshold) return false;
-
-  // 3. Validación Contextual Cruzada Estricta (Anti-Falsos Homónimos)
-  // Sin teléfono común, NUNCA asumir duplicado solo por coincidencia de nombre.
-  // [DIRECTIVA: SOLO TELÉFONO] El email ya no participa como señal de duplicado:
-  // solo teléfono, y en su ausencia, nombre + geografía o condición.
-
-  // Coincidencia estricta de Estado o Ciudad
-  const stateA = normalizeText(contactA.state || '');
-  const stateB = normalizeText(contactB.state || '');
-  const cityA = normalizeText(contactA.city || '');
-  const cityB = normalizeText(contactB.city || '');
-
-  const hasLocationMatch = (stateA && stateB && stateA === stateB) || 
-                           (cityA && cityB && cityA === cityB);
-
-  // Coincidencia de Condición o Tratamiento en Tags
-  const tagsA = (contactA.tags || []).map(t => normalizeText(t));
-  const tagsB = (contactB.tags || []).map(t => normalizeText(t));
-  const hasConditionMatch = tagsA.some(t => t.startsWith('producto-') && tagsB.includes(t));
-
-  // Solo es duplicado si tiene similitud de nombre Y coincidencia geográfica o de condición específica
-  return sim >= 0.90 && (hasLocationMatch || (hasConditionMatch && (stateA || cityA)));
+  return false;
 }
