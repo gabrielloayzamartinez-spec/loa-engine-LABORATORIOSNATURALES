@@ -36,6 +36,7 @@ import { auditarTecnico } from './services/technical_audit.js';
 import { refillComercial, getRefillStatus, resetRefill } from './services/commercial_refill.js';
 import { getStateStore } from './services/state/state_store.js';
 import { cargarMemoriaActividad, persistirMemoriaActividad, getEstadoMemoriaActividad } from './services/lead_activity_memory.js';
+import { ejecutarVigilanciaProduccion } from './services/production_guard.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -2691,6 +2692,18 @@ app.post('/api/auditoria/refill-reset', async (req, res) => {
 });
 
 /**
+ * [VIGILANCIA DE PRODUCCIÓN] Informe de liveness e invariantes del motor.
+ *   GET /api/vigilancia/produccion
+ */
+app.get('/api/vigilancia/produccion', async (req, res) => {
+  try {
+    res.json(await ejecutarVigilanciaProduccion());
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * [AUDITORÍA TÉCNICA Y DE FUNCIONES]
  * Revisa la SALUD DEL MOTOR (no la exactitud de los datos): consumo por proceso y su
  * velocidad, bucles de reproceso, costo unitario por contacto, cuota real, presupuesto
@@ -3061,6 +3074,22 @@ export function registerBackgroundSchedulers() {
         }
       })
       .catch(err => console.warn(`[Auditoría Técnica] ${err.message}`));
+  }, 15 * 60 * 1000));
+
+  // [VIGILANCIA DE PRODUCCIÓN — LA CAPA QUE FALTABA]
+  // Verifica, cada 15 min y de forma autónoma, que cada proceso crítico realmente
+  // PRODUCE trabajo (no solo que "corre"): liveness del backfill y del radar,
+  // invariantes de completitud (completo ⇔ todas las sedes al 100%) y de cuota. Si
+  // un invariante tiene cura determinista, se APLICA SOLA y queda auditado. Es la
+  // capa que habría cazado el congelamiento de 55 h en el primer ciclo.
+  timers.push(setInterval(() => {
+    ejecutarVigilanciaProduccion()
+      .then(r => {
+        if (r.veredicto !== '🟢 SALUDABLE') {
+          console.warn(`[Vigilancia Producción] ${r.veredicto} — ${r.alertas.map(a => a.codigo).join(', ') || 'sin alertas'}. Curaciones: ${r.autoCuraciones.length}.`);
+        }
+      })
+      .catch(err => console.warn(`[Vigilancia Producción] ${err.message}`));
   }, 15 * 60 * 1000));
 
   // [RE-LLENADO COMERCIAL — SEGUNDA PASADA CORRECTIVA]
