@@ -114,6 +114,17 @@ export async function getBuyersBackfillStatus() {
 
   return {
     ...estado,
+    // [DEFECTO CORREGIDO — RECÁLCULO DEL `completo`]
+    // No se confía del `completo` guardado (podía ser un true falso, ver la línea del
+    // ciclo). Se recalcula SIEMPRE contra las CUATRO sedes: una sede cuenta como
+    // completa solo si su flag lo dice Y su offset alcanzó su total. Así un flag
+    // viejo y mal puesto no deja al backfill congelado días enteros.
+    completo: VTIGER_SEDES_VALIDAS.every(s => {
+      const p = porSede[s];
+      if (!p) return false;
+      if (!p.completo) return false;
+      return p.compradoresTotal == null || (parseInt(p.offset, 10) || 0) >= p.compradoresTotal;
+    }),
     porSede,
     compradoresTotal: TOTAL_COMPRADORES,
     procesadosTotal,
@@ -589,7 +600,17 @@ export async function runBuyersBackfill({
       descartados: (estado.totales?.descartados || 0) + resumen.descartados,
       fallidos: (estado.totales?.fallidos || 0) + resumen.fallidos
     };
-    estado.completo = sedesObjetivo.every(s => estado.porSede?.[s]?.completo);
+    // [DEFECTO CORREGIDO — CAUSA DEL CONGELAMIENTO DE 55 HORAS]
+    // ANTES: `estado.completo = sedesObjetivo.every(...)`. `sedesObjetivo` es el
+    // SUBCONJUNTO de sedes que TENÍAN CUOTA en ese ciclo (la línea 292 las filtra).
+    // Escenario real: Palacios y Benavides se quedaron sin cuota, el ciclo corrió
+    // SOLO con Roosevelt y Piura, éstas completaron, y la línea marcó
+    // `completo = true` aunque Palacios (59%) y Benavides (49%) seguían pendientes.
+    // El scheduler lee ese flag y hace `return`, así que el backfill lleva días
+    // congelado sin arrancar.
+    //
+    // AHORA: la cartera solo está completa cuando las CUATRO sedes lo están.
+    estado.completo = VTIGER_SEDES_VALIDAS.every(s => estado.porSede?.[s]?.completo);
 
     // [HISTORIAL DE AVANCE] Se guarda una foto (timestamp + procesados totales +
     // detalle por sede) tras cada lote para poder CALCULAR EL RITMO real y el ETA.
