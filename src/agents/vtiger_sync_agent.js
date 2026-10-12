@@ -118,7 +118,9 @@ async function fetchWithRetry(url, options, attempt = 1) {
  */
 async function findGhlContact(vContact) {
   const cleanPhone = String(vContact.mobile || vContact.phone || vContact.homephone || '').replace(/\D/g, '');
-  const email = vContact.email || '';
+  // [DIRECTIVA: SOLO TELÉFONO] El email NO se usa para emparejar ni para nada:
+  // la llave de emparejamiento es EXCLUSIVAMENTE el teléfono. Además vTiger revocó
+  // el permiso del campo `email`, así que ya ni se solicita.
   const vSede = String(vContact.cf_3451 || '').toUpperCase().trim();
 
   // [HERMETISMO ESTRICTO]: Determinar subcuenta objetivo según la sede en vTiger
@@ -161,16 +163,9 @@ async function findGhlContact(vContact) {
     }
   }
 
-  if (email.includes('@')) {
-    const searchUrl = `https://services.leadconnectorhq.com/contacts/?locationId=${targetLocId}&query=${encodeURIComponent(email)}`;
-    const res = await fetchWithRetry(searchUrl, { headers });
-    if (res.status === 200) {
-      const data = await res.json();
-      const contacts = data.contacts || [];
-      if (contacts.length > 0) return { ...contacts[0], locationId: targetLocId };
-    }
-  }
-
+  // [DIRECTIVA: SOLO TELÉFONO] Se ELIMINÓ el fallback de búsqueda por email. Si el
+  // teléfono no encuentra par, el contacto simplemente se crea/actualiza por teléfono
+  // en el upsert, nunca se empareja por email (evita emparejar con un homónimo).
   return null;
 }
 

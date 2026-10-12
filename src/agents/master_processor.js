@@ -706,8 +706,10 @@ export async function processMasterContact(contactInput, options = {}) {
     // 10. Meta CAPI & Exclusión
     (async () => {
       try {
-        if (contact.phone || contact.email) {
-          await excludeLeadFromMetaAds({ phone: contact.phone, email: contact.email });
+        // [DIRECTIVA: SOLO TELÉFONO] La exclusión de Meta se hace SOLO por teléfono.
+        // El email no se usa en ningún emparejamiento ni exclusión.
+        if (contact.phone) {
+          await excludeLeadFromMetaAds({ phone: contact.phone, email: undefined });
         }
         if (hasPhone) {
           await sendMetaConversionEvent('QualifiedLead', contact, { pageName: pageLabel });
