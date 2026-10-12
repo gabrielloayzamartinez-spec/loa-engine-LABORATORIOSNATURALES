@@ -88,10 +88,9 @@ export function isContextualDuplicate(contactA, contactB, threshold = 0.90) {
   if (sim < threshold) return false;
 
   // 3. Validación Contextual Cruzada Estricta (Anti-Falsos Homónimos)
-  // Sin teléfono común, NUNCA asumir duplicado solo por coincidencia de nombre
-  const emailA = normalizeText(contactA.email || '');
-  const emailB = normalizeText(contactB.email || '');
-  if (emailA && emailB && emailA === emailB) return true;
+  // Sin teléfono común, NUNCA asumir duplicado solo por coincidencia de nombre.
+  // [DIRECTIVA: SOLO TELÉFONO] El email ya no participa como señal de duplicado:
+  // solo teléfono, y en su ausencia, nombre + geografía o condición.
 
   // Coincidencia estricta de Estado o Ciudad
   const stateA = normalizeText(contactA.state || '');

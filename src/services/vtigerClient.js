@@ -268,7 +268,15 @@ export const VTIGER_CONTACT_SELECT = [
   VTIGER_FIELDS.ID,
   VTIGER_FIELDS.FIRST_NAME,
   VTIGER_FIELDS.LAST_NAME,
-  VTIGER_FIELDS.EMAIL,
+  // [PERMISO REVOCADO EN VTIGER — 12/10] El rol de la API dejó de tener acceso al
+  // campo `email` ("Permission to access '.email.' attribute denied"). Como TODAS
+  // las consultas lo incluían, TODAS fallaban (backfill y ruteo en vivo detenidos).
+  // El email NO es la llave de emparejamiento (esa es el TELÉFONO) ni es crítico
+  // para el negocio, así que se retira del SELECT. Si en vTiger se restaura el
+  // permiso y se quiere volver a sincronizar el email, basta con re-añadir esta
+  // línea. NO dejar este comentario desactualizado: si el error vuelve con otro
+  // campo, la vigilancia de producción lo reportará como liveness caído.
+  // VTIGER_FIELDS.EMAIL,
   VTIGER_FIELDS.PHONE,
   VTIGER_FIELDS.MOBILE,
   VTIGER_FIELDS.HOME_PHONE,
