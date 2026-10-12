@@ -496,7 +496,12 @@ function assertCredentials() {
 const MAX_ATTEMPTS = envInt('VTIGER_MAX_ATTEMPTS', 3);
 const BASE_DELAY_MS = envInt('VTIGER_RETRY_BASE_MS', 500);
 const MAX_DELAY_MS = envInt('VTIGER_RETRY_MAX_MS', 8000);
-const REQUEST_TIMEOUT_MS = envInt('VTIGER_TIMEOUT_MS', 12000);
+// [TIMEOUT SUBIDO — 12/10] vTiger respondía más lento que el límite de 12 s y las
+// consultas se ABORTABAN ("This operation was aborted") en cadena, dejando el backfill
+// sin avanzar. Se sube a 30 s como medida TEMPORAL: deja que la consulta lenta termine
+// en vez de cortarse. La solución DEFINITIVA son los índices de vTiger (12 s -> <1 s),
+// tras lo cual conviene bajar esto de nuevo. Ajustable por entorno con VTIGER_TIMEOUT_MS.
+const REQUEST_TIMEOUT_MS = envInt('VTIGER_TIMEOUT_MS', 30000);
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
