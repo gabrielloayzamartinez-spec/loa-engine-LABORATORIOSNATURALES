@@ -36,7 +36,7 @@ export function buildAdHistoryNoteBody({
   isGraceExpired = true,
   isMudanzaDeSede = false
 }) {
-  const formattedDate = dateStr || new Date().toLocaleString('es-PE', { timeZone: 'America/New_York' });
+  const formattedDate = dateStr || new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
   const isDiffAd = Boolean(oldAdId && oldAdId !== 'Ninguna previa' && oldAdId !== 'Ninguna previa (Orgánico)' && oldAdId !== newAdId);
   const noteTitle = isDiffAd
     ? `[SAVE PROCESS: REINGRESO POR NUEVO ANUNCIO / CAMPAÑA DIFERENTE]`
@@ -1500,12 +1500,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           const prevAdMsg = fbMessages.find(m => m.adId === currentAdId);
           if (prevAdMsg && prevAdMsg.timestamp) {
             prevAdTimestamp = prevAdMsg.timestamp;
-            prevAdDateStr = new Date(prevAdMsg.timestamp).toLocaleDateString('es-PE', { timeZone: 'America/New_York' });
+            prevAdDateStr = new Date(prevAdMsg.timestamp).toLocaleDateString('es-PE', { timeZone: 'America/Lima' });
           }
         }
         if (!prevAdDateStr && contact.dateAdded) {
           prevAdTimestamp = new Date(contact.dateAdded).getTime();
-          prevAdDateStr = new Date(contact.dateAdded).toLocaleDateString('es-PE', { timeZone: 'America/New_York' });
+          prevAdDateStr = new Date(contact.dateAdded).toLocaleDateString('es-PE', { timeZone: 'America/Lima' });
         }
 
         const nowMs = newestMsg?.timestamp || Date.now();
