@@ -389,6 +389,12 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
   // gobierna tanto la espera previa como el backoff del 429.
   const priority = (caller === 'Radar' || caller === 'Router' || caller.includes('Webhook')) ? 'HIGH' : 'LOW';
   const esVivo = priority === 'HIGH';
+  // LECTURA DIAGNÓSTICA: muestras ligeras de auditoría / curación / verificación.
+  // Son la herramienta para MEDIR el estado del motor, así que NO pueden quedar
+  // bloqueadas por el presupuesto del fondo (costo ínfimo: muestras <= 100 por
+  // tanda, solo GET de lectura, nunca escrituras masivas).
+  const CALLERS_DIAGNOSTICO = new Set(['CamposMapa', 'Auditoria-Comercial', 'Curador-Estandar']);
+  const esDiagnostico = CALLERS_DIAGNOSTICO.has(caller);
 
   // ==========================================================================
   // [TOPE DURO DEL TRABAJO DE FONDO — LÍMITE CLARO Y NO NEGOCIABLE]
@@ -397,7 +403,7 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
   // Esto es lo que garantiza que la atención en vivo SIEMPRE tenga su reserva.
   // El trabajo EN VIVO (leads que escriben) nunca entra aquí.
   // ==========================================================================
-  if (!esVivo && !quedaPresupuestoFondo(subaccount)) {
+  if (!esVivo && !esDiagnostico && !quedaPresupuestoFondo(subaccount)) {
     const reg = leerConsumoFondo(subaccount);
     // Distinguir la CAUSA real para no asustar con un mensaje engañoso: el fondo se
     // puede pausar por (a) tope DIARIO o (b) la CURVA HORARIA de la franja actual.
