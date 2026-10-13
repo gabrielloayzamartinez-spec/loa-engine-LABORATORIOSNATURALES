@@ -3305,15 +3305,25 @@ export function registerBackgroundSchedulers() {
   // Se usa America/Lima (la zona del negocio) y NO una zona con horario de verano:
   // antes se calculaba con America/New_York, que cambia de offset y desplazaba la
   // ventana de madrugada en varios meses del año.
+  // [BLOQUES POR HORARIO — OPTIMIZABLES SIN REDEPLOY]
+  // El tamaño de bloque por franja es CONFIGURABLE por entorno: el negocio puede
+  // afinar el ritmo sin tocar código. Los valores por defecto son la recomendación
+  // acordada (cede al Nivel 1 en la mañana, acelera de noche):
+  //   MADRUGADA 50 · MAÑANA 15 · TARDE 25 · NOCHE 40
+  const BLOQUE_MADRUGADA = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_MADRUGADA || '50', 10) || 50);
+  const BLOQUE_MANANA = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_MANANA || '15', 10) || 15);
+  const BLOQUE_TARDE = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_TARDE || '25', 10) || 25);
+  const BLOQUE_NOCHE = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_NOCHE || '40', 10) || 40);
+
   const perfilDelDia = () => {
     const h = parseInt(
       new Date().toLocaleString('en-US', { hour: '2-digit', hour12: false, timeZone: 'America/Lima' }),
       10
     );
-    if (h >= 1 && h < 6) return { nombre: 'MADRUGADA', tamano: 20, lotes: 1, pausa: 100, concurrencia: 6 };
-    if (h >= 6 && h < 13) return { nombre: 'PICO-MANANA', tamano: 15, lotes: 1, pausa: 400, concurrencia: 2 };
-    if (h >= 13 && h < 20) return { nombre: 'TARDE', tamano: 20, lotes: 1, pausa: 250, concurrencia: 3 };
-    return { nombre: 'NOCHE', tamano: 20, lotes: 1, pausa: 150, concurrencia: 4 };
+    if (h >= 1 && h < 6) return { nombre: 'MADRUGADA', tamano: BLOQUE_MADRUGADA, lotes: 1, pausa: 100, concurrencia: 6 };
+    if (h >= 6 && h < 13) return { nombre: 'PICO-MANANA', tamano: BLOQUE_MANANA, lotes: 1, pausa: 400, concurrencia: 2 };
+    if (h >= 13 && h < 20) return { nombre: 'TARDE', tamano: BLOQUE_TARDE, lotes: 1, pausa: 250, concurrencia: 3 };
+    return { nombre: 'NOCHE', tamano: BLOQUE_NOCHE, lotes: 1, pausa: 150, concurrencia: 4 };
   };
   let buyersBackfillCorriendo = false;
   let buyersBackfillIniciadoEn = 0;
