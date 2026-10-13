@@ -37,6 +37,7 @@ import { refillComercial, getRefillStatus, resetRefill } from './services/commer
 import { getStateStore } from './services/state/state_store.js';
 import { cargarMemoriaActividad, persistirMemoriaActividad, getEstadoMemoriaActividad } from './services/lead_activity_memory.js';
 import { ejecutarVigilanciaProduccion } from './services/production_guard.js';
+import { ejecutarCuracionEstandar, getControlEstandarStatus, ESTANDAR_CAMPOS } from './services/standard_curator.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -2704,6 +2705,36 @@ app.get('/api/vigilancia/produccion', async (req, res) => {
 });
 
 /**
+ * [CURACIÓN + CONTROL DE ESTÁNDAR]
+ * Verifica que cada comprador tenga los 14 campos del estándar en GHL y, con
+ * `curar=true`, re-sincroniza los incompletos (respetando la cuota del fondo, por lo
+ * que nunca compite con la atención en vivo). Es la capa que garantiza que ningún
+ * contacto quede "a medias" (5 campos en vez de 14).
+ *
+ *   GET /api/curacion/estandar?sede=PALACIOS&muestra=40&curar=true
+ *   GET /api/curacion/estandar/estado
+ */
+app.get('/api/curacion/estandar', async (req, res) => {
+  try {
+    const sede = req.query.sede || 'PALACIOS';
+    const muestra = parseInt(req.query.muestra || '40', 10);
+    const curar = req.query.curar === 'true';
+    res.json(await ejecutarCuracionEstandar({ sede, muestra, curar }));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/curacion/estandar/estado', async (req, res) => {
+  try {
+    const estado = await getControlEstandarStatus();
+    res.json({ ok: true, estandar: ESTANDAR_CAMPOS.length, campos: ESTANDAR_CAMPOS.map(c => c.etiqueta), ...estado });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * [AUDITORÍA TÉCNICA Y DE FUNCIONES]
  * Revisa la SALUD DEL MOTOR (no la exactitud de los datos): consumo por proceso y su
  * velocidad, bucles de reproceso, costo unitario por contacto, cuota real, presupuesto
@@ -3112,6 +3143,24 @@ export function registerBackgroundSchedulers() {
         }
       })
       .catch(err => console.warn(`[Re-llenado Comercial] ${sedeDelTurno}: ${err.message}`));
+  }, 20 * 60 * 1000));
+
+  // [CURACIÓN + CONTROL DE ESTÁNDAR — CALIDAD DE RESULTADOS]
+  // Cada 20 minutos evalúa los compradores más recientes contra el ESTÁNDAR de 14
+  // campos y, si alguno está incompleto, lo re-sincroniza. Es el guardián de que
+  // ningún contacto quede "a medias". Delegado a `hayCuotaRealDeFondo`: si el fondo
+  // no tiene margen en la franja, la curación se pausa sola sin tocar la atención.
+  timers.push(setInterval(() => {
+    const sedeCur = getActiveSedes().some(s => s.sedeId === 'PALACIOS' && !s.isPaused) ? 'PALACIOS'
+      : (getActiveSedes().find(s => !s.isPaused)?.sedeId || null);
+    if (!sedeCur) return;
+    ejecutarCuracionEstandar({ sede: sedeCur, muestra: 20, curar: true })
+      .then(r => {
+        if (r?.veredicto && r.pctCompleto < 95) {
+          console.warn(`[Curador Estándar] ${sedeCur}: ${r.veredicto} (${r.pctCompleto}% completos, ${r.curados} curados). Huecos: ${(r.camposConHuecos || []).map(c => c.campo).join(', ') || 'ninguno'}.`);
+        }
+      })
+      .catch(err => console.warn(`[Curador Estándar] ${sedeCur}: ${err.message}`));
   }, 20 * 60 * 1000));
 
   // Cola de reintentos vTiger (1 vez por minuto)
