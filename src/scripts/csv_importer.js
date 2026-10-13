@@ -80,7 +80,7 @@ function rowToPayload(row) {
     phone: row['Phone'] || undefined,
     city: row['City'] || '',
     state: row['State'] || '',
-    timezone: row['Timezone'] || 'America/New_York',
+    timezone: row['Timezone'] || 'America/Lima',
     source: row['vTiger Campana Origen'] || 'Importacion Historica',
     type: row['vTiger Estado Comercial'] === 'CONVERTIDO' ? 'customer' : 'lead',
     tags: cleanTags(row['Tags']),
