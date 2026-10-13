@@ -51,7 +51,7 @@ export const ESTANDAR_CAMPOS = [
   { logico: 'fechaUltimaCompra',  etiqueta: 'Fecha Última Compra',   vTiger: VTIGER_FIELDS.FECHA_ULTIMA_COMPRA, ghl: ['Fecha Última Compra', 'vTiger Fecha Ultima Compra'] },
   { logico: 'fechaPrimeraCompra', etiqueta: 'Fecha Primera Compra',  vTiger: VTIGER_FIELDS.FECHA_PRIMERA_COMPRA, ghl: ['Fecha Primera Compra', 'vTiger Fecha Primera Compra'] },
   { logico: 'precioVenta',        etiqueta: 'Precio Venta',          vTiger: null,                             ghl: ['Precio venta', 'Monto Invertido'] },
-  { logico: 'idClienteVt',        etiqueta: 'ID Cliente vTiger',     vTiger: VTIGER_FIELDS.ID,                  ghl: ['ID Cliente vTiger', 'vTiger ID'] }
+  { logico: 'idClienteVt',        etiqueta: 'ID Cliente vTiger',     vTiger: VTIGER_FIELDS.ID,                  ghl: ['ID Cliente', 'ID de Cliente', 'v tiger id cliente'] }
 ];
 
 /** ¿El valor está vacío o es un placeholder? */
