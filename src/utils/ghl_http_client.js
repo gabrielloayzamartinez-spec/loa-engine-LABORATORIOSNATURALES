@@ -399,14 +399,21 @@ export async function ghlFetch(url, options = {}, attempt = 1, caller = 'GHL') {
   // ==========================================================================
   if (!esVivo && !quedaPresupuestoFondo(subaccount)) {
     const reg = leerConsumoFondo(subaccount);
-    console.log(`[${caller}] [TOPE-FONDO] Subcuenta [${subaccount}]: el fondo agotó su presupuesto diario (${reg.n}/${PRESUPUESTO_FONDO_DIARIO}). Reserva intacta para atención en vivo.`);
+    // Distinguir la CAUSA real para no asustar con un mensaje engañoso: el fondo se
+    // puede pausar por (a) tope DIARIO o (b) la CURVA HORARIA de la franja actual.
+    const esTopeDiario = reg.n >= PRESUPUESTO_FONDO_DIARIO;
+    const motivo = esTopeDiario
+      ? `tope DIARIO del fondo agotado (${reg.n}/${PRESUPUESTO_FONDO_DIARIO})`
+      : `cuota HORARIA del fondo agotada en esta franja (${reg.n} usadas; la curva liberará más en la siguiente franja)`;
+    console.log(`[${caller}] [TOPE-FONDO] Subcuenta [${subaccount}]: ${motivo}. La atención en vivo queda protegida.`);
     return {
       status: 429,
       ok: false,
       topeFondo: true,
+      motivo,
       headers: new Headers({ 'retry-after': '3600' }),
-      json: async () => ({ message: `Presupuesto diario del trabajo de fondo agotado en ${subaccount} (${reg.n}/${PRESUPUESTO_FONDO_DIARIO}). La cuota restante queda reservada a la atención en vivo.` }),
-      text: async () => `Presupuesto diario del trabajo de fondo agotado en ${subaccount}.`
+      json: async () => ({ message: `Trabajo de fondo pausado en ${subaccount}: ${motivo}. La cuota restante queda reservada a la atención en vivo.` }),
+      text: async () => `Trabajo de fondo pausado en ${subaccount}: ${motivo}.`
     };
   }
 
