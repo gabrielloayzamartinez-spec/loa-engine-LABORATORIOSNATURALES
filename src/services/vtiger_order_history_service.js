@@ -359,6 +359,13 @@ export function buildOrderEnrichmentFields(ultimaOrden = {}, fieldIds = {}) {
   push('tracking', ultimaOrden.guia);
   push('ultimoProducto', ultimaOrden.producto);
   push('sexo', ultimaOrden.sexo);
+  // [PRECIO VENTA — CORRECCIÓN] El campo "Precio venta" NO debe venir de cf_3392
+  // (gasto acumulado del contacto, que sale "0.00000" para compradores recientes)
+  // sino del TOTAL de la ÚLTIMA orden confirmada (hdnGrandTotal). Una compra
+  // confirmada NUNCA es cero, así que solo se escribe si el monto es > 0.
+  if (fieldIds.precioVenta && Number(ultimaOrden.total) > 0) {
+    campos.push({ id: fieldIds.precioVenta, field_value: String(Number(ultimaOrden.total).toFixed(2)) });
+  }
   return campos;
 }
 

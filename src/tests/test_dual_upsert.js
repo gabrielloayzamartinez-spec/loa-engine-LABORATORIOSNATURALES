@@ -278,9 +278,13 @@ const nombresSede = p8.operativa.customFields.map(f => f.nombre);
 const valor = (campos, n) => campos.find(f => f.nombre === n)?.field_value;
 
 assert(nombresMacro.length >= 15, `La carga macro llena ${nombresMacro.length} campos (antes 8)`);
-for (const campo of ['oficinaOrigen', 'campanaOrigen', 'canalCaptacion', 'tratamientoComprado', 'contactoNo', 'etapaComercial', 'estadoComercial', 'asesorAsignado', 'fechaCreacion', 'totalCompras', 'fechaUltimaCompra', 'fechaPrimeraCompra', 'precioVenta', 'idClienteVt', 'totalHistorico', 'ultimaInteraccion']) {
+for (const campo of ['oficinaOrigen', 'campanaOrigen', 'canalCaptacion', 'tratamientoComprado', 'contactoNo', 'etapaComercial', 'estadoComercial', 'asesorAsignado', 'fechaCreacion', 'totalCompras', 'fechaUltimaCompra', 'fechaPrimeraCompra', 'idClienteVt', 'totalHistorico', 'ultimaInteraccion']) {
   assert(nombresMacro.includes(campo), `La carga macro incluye "${campo}"`);
 }
+// [PRECIO VENTA — CORRECCIÓN] Ya NO viaja desde cf_3392 (gasto acumulado que sale
+// "0.00000" para compradores recientes). Lo publica el order history desde el total
+// de la última orden confirmada (hdnGrandTotal), que nunca es cero.
+assert(!nombresMacro.includes('precioVenta'), 'La carga macro ya NO incluye "precioVenta": lo escribe el order history');
 
 assert(valor(p8.macro.customFields, 'fechaPrimeraCompra') === '2019-11-21', 'Fecha de PRIMERA compra mapeada');
 assert(valor(p8.macro.customFields, 'fechaUltimaCompra') === '2019-12-18', 'Fecha de ÚLTIMA compra mapeada');
