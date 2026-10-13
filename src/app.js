@@ -3389,50 +3389,15 @@ export function registerBackgroundSchedulers() {
       .then(estado => {
         if (estado.completo) return; // cartera ya recorrida por completo
 
-        // ======================================================================
-        // [PRIORIDAD ABSOLUTA PALACIOS]
-        // El negocio pide terminar PALACIOS primero con TODO el ancho de banda y
-        // luego ir agregando las demas. Hasta que Palacios no complete su cartera,
-        // el ciclo se dedica ENTERO a Palacios: las otras sedes quedan en pausa
-        // (su cursor se conserva, no se pierde nada).
-        //
-        // Ventaja real: el gate de vTiger (3 concurrentes) y la cola de GHL dejan
-        // de repartirse entre 4 sedes y se concentran en Palacios. Con una sola
-        // sede, la concurrencia del backfill se DOBLA (tope 8), lo que acorta su
-        // tiempo a la mitad o menos.
-        // ======================================================================
-        const palaciosCompleto = estado.porSede?.PALACIOS?.completo === true;
-
-        // [CUOTA REAL — NO DESPERDICIAR EL CICLO]
-        // DEFECTO CORREGIDO: cuando Palacios agotaba su cuota diaria de GHL, el
-        // ciclo se pausaba ENTERO y el 2do nivel quedaba detenido horas, aunque
-        // BENAVIDES / ROOSEVELT / PIURA tuvieran cupo disponible. Ahora se consulta
-        // la cuota REAL (headers de GHL) y, si Palacios no puede trabajar, el ciclo
-        // AVANZA con las demas sedes. La prioridad se mantiene intacta: en cuanto
-        // Palacios recupera cupo, vuelve a ser el unico destino del ciclo.
-        const palaciosConCupo = tokenBucketQueue.hayCupoPesado('PALACIOS') && hayCuotaRealDeFondo('PALACIOS');
-        const otrasSedes = ['BENAVIDES', 'ROOSEVELT', 'PIURA'];
-        const sedesDelCiclo = palaciosCompleto
-          ? otrasSedes                             // Palacios ya termino su cartera
-          : (palaciosConCupo ? ['PALACIOS'] : otrasSedes); // Palacios primero; si no tiene cupo, las demas
-        const usandoFallback = !palaciosCompleto && !palaciosConCupo;
-        const concurrenciaFinal = (!palaciosCompleto && palaciosConCupo)
-          ? Math.min(concurrencia * 2, 8)
-          : concurrencia;
-
-        if (palaciosConCupo && !palaciosCompleto) {
-          console.log(`[Buyers Backfill] [PALACIOS-PRIORITARIO] Ciclo dedicado a Palacios (concurrencia ${concurrenciaFinal}).`);
-        } else if (usandoFallback) {
-          console.log(`[Buyers Backfill] [CUOTA-REAL] Palacios sin cupo en GHL: el ciclo avanza con ${otrasSedes.join(', ')} en lugar de quedarse detenido.`);
-          recordAuditEvent({
-            type: 'BUYERS_BACKFILL_FALLBACK_SEDES',
-            severity: 'info',
-            sedes: otrasSedes,
-            reason: 'Palacios sin cuota real disponible en GHL: se aprovecha el ciclo con las demas sedes'
-          });
-        }
-
-        return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia: concurrenciaFinal, sedes: sedesDelCiclo });
+        // [ARQUITECTURA DESCENTRALIZADA — TODAS LAS SEDES EN PARALELO]
+        // Cada subcuenta tiene su PROPIA API key y su PROPIA cuota: NO hay razón para
+        // que una sede espere a otra (la indicación clave fue operar las 4 EN VIVO e
+        // ININTERRUMPIDAS). El backfill procesa las 4 sedes EN PARALELO, cada una con
+        // su bloque y respetando su propia cuota: runBuyersBackfill filtra internamente
+        // las que no tienen cupo. El gate de vTiger (3 concurrentes) es el ÚNICO
+        // recurso compartido y se reparte solo entre las sedes activas.
+        const sedesDelCiclo = ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'];
+        return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia, sedes: sedesDelCiclo });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
       .finally(() => { buyersBackfillCorriendo = false; liberarTurno('backfill-compradores'); });
