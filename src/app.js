@@ -3306,24 +3306,22 @@ export function registerBackgroundSchedulers() {
   // antes se calculaba con America/New_York, que cambia de offset y desplazaba la
   // ventana de madrugada en varios meses del año.
   // [BLOQUES POR HORARIO — OPTIMIZABLES SIN REDEPLOY]
-  // El tamaño de bloque por franja es CONFIGURABLE por entorno: el negocio puede
-  // afinar el ritmo sin tocar código. Los valores por defecto son la recomendación
-  // acordada (cede al Nivel 1 en la mañana, acelera de noche):
-  //   MADRUGADA 50 · MAÑANA 15 · TARDE 25 · NOCHE 40
-  const BLOQUE_MADRUGADA = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_MADRUGADA || '50', 10) || 50);
-  const BLOQUE_MANANA = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_MANANA || '15', 10) || 15);
-  const BLOQUE_TARDE = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_TARDE || '25', 10) || 25);
-  const BLOQUE_NOCHE = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_NOCHE || '40', 10) || 40);
+  // HORARIO REAL DE USO DE VTIGER (13/10): los asesores usan vTiger de 7 AM a 10 PM.
+  // En esa ventana el backfill CEDE (bloque 15, máximo 20). De 11 PM a 6 AM vTiger
+  // está sin uso y el backfill avanza RÁPIDO (bloque 50). Las horas de transición
+  // (6-7 AM y 10-11 PM) usan un ritmo intermedio (25). Todo ajustable por entorno.
+  const BLOQUE_DIA = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_DIA || '15', 10) || 15);
+  const BLOQUE_NOCTURNO = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_NOCTURNO || '50', 10) || 50);
+  const BLOQUE_TRANSICION = Math.max(5, parseInt(process.env.BACKFILL_BLOQUE_TRANSICION || '25', 10) || 25);
 
   const perfilDelDia = () => {
     const h = parseInt(
       new Date().toLocaleString('en-US', { hour: '2-digit', hour12: false, timeZone: 'America/Lima' }),
       10
     );
-    if (h >= 1 && h < 6) return { nombre: 'MADRUGADA', tamano: BLOQUE_MADRUGADA, lotes: 1, pausa: 100, concurrencia: 6 };
-    if (h >= 6 && h < 13) return { nombre: 'PICO-MANANA', tamano: BLOQUE_MANANA, lotes: 1, pausa: 400, concurrencia: 2 };
-    if (h >= 13 && h < 20) return { nombre: 'TARDE', tamano: BLOQUE_TARDE, lotes: 1, pausa: 250, concurrencia: 3 };
-    return { nombre: 'NOCHE', tamano: BLOQUE_NOCHE, lotes: 1, pausa: 150, concurrencia: 4 };
+    if (h >= 7 && h < 22) return { nombre: 'DIA-VTIGER', tamano: BLOQUE_DIA, lotes: 1, pausa: 400, concurrencia: 2 };
+    if (h >= 23 || h < 6) return { nombre: 'NOCTURNO', tamano: BLOQUE_NOCTURNO, lotes: 1, pausa: 100, concurrencia: 6 };
+    return { nombre: 'TRANSICION', tamano: BLOQUE_TRANSICION, lotes: 1, pausa: 250, concurrencia: 3 };
   };
   let buyersBackfillCorriendo = false;
   let buyersBackfillIniciadoEn = 0;
