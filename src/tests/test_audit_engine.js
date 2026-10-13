@@ -693,14 +693,19 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
     {
       name: 'Regla 23: Arquitectura Pulpo - Descriptores de Sede, Pipelines y Custom Fields 1:1',
       run: () => {
-        // 1. Sedes Activas
+        // 1. Sedes Activas — [DECISIÓN DEL NEGOCIO 13/10] Las 4 sedes trabajan al 100%:
+        // Roosevelt y Piura dejaron de ser "standby" y se activaron. Solo la cuenta
+        // Central (Empresa) queda fuera de `getActiveSedes`: no es una sede operativa.
         const activeSedes = getActiveSedes();
         const activeIds = activeSedes.map(s => s.sedeId);
-        if (!activeIds.includes('PALACIOS') || !activeIds.includes('BENAVIDES')) {
-          throw new Error(`getActiveSedes debe incluir PALACIOS y BENAVIDES, recibido: ${activeIds.join(', ')}`);
+        const esperadas = ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'];
+        for (const s of esperadas) {
+          if (!activeIds.includes(s)) {
+            throw new Error(`getActiveSedes debe incluir ${s} (las 4 sedes activas), recibido: ${activeIds.join(', ')}`);
+          }
         }
-        if (activeIds.includes('ROOSEVELT') || activeIds.includes('PIURA') || activeIds.includes('CENTRAL')) {
-          throw new Error(`Sedes en standby o Central no deben estar activas, recibido: ${activeIds.join(', ')}`);
+        if (activeIds.includes('CENTRAL')) {
+          throw new Error(`La cuenta Central no debe figurar como sede operativa, recibido: ${activeIds.join(', ')}`);
         }
 
         // 2. Pipelines y Stages Oficiales
@@ -749,14 +754,17 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
     {
       name: 'Regla 24: SedeAgent Factory y Hermetismo de Tentáculos',
       run: () => {
-        // 1. Agentes Activos
+        // 1. Agentes Activos — [DECISIÓN DEL NEGOCIO 13/10] las 4 sedes trabajan al 100%.
         const activeAgents = getActiveSedeAgents();
-        if (activeAgents.length !== 2) {
-          throw new Error(`Se esperaban 2 agentes activos, recibido: ${activeAgents.length}`);
+        if (activeAgents.length !== 4) {
+          throw new Error(`Se esperaban 4 agentes activos (todas las sedes), recibido: ${activeAgents.length}`);
         }
         const activeIds = activeAgents.map(a => a.sedeId);
-        if (!activeIds.includes('PALACIOS') || !activeIds.includes('BENAVIDES')) {
-          throw new Error(`Agentes activos incorrectos: ${activeIds.join(', ')}`);
+        const esperadasAgentes = ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'];
+        for (const s of esperadasAgentes) {
+          if (!activeIds.includes(s)) {
+            throw new Error(`Agentes activos incorrectos: falta ${s}, recibido: ${activeIds.join(', ')}`);
+          }
         }
 
         // 2. Instancia Palacios
