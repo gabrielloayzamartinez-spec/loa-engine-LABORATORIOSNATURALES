@@ -38,6 +38,7 @@ import { getStateStore } from './services/state/state_store.js';
 import { cargarMemoriaActividad, persistirMemoriaActividad, getEstadoMemoriaActividad } from './services/lead_activity_memory.js';
 import { ejecutarVigilanciaProduccion } from './services/production_guard.js';
 import { ejecutarCuracionEstandar, getControlEstandarStatus, ESTANDAR_CAMPOS } from './services/standard_curator.js';
+import { tomarTurno, liberarTurno, getCicloOperativo } from './services/ciclo_operativo.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -3131,18 +3132,20 @@ export function registerBackgroundSchedulers() {
   // Esta pasada los RELLENA. Va en lotes pequeños cada 20 minutos y el propio
   // servicio se detiene si la cuota real no da margen para la atencion en vivo.
   timers.push(setInterval(() => {
+    if (!tomarTurno('refill-comercial')) return; // nivel 2 secuencial
     const sedesActivas = getActiveSedes().filter(s => !s.isPaused).map(s => s.sedeId);
-    if (sedesActivas.length === 0) return;
+    if (sedesActivas.length === 0) { liberarTurno('refill-comercial'); return; }
     // Prioridad Palacios (la regla de negocio), luego el resto.
     const orden = ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'].filter(s => sedesActivas.includes(s));
     const sedeDelTurno = orden[0] || sedesActivas[0];
-    refillComercial({ sede: sedeDelTurno, lote: 40, lotes: 1, ejecutar: true })
+    refillComercial({ sede: sedeDelTurno, lote: 20, lotes: 1, ejecutar: true })
       .then(r => {
         if (r?.rellenados > 0) {
           console.log(`[Re-llenado Comercial] ${sedeDelTurno}: ${r.rellenados} compradores rellenados (cursor ${r.cursor?.offset}).`);
         }
       })
-      .catch(err => console.warn(`[Re-llenado Comercial] ${sedeDelTurno}: ${err.message}`));
+      .catch(err => console.warn(`[Re-llenado Comercial] ${sedeDelTurno}: ${err.message}`))
+      .finally(() => liberarTurno('refill-comercial'));
   }, 20 * 60 * 1000));
 
   // [CURACIÓN + CONTROL DE ESTÁNDAR — CALIDAD DE RESULTADOS]
@@ -3151,16 +3154,18 @@ export function registerBackgroundSchedulers() {
   // ningún contacto quede "a medias". Delegado a `hayCuotaRealDeFondo`: si el fondo
   // no tiene margen en la franja, la curación se pausa sola sin tocar la atención.
   timers.push(setInterval(() => {
+    if (!tomarTurno('curador-estandar')) return; // nivel 2 secuencial
     const sedeCur = getActiveSedes().some(s => s.sedeId === 'PALACIOS' && !s.isPaused) ? 'PALACIOS'
       : (getActiveSedes().find(s => !s.isPaused)?.sedeId || null);
-    if (!sedeCur) return;
+    if (!sedeCur) { liberarTurno('curador-estandar'); return; }
     ejecutarCuracionEstandar({ sede: sedeCur, muestra: 20, curar: true })
       .then(r => {
         if (r?.veredicto && r.pctCompleto < 95) {
           console.warn(`[Curador Estándar] ${sedeCur}: ${r.veredicto} (${r.pctCompleto}% completos, ${r.curados} curados). Huecos: ${(r.camposConHuecos || []).map(c => c.campo).join(', ') || 'ninguno'}.`);
         }
       })
-      .catch(err => console.warn(`[Curador Estándar] ${sedeCur}: ${err.message}`));
+      .catch(err => console.warn(`[Curador Estándar] ${sedeCur}: ${err.message}`))
+      .finally(() => liberarTurno('curador-estandar'));
   }, 20 * 60 * 1000));
 
   // Cola de reintentos vTiger (1 vez por minuto)
@@ -3241,10 +3246,11 @@ export function registerBackgroundSchedulers() {
   // en 45 min: mas del doble del ciclo normal, para NO disparar falsamente.
   const guardaSalesBridge = crearGuardaConWatchdog('Sales Bridge', 45 * 60 * 1000);
   timers.push(setInterval(() => {
-    if (!guardaSalesBridge.tomar()) return;
-    runVtigerSalesBridge({ horasAtras: 6, soloCompradores: true, limitePorSede: 25 })
+    if (!tomarTurno('sales-bridge')) return; // nivel 2 secuencial
+    if (!guardaSalesBridge.tomar()) { liberarTurno('sales-bridge'); return; }
+    runVtigerSalesBridge({ horasAtras: 6, soloCompradores: true, limitePorSede: 20 })
       .catch(err => console.error('[Sales Bridge] Error en ciclo programado:', err.message))
-      .finally(() => { guardaSalesBridge.liberar(); });
+      .finally(() => { guardaSalesBridge.liberar(); liberarTurno('sales-bridge'); });
   }, 10 * 60 * 1000));
 
   // [TICKET 1] Backfill del DETALLE de órdenes vTiger -> GHL.
@@ -3253,17 +3259,17 @@ export function registerBackgroundSchedulers() {
   // ~27 min (50 x 2 por sede); tope de 60 min = mas del doble, sin falsos positivos.
   const guardaOrderHistory = crearGuardaConWatchdog('Order Backfill', 60 * 60 * 1000);
   timers.push(setInterval(() => {
-    if (!guardaOrderHistory.tomar()) return;
+    if (!tomarTurno('order-history')) return; // nivel 2 secuencial
+    if (!guardaOrderHistory.tomar()) { liberarTurno('order-history'); return; }
     getBackfillStatus()
       .then(estado => {
         if (estado.completo) return; // nada pendiente
-        // [RITMO RECALIBRADO] Antes 25x2 cada 30 min = 100/hora. Ahora 50x2 cada
-        // 15 min = 400/hora, para acompanar al backfill de compradores
-        // sin saturar: el historial hace ~3 llamadas por contacto.
-        return runOrderHistoryBackfill({ tamanoLote: 50, maxLotes: 2, pausaMs: 250 });
+        // [BLOQUE CONTROLADO] 20 por ciclo (antes 50x2): avanza en bloques pequeños y
+        // predecibles, sin saturar y sin competir con la atención en vivo.
+        return runOrderHistoryBackfill({ tamanoLote: 20, maxLotes: 1, pausaMs: 250 });
       })
       .catch(err => console.error('[Order Backfill] Error en ciclo programado:', err.message))
-      .finally(() => { guardaOrderHistory.liberar(); });
+      .finally(() => { guardaOrderHistory.liberar(); liberarTurno('order-history'); });
   }, 15 * 60 * 1000));
 
   // [BACKFILL DE COMPRADORES] Cierra la brecha historica de la cartera.
@@ -3304,10 +3310,10 @@ export function registerBackgroundSchedulers() {
       new Date().toLocaleString('en-US', { hour: '2-digit', hour12: false, timeZone: 'America/Lima' }),
       10
     );
-    if (h >= 1 && h < 6) return { nombre: 'MADRUGADA', tamano: 60, lotes: 3, pausa: 100, concurrencia: 6 };
-    if (h >= 6 && h < 13) return { nombre: 'PICO-MANANA', tamano: 25, lotes: 2, pausa: 400, concurrencia: 2 };
-    if (h >= 13 && h < 20) return { nombre: 'TARDE', tamano: 40, lotes: 2, pausa: 250, concurrencia: 3 };
-    return { nombre: 'NOCHE', tamano: 50, lotes: 2, pausa: 150, concurrencia: 4 };
+    if (h >= 1 && h < 6) return { nombre: 'MADRUGADA', tamano: 20, lotes: 1, pausa: 100, concurrencia: 6 };
+    if (h >= 6 && h < 13) return { nombre: 'PICO-MANANA', tamano: 15, lotes: 1, pausa: 400, concurrencia: 2 };
+    if (h >= 13 && h < 20) return { nombre: 'TARDE', tamano: 20, lotes: 1, pausa: 250, concurrencia: 3 };
+    return { nombre: 'NOCHE', tamano: 20, lotes: 1, pausa: 150, concurrencia: 4 };
   };
   let buyersBackfillCorriendo = false;
   let buyersBackfillIniciadoEn = 0;
@@ -3327,6 +3333,7 @@ export function registerBackgroundSchedulers() {
   let buyersBackfillTopeCicloMs = 90 * 60 * 1000;
 
   timers.push(setInterval(() => {
+    if (!tomarTurno('backfill-compradores')) return; // nivel 2 secuencial
     if (buyersBackfillCorriendo) {
       const transcurrido = Date.now() - buyersBackfillIniciadoEn;
       if (transcurrido > buyersBackfillTopeCicloMs) {
@@ -3420,7 +3427,7 @@ export function registerBackgroundSchedulers() {
         return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia: concurrenciaFinal, sedes: sedesDelCiclo });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
-      .finally(() => { buyersBackfillCorriendo = false; });
+      .finally(() => { buyersBackfillCorriendo = false; liberarTurno('backfill-compradores'); });
   }, 10 * 60 * 1000));
 
   // ==========================================================================
