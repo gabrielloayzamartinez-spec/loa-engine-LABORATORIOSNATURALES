@@ -776,9 +776,13 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     push(fieldIdsCentral, 'totalCompras', String(compras));
     push(fieldIdsCentral, 'fechaUltimaCompra', vContact.spl_fecha_ultima_compra || '');
     push(fieldIdsCentral, 'fechaPrimeraCompra', vContact.spl_fecha_primera_compra || '');
-    push(fieldIdsCentral, 'precioVenta', String(vContact.cf_3392 || ''));
+    // [PRECIO VENTA — CORRECCIÓN] Ya NO se escribe desde cf_3392 (gasto acumulado,
+    // "0.00000" para compradores recientes). El "Precio venta" real lo publica el
+    // order history desde el total de la ÚLTIMA orden (hdnGrandTotal), que nunca es
+    // cero para una compra confirmada.
     push(fieldIdsCentral, 'idClienteVt', vContact.id || '');
-    // `cf_3392` fue VERIFICADO en vivo como el GASTO TOTAL ACUMULADO.
+    // `cf_3392` fue VERIFICADO en vivo como el GASTO TOTAL ACUMULADO (queda para el
+    // campo "Total Historico Gastado USD", que sí representa el acumulado).
     if (vContact.cf_3392) push(fieldIdsCentral, 'totalHistorico', String(vContact.cf_3392));
   }
 
@@ -827,7 +831,8 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     pushSede('totalCompras', String(compras));
     pushSede('fechaUltimaCompra', vContact.spl_fecha_ultima_compra || '');
     pushSede('fechaPrimeraCompra', vContact.spl_fecha_primera_compra || '');
-    pushSede('precioVenta', String(vContact.cf_3392 || ''));
+    // [PRECIO VENTA] Igual que en macro: ya no desde cf_3392; lo escribe el order
+    // history desde el total de la última orden confirmada.
     pushSede('idClienteVt', vContact.id || '');
   }
 
