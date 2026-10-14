@@ -1057,6 +1057,18 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       hasMetaPage: hasRealFanpage
     });
 
+    // [DIRECTIVA — 14/10] LOA Engine SOLO opera contactos de FACEBOOK (Messenger o
+    // formulario de Lead Ads). Los transportes NO-Facebook (SMS/texto, WhatsApp,
+    // Email, Instagram DM) se gestionan por el WORKFLOW nativo de GHL: el router NO
+    // debe asignarles dueño ni etiquetarlos, porque eso rompía su workflow. Los
+    // contactos sin transporte (DESCONOCIDO, p.ej. compradores del backfill) SÍ se
+    // siguen procesando.
+    const CANALES_NO_FACEBOOK = ['SMS', 'WHATSAPP', 'EMAIL', 'IG-DM'];
+    if (CANALES_NO_FACEBOOK.includes(targetChannel)) {
+      console.log(`[Agente 3] [CANAL-NO-FACEBOOK] ${contactId} es ${targetChannel}: lo gestiona el workflow de GHL. Ruteo omitido (no se asigna dueño ni etiquetas).`);
+      return 'UNCHANGED';
+    }
+
     const vtigerSource = buildVtigerSource({
       sedeName: targetPageName,
       campaignName: latestCampaign || targetAdName,
