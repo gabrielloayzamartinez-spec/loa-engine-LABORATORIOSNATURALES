@@ -542,6 +542,17 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Ahora se distingue: hasRealFanpage = hay evidencia REAL (mensaje Meta o tag).
     let hasRealFanpage = Boolean(targetPageId || targetPageName);
 
+    // [DIRECTIVA — 14/10] LOA Engine SOLO opera FACEBOOK. Los transportes NO-Facebook
+    // (SMS/Twilio, WhatsApp, Email, Instagram) los gestiona el WORKFLOW nativo de
+    // GHL. Hay que cortar AQUÍ, ANTES de fabricar fanpage y asignar dueño: antes un
+    // SMS quedaba con fanpage INVENTADA ("Naturales BioNatural") y se le asignaba un
+    // asesor por coincidencia de NOMBRE, mezclando canales y dueños.
+    const transportLimpio = String(latestMessageTransport || '').toLowerCase();
+    if (/sms|twilio|whatsapp|wsp|email|mail|instagram|\big\b/.test(transportLimpio)) {
+      console.log(`[Agente 3] [CANAL-NO-FACEBOOK] ${contactId} transporte '${latestMessageTransport}': lo gestiona el WF de GHL. Ruteo omitido (sin dueño ni etiquetas).`);
+      return 'UNCHANGED';
+    }
+
     if (!targetPageName) {
       if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
         targetPageName = "Naturales Bio Corp";
@@ -582,12 +593,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         // "corp", asi que un lead sin evidencia de fanpage caia en REDES 2 sin
         // dejar rastro. Ahora se evalua la evidencia REAL y se marca la revision.
         // ================================================================
-        const esCorp = targetPageId === '510617778807469'
-          || (targetPageName || '').toLowerCase().includes('corp');
+        const esCorp = targetPageId === '510617778807469';
         const esRedes2 = targetPageId === '126154270581792'
-          || targetPageId === '1147742788423762'
-          || (targetPageName || '').toLowerCase().includes('fuerza')
-          || (targetPageName || '').toLowerCase().includes('bio natural');
+          || targetPageId === '1147742788423762';
 
         if (esCorp) {
           targetAdvisorId = resolvedSede.users.redes1.id;
@@ -621,12 +629,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         // REAL y, si la pagina no esta mapeada o no hay evidencia, se mantiene la
         // continuidad operativa (ERNESTO) PERO se marca "revisar-ruteo".
         // ================================================================
-        const esClick2Ring = targetPageId === '111906554968800'
-          || (targetPageName || '').toLowerCase().includes('ultra');
+        // [DIRECTIVA — 14/10] La asignación es por PAGE ID (condición exacta), NUNCA
+        // por coincidencia de NOMBRE de fanpage: el nombre mezclaba leads entre
+        // dueños ("ultra"/"bionatural" por subcadena).
+        const esClick2Ring = targetPageId === '111906554968800';
         const esErnesto = targetPageId === '566501466542620'
-          || targetPageId === '718150351371765'
-          || (targetPageName || '').toLowerCase().includes('bionatural')
-          || (targetPageName || '').toLowerCase().includes('laboratorios naturales bio');
+          || targetPageId === '718150351371765';
 
         if (esClick2Ring) {
           targetAdvisorId = resolvedSede.users.ultra.id;
