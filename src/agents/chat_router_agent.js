@@ -1071,18 +1071,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const newTagsSet = new Set((contact.tags || []).map(t => String(t).trim()));
     newTagsSet.add('facebook-messenger');
 
-    if (isPaidAd) {
-      newTagsSet.add('meta-ads');
-      newTagsSet.delete('organico');
-    } else {
-      newTagsSet.add('organico');
-      // Si entra puramente orgánico sin historial previo de pauta, purgar meta-ads erróneo
-      if (!currentAdId && !targetAdId) {
-        newTagsSet.delete('meta-ads');
-        if ((contact.tags || []).includes('meta-ads')) {
-          tagsToRemove.push('meta-ads');
-        }
-      }
+    // [DIRECTIVA DEL NEGOCIO — 14/10] TODOS los leads son de PAUTA (ADS). El tag
+    // 'organico' rompía las Smart Lists: aparecía un lote "orgánico" por leads cuya
+    // atribución de Meta llegó SIN Ad ID (el webhook a veces lo omite), y se
+    // etiquetaban como orgánicos siendo de pauta. Se elimina el etiquetado orgánico:
+    // todo lead se marca 'meta-ads'. El origen "ORGÁNICO" del texto de diagnóstico
+    // puede seguir existiendo, pero NUNCA como tag de filtrado.
+    newTagsSet.add('meta-ads');
+    newTagsSet.delete('organico');
+    if ((contact.tags || []).includes('organico')) {
+      tagsToRemove.push('organico');
     }
 
     if (targetPageName) {
