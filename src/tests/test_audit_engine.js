@@ -269,36 +269,26 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
       }
     },
     {
-      name: 'Regla 4H: Purgado de etiquetas huérfanas en ingreso orgánico (sin meta-ads)',
+      name: 'Regla 4H: Todo lead es de PAUTA — se elimina la etiqueta orgánica',
       run: () => {
-        const tags = ['facebook-messenger', 'meta-ads', 'producto-artritis'];
-        const isPaidAd = false;
-        const currentAdId = null;
-        const targetAdId = null;
-        
+        const tags = ['facebook-messenger', 'organico', 'producto-artritis'];
         const tagsToRemove = [];
         const newTagsSet = new Set(tags);
-        if (isPaidAd) {
-          newTagsSet.add('meta-ads');
-          newTagsSet.delete('organico');
-        } else {
-          newTagsSet.add('organico');
-          if (!currentAdId && !targetAdId) {
-            newTagsSet.delete('meta-ads');
-            if (tags.includes('meta-ads')) {
-              tagsToRemove.push('meta-ads');
-            }
-          }
+        // [DIRECTIVA 14/10] Todos los leads son de ADS: meta-ads siempre, organico nunca.
+        newTagsSet.add('meta-ads');
+        newTagsSet.delete('organico');
+        if (tags.includes('organico')) {
+          tagsToRemove.push('organico');
         }
 
-        if (!tagsToRemove.includes('meta-ads')) {
-          throw new Error('Debe marcar meta-ads para purga cuando el lead es puramente orgánico');
+        if (!tagsToRemove.includes('organico')) {
+          throw new Error('Debe purgar la etiqueta organico');
         }
-        if (newTagsSet.has('meta-ads')) {
-          throw new Error('newTagsSet no debe tener meta-ads en lead orgánico');
+        if (!newTagsSet.has('meta-ads')) {
+          throw new Error('Todo lead debe llevar meta-ads');
         }
-        if (!newTagsSet.has('organico')) {
-          throw new Error('newTagsSet debe contener organico');
+        if (newTagsSet.has('organico')) {
+          throw new Error('newTagsSet no debe contener organico');
         }
       }
     },
