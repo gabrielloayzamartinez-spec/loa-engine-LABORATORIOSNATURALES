@@ -125,16 +125,12 @@ export async function guardianDePropietario({ sede = 'PALACIOS', paginas = 10, e
       if (!c.assignedTo) {
         // Caso 1: contacto HUÉRFANO (sin dueño). Siempre se corrige.
         sinDuenio++;
-      } else if (incluirMalAsignados && c.assignedTo !== esperado.id) {
-        // Caso 2: MAL DESIGNADO — tiene dueño, pero la regla de su fanpage exige
-        // otro. Se corrige SOLO si se pide explícitamente (`incluirMalAsignados`),
-        // porque reasignar una cartera que un asesor ya está trabajando es una
-        // decisión de negocio, no una reparación automática. Sirve para aplicar un
-        // CAMBIO DE DESIGNACIÓN (p. ej. "Laboratorios Naturales BIO" que pasa de
-        // CLICK2RING a ERNESTO) a los contactos que ya existían.
-        malAsignados++;
       } else {
-        continue; // ya está bien asignado
+        // [REGLA DEFINITIVA — 14/10] Si YA tiene dueño, NO se reasigna NUNCA. Los
+        // dueños de Facebook (ERNESTO / CLICK2RING / REDES 1-2) son fijos y
+        // exclusivos de Facebook: ningún proceso los "roba" ni los mezcla con
+        // WSP/SMS. (El reasignado `incluirMalAsignados` queda deshabilitado.)
+        continue;
       }
 
       const item = { id: c.id, nombre: `${c.firstName || ''} ${c.lastName || ''}`.trim(), asesor: esperado.name, sedeAsesor: esperado.sede, tipo: c.assignedTo ? 'REASIGNACION' : 'HUERFANO' };
