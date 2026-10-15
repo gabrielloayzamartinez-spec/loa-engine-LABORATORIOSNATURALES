@@ -38,7 +38,7 @@ import { getStateStore } from './services/state/state_store.js';
 import { cargarMemoriaActividad, persistirMemoriaActividad, getEstadoMemoriaActividad } from './services/lead_activity_memory.js';
 import { ejecutarVigilanciaProduccion } from './services/production_guard.js';
 import { ejecutarCuracionEstandar, getControlEstandarStatus, ESTANDAR_CAMPOS } from './services/standard_curator.js';
-import { anularAsignacionesErroneas } from './services/assignment_curator.js';
+import { anularAsignacionesErroneas, asignarSmsAMonitor } from './services/assignment_curator.js';
 import { tomarTurno, liberarTurno, getCicloOperativo } from './services/ciclo_operativo.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
@@ -2751,6 +2751,27 @@ app.get('/api/asignaciones/anular', async (req, res) => {
     const paginas = parseInt(req.query.paginas || '20', 10);
     const ejecutar = req.query.ejecutar === 'true';
     res.json(await anularAsignacionesErroneas({ sede, paginas, ejecutar }));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * [ASIGNAR LOTE DE SMS A MONITOR SMS]
+ * Asigna a MONITOR SMS (el único dueño del canal SMS) los contactos del lote de SMS
+ * (NO-Facebook). Es una asignación "como manual": solo escribe `assignedTo`, sin tocar
+ * etiquetas. DRY-RUN por defecto.
+ *
+ *   · DRY-RUN: GET /api/asignaciones/sms-a-monitor?sede=PALACIOS
+ *   · Ejecutar: GET /api/asignaciones/sms-a-monitor?sede=PALACIOS&ejecutar=true
+ */
+app.get('/api/asignaciones/sms-a-monitor', async (req, res) => {
+  try {
+    const sede = req.query.sede || 'PALACIOS';
+    const paginas = parseInt(req.query.paginas || '20', 10);
+    const ejecutar = req.query.ejecutar === 'true';
+    const monitorNombre = req.query.monitor || 'MONITOR SMS';
+    res.json(await asignarSmsAMonitor({ sede, paginas, ejecutar, monitorNombre }));
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

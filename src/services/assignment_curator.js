@@ -162,3 +162,132 @@ export async function anularAsignacionesErroneas({ sede = 'PALACIOS', paginas = 
 
   return reporte;
 }
+
+/** Busca un usuario de la subcuenta por NOMBRE (p.ej. "MONITOR SMS"). */
+async function buscarUsuarioPorNombre(locId, headers, nombre) {
+  const candidatos = [
+    `https://services.leadconnectorhq.com/users/?locationId=${locId}`,
+    `https://services.leadconnectorhq.com/locations/${locId}/users/`
+  ];
+  const buscado = String(nombre).toLowerCase().trim();
+  for (const url of candidatos) {
+    try {
+      const r = await ghlFetch(url, { headers }, 1, 'Curador-Asignaciones');
+      if (r.status !== 200) continue;
+      const d = await r.json();
+      const usuarios = d?.users || d?.employees || [];
+      const encontrado = usuarios.find(u => String(u.name || u.firstName || '').toLowerCase().includes(buscado));
+      if (encontrado) return encontrado;
+    } catch { /* probar el siguiente endpoint */ }
+  }
+  return null;
+}
+
+/**
+ * ASIGNA a MONITOR SMS los contactos del lote de SMS (canal NO-Facebook).
+ * Es una asignación "como manual": solo escribe `assignedTo`, sin tocar etiquetas.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.sede='PALACIOS']
+ * @param {number} [opts.paginas=20]
+ * @param {boolean} [opts.ejecutar=false] false = DRY-RUN
+ * @param {string} [opts.monitorNombre='MONITOR SMS'] nombre del usuario dueño del canal SMS
+ */
+export async function asignarSmsAMonitor({ sede = 'PALACIOS', paginas = 20, ejecutar = false, monitorNombre = 'MONITOR SMS' } = {}) {
+  const sedeId = String(sede).toUpperCase();
+  const cfg = SEDES_GATEWAY[sedeId];
+  const locId = cfg?.ghl?.locationId;
+  const apiKey = cfg?.ghl?.apiKey;
+  if (!locId || !apiKey) return { ok: false, reason: `Sede ${sedeId} sin credenciales cargadas` };
+
+  const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', 'Content-Type': 'application/json', Accept: 'application/json' };
+  const monitor = await buscarUsuarioPorNombre(locId, headers, monitorNombre);
+  if (!monitor?.id) {
+    return { ok: false, reason: `No se encontró el usuario '${monitorNombre}' en la subcuenta ${sedeId}` };
+  }
+
+  const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 20, 1), 200);
+  const slugs = slugsDeFanpage();
+
+  let escaneados = 0;
+  let encontrados = 0;
+  let asignados = 0;
+  let errores = 0;
+  const detalle = [];
+
+  let url = `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100`;
+  for (let p = 0; p < limitePaginas && url; p++) {
+    const r = await ghlFetch(url, { headers }, 1, 'Curador-Asignaciones');
+    if (r.status !== 200) break;
+    const d = await r.json();
+    const contactos = d?.contacts || [];
+    if (contactos.length === 0) break;
+
+    for (const c of contactos) {
+      escaneados++;
+      const tags = (c.tags || []).map(t => String(t).toLowerCase().trim());
+
+      // Es del lote SMS: NO es Facebook (sin etiqueta facebook-messenger ni slug de fanpage).
+      const esFacebook = tags.includes('facebook-messenger') || tags.some(t => slugs.has(t));
+      if (esFacebook) continue;
+
+      encontrados++;
+      const item = {
+        id: c.id,
+        nombre: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+        telefono: c.phone || '',
+        dueñoActual: c.assignedTo || '(sin dueño)'
+      };
+
+      if (!ejecutar) {
+        item.resultado = 'DRY_RUN (no se asignó)';
+        detalle.push(item);
+        continue;
+      }
+
+      try {
+        const put = await ghlFetch(
+          `https://services.leadconnectorhq.com/contacts/${c.id}`,
+          { method: 'PUT', headers, body: JSON.stringify({ assignedTo: monitor.id }) },
+          1,
+          'Curador-Asignaciones'
+        );
+        if (put.ok) {
+          asignados++;
+          item.resultado = `ASIGNADO a ${monitor.name || monitorNombre}`;
+        } else {
+          errores++;
+          item.resultado = `FALLO HTTP ${put.status}`;
+        }
+      } catch (err) {
+        errores++;
+        item.resultado = `ERROR ${err.message}`;
+      }
+      detalle.push(item);
+      await sleep(150);
+    }
+
+    url = d?.meta?.nextPageUrl || null;
+  }
+
+  const reporte = {
+    ok: true,
+    sede: sedeId,
+    modo: ejecutar ? 'EJECUTADO' : 'DRY-RUN',
+    monitor: { id: monitor.id, name: monitor.name || monitorNombre },
+    escaneados,
+    encontrados,
+    asignados,
+    errores,
+    detalle: detalle.slice(0, 200)
+  };
+
+  recordAuditEvent({
+    type: ejecutar ? 'SMS_ASIGNADO_A_MONITOR' : 'SMS_MONITOR_DRY_RUN',
+    severity: 'info',
+    sede: sedeId,
+    escaneados, encontrados, asignados, errores
+  });
+
+  return reporte;
+}
