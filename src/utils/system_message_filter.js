@@ -141,12 +141,11 @@ export function resolveChannelFromEvent({
 }
 
 /**
- * [REGLA DEFINITIVA — 14/10] El motor SOLO opera canales DEFINIDOS: FACEBOOK
- * (Messenger y formulario de Lead Ads). WSP (WhatsApp), SMS, Email e Instagram DM
- * los gestiona GHL nativamente (workflows del propio GHL): el motor NO se entromete
- * en ellos, jamás les asigna dueño ni les toca etiquetas.
+ * [REGLA DEFINITIVA — 15/10] El motor SOLO opera canales META: FACEBOOK (Messenger y
+ * formulario de Lead Ads) e INSTAGRAM (IG-DM). WSP (WhatsApp), SMS y Email los
+ * gestiona GHL nativamente (workflows del propio GHL): el motor NO se entromete.
  */
-export const CANALES_PERMITIDOS = ['FB-MSGR', 'FORM'];
+export const CANALES_PERMITIDOS = ['FB-MSGR', 'FORM', 'IG-DM'];
 
 export function esCanalPermitido(channel) {
   return CANALES_PERMITIDOS.includes(String(channel || ''));
