@@ -575,6 +575,25 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       return 'UNCHANGED';
     }
 
+    // [BLINDAJE — 15/10] Sin evidencia de META (ni page id ni fanpage) y sin transporte
+    // de Facebook/Instagram/formulario, el contacto NO es un lead de Meta: puede ser un
+    // SMS/WSP o un comprador del backfill. NO se le asigna dueño ni etiquetas.
+    // (Antes el `else` de la asignación lo tiraba a REDES 1 por defecto: el incidente
+    // recurrente "se reasignó a REDES 1 y 2".)
+    const esTransporteMeta = /facebook|messenger|fb[-_ ]?msg|instagram|ig[-_ ]?dm|form|lead[-_ ]?ad/.test(transportLimpio);
+    if (!hasRealFanpage && !esTransporteMeta) {
+      console.log(`[Agente 3] [SIN-EVIDENCIA-META] ${contactId} sin fanpage ni transporte Meta ('${latestMessageTransport || 'vacio'}'): NO se asigna dueño ni etiquetas.`);
+      recordAuditEvent({
+        type: 'ROUTEO_SIN_EVIDENCIA_META',
+        severity: 'info',
+        contactId,
+        locationId: activeLocationId,
+        transporte: latestMessageTransport || 'vacio',
+        origen: origenRuteoActual
+      });
+      return 'UNCHANGED';
+    }
+
     if (!targetPageName) {
       if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
         targetPageName = "Naturales Bio Corp";
