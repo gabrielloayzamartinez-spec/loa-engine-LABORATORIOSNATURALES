@@ -63,7 +63,7 @@ function slugsDeFanpage() {
  * @param {number} [opts.paginas=20] páginas de 100 contactos (tope 200)
  * @param {boolean} [opts.ejecutar=false] false = DRY-RUN
  */
-export async function anularAsignacionesErroneas({ sede = 'PALACIOS', paginas = 20, ejecutar = false } = {}) {
+export async function reasignarSmsErroneos({ sede = 'PALACIOS', paginas = 20, ejecutar = false } = {}) {
   const sedeId = String(sede).toUpperCase();
   const cfg = SEDES_GATEWAY[sedeId];
   const locId = cfg?.ghl?.locationId;
@@ -75,9 +75,15 @@ export async function anularAsignacionesErroneas({ sede = 'PALACIOS', paginas = 
   const idsRedes = idsDeRedes();
   const slugs = slugsDeFanpage();
 
+  // [MONITOR SMS] El destino de la reasignación es el usuario exclusivo de SMS de la sede.
+  const monitorSede = MONITOR_SMS_POR_SEDE?.[sedeId];
+  if (!monitorSede?.id) {
+    return { ok: false, reason: `La sede ${sedeId} no tiene MONITOR SMS configurado` };
+  }
+
   let escaneados = 0;
   let sospechosos = 0;
-  let anulados = 0;
+  let reasignados = 0;
   let errores = 0;
   const detalle = [];
 
@@ -112,7 +118,7 @@ export async function anularAsignacionesErroneas({ sede = 'PALACIOS', paginas = 
       };
 
       if (!ejecutar) {
-        item.resultado = 'DRY_RUN (no se anuló)';
+        item.resultado = 'DRY_RUN (no se reasignó)';
         detalle.push(item);
         continue;
       }
@@ -120,13 +126,13 @@ export async function anularAsignacionesErroneas({ sede = 'PALACIOS', paginas = 
       try {
         const put = await ghlFetch(
           `https://services.leadconnectorhq.com/contacts/${c.id}`,
-          { method: 'PUT', headers, body: JSON.stringify({ assignedTo: '' }) },
+          { method: 'PUT', headers, body: JSON.stringify({ assignedTo: monitorSede.id }) },
           1,
           'Curador-Asignaciones'
         );
         if (put.ok) {
-          anulados++;
-          item.resultado = 'ASIGNACIÓN ANULADA';
+          reasignados++;
+          item.resultado = `REASIGNADO a MONITOR SMS (${monitorSede.name})`;
         } else {
           errores++;
           item.resultado = `FALLO HTTP ${put.status}`;
@@ -146,18 +152,19 @@ export async function anularAsignacionesErroneas({ sede = 'PALACIOS', paginas = 
     ok: true,
     sede: sedeId,
     modo: ejecutar ? 'EJECUTADO' : 'DRY-RUN',
+    monitor: { id: monitorSede.id, name: monitorSede.name },
     escaneados,
     sospechosos,
-    anulados,
+    reasignados,
     errores,
     detalle: detalle.slice(0, 200)
   };
 
   recordAuditEvent({
-    type: ejecutar ? 'ASIGNACION_ANULADA_MASIVA' : 'ASIGNACION_DRY_RUN',
+    type: ejecutar ? 'SMS_REASIGNADO_A_MONITOR' : 'SMS_REASIGNACION_DRY_RUN',
     severity: 'info',
     sede: sedeId,
-    escaneados, sospechosos, anulados, errores
+    escaneados, sospechosos, reasignados, errores
   });
 
   return reporte;

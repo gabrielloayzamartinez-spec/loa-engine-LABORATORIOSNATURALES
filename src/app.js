@@ -38,7 +38,7 @@ import { getStateStore } from './services/state/state_store.js';
 import { cargarMemoriaActividad, persistirMemoriaActividad, getEstadoMemoriaActividad } from './services/lead_activity_memory.js';
 import { ejecutarVigilanciaProduccion } from './services/production_guard.js';
 import { ejecutarCuracionEstandar, getControlEstandarStatus, ESTANDAR_CAMPOS } from './services/standard_curator.js';
-import { anularAsignacionesErroneas, asignarSmsAMonitor } from './services/assignment_curator.js';
+import { reasignarSmsErroneos, asignarSmsAMonitor } from './services/assignment_curator.js';
 import { tomarTurno, liberarTurno, getCicloOperativo } from './services/ciclo_operativo.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
@@ -2739,20 +2739,20 @@ app.get('/api/curacion/estandar/estado', async (req, res) => {
 });
 
 /**
- * [ANULAR ASIGNACIONES ERRÓNEAS — CORRECCIÓN DEL INCIDENTE SMS/WSP]
- * El motor asignó por error contactos de SMS/WSP a dueños de FACEBOOK (ERNESTO /
- * CLICK2RING / REDES). Este endpoint los detecta y les ANULA la asignación, para que
- * el workflow nativo de GHL los entregue a su dueño real (MONITOR SMS).
+ * [REASIGNAR SMS ERRÓNEOS A MONITOR SMS — CORRECCIÓN DEL INCIDENTE]
+ * El motor asignó por error contactos de SMS a dueños de FACEBOOK (ERNESTO /
+ * CLICK2RING / REDES). Este endpoint los detecta y los REASIGNA al dueño exclusivo
+ * del canal SMS (MONITOR SMS de la sede).
  *
- *   · DRY-RUN por defecto (no escribe): GET /api/asignaciones/anular?sede=PALACIOS
- *   · Ejecutar: GET /api/asignaciones/anular?sede=PALACIOS&ejecutar=true
+ *   · DRY-RUN por defecto: GET /api/asignaciones/reasignar-sms?sede=PALACIOS
+ *   · Ejecutar: GET /api/asignaciones/reasignar-sms?sede=PALACIOS&ejecutar=true
  */
-app.get('/api/asignaciones/anular', async (req, res) => {
+app.get('/api/asignaciones/reasignar-sms', async (req, res) => {
   try {
     const sede = req.query.sede || 'PALACIOS';
     const paginas = parseInt(req.query.paginas || '20', 10);
     const ejecutar = req.query.ejecutar === 'true';
-    res.json(await anularAsignacionesErroneas({ sede, paginas, ejecutar }));
+    res.json(await reasignarSmsErroneos({ sede, paginas, ejecutar }));
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
