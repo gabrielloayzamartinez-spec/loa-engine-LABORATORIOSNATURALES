@@ -763,6 +763,55 @@ export async function runUnassignedConversationsGuardian() {
 // ==========================================
 app.get('/', (req, res) => res.redirect('/health'));
 
+// [DIAGNÓSTICO META — PADECIMIENTO DESDE CONJUNTO DE ANUNCIOS]
+// Detecta los padecimientos REALES que traen los anuncios de la sede: toma los ad IDs
+// presentes en los contactos, resuelve el NOMBRE DEL CONJUNTO (adset) vía Meta Graph
+// API y extrae el padecimiento con la misma función del ruteo. Sirve para ver, con la
+// app de Meta, qué conjuntos no están siendo reconocidos por el vocabulario.
+app.get('/api/meta/diagnostico', async (req, res) => {
+  try {
+    const { getMetaAdDetails } = await import('./services/meta_api_service.js');
+    const { inferTreatmentFromCampaignOrUtm, resolveLeadProvider } = await import('./agents/nlp_symptom_engine.js');
+    const { SEDES_GATEWAY } = await import('./config/index.js');
+    const { ghlFetch } = await import('./utils/ghl_http_client.js');
+
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const cfg = SEDES_GATEWAY[sede];
+    const locId = cfg?.ghl?.locationId;
+    if (!locId || !cfg?.ghl?.apiKey) return res.json({ ok: false, reason: `Sede ${sede} sin credenciales` });
+
+    const headers = { Authorization: `Bearer ${cfg.ghl.apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
+    const ID_ANUNCIO = sede === 'BENAVIDES' ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
+
+    const adIds = new Set();
+    let url = `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=100`;
+    for (let p = 0; p < 5 && url && adIds.size < 8; p++) {
+      const r = await ghlFetch(url, { headers }, 1, 'Diag-Meta');
+      if (r.status !== 200) break;
+      const d = await r.json();
+      for (const c of (d.contacts || [])) {
+        const f = (c.customFields || []).find(f => f.id === ID_ANUNCIO && f.value);
+        const v = String(f?.value || '').trim();
+        if (/^\d{8,25}$/.test(v)) adIds.add(v);
+      }
+      url = d.meta?.nextPageUrl || null;
+    }
+
+    const resultados = [];
+    for (const adId of [...adIds]) {
+      const m = await getMetaAdDetails(adId, { sede });
+      const adsetName = m?.adsetName || null;
+      const padecimiento = adsetName ? inferTreatmentFromCampaignOrUtm(adsetName) : null;
+      const proveedor = resolveLeadProvider({ adsetName: adsetName || '', adName: m?.adName || '', campaignName: m?.campaignName || '' });
+      resultados.push({ adId, adName: m?.adName || null, campaignName: m?.campaignName || null, adsetName, padecimiento, proveedor });
+    }
+
+    res.json({ ok: true, sede, adIdsEncontrados: adIds.size, resultados });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   const queueStatus = getQueueStatus();
   res.status(200).json({
