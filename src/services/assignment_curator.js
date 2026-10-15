@@ -21,7 +21,7 @@
  */
 
 import { ghlFetch } from '../utils/ghl_http_client.js';
-import { SEDES_GATEWAY, PALACIOS_USERS } from '../config/index.js';
+import { SEDES_GATEWAY, PALACIOS_USERS, MONITOR_SMS } from '../config/index.js';
 import { recordAuditEvent } from './audit_logger.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -201,7 +201,10 @@ export async function asignarSmsAMonitor({ sede = 'PALACIOS', paginas = 20, ejec
   if (!locId || !apiKey) return { ok: false, reason: `Sede ${sedeId} sin credenciales cargadas` };
 
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', 'Content-Type': 'application/json', Accept: 'application/json' };
-  const monitor = await buscarUsuarioPorNombre(locId, headers, monitorNombre);
+  // [MONITOR SMS] Se usa el ID configurado (exclusivo para SMS). Si no está en config,
+  // se busca por nombre en GHL como respaldo.
+  let monitor = MONITOR_SMS?.id ? { id: MONITOR_SMS.id, name: MONITOR_SMS.name } : null;
+  if (!monitor) monitor = await buscarUsuarioPorNombre(locId, headers, monitorNombre);
   if (!monitor?.id) {
     return { ok: false, reason: `No se encontró el usuario '${monitorNombre}' en la subcuenta ${sedeId}` };
   }
