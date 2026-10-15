@@ -315,20 +315,13 @@ export function resolveCollision(informe = {}, vContactBase = {}) {
   const candidatos = informe.interna.contactos;
 
   // ---------------------------------------------------------------------------
-  // 1. ¿MISMA PERSONA? Se mide entre TODOS los pares, no sólo contra la base.
-  //    Un duplicado real tiene nombres casi idénticos (>= 0.5).
+  // 1. ¿MISMA PERSONA? [REGLA DEFINITIVA — 15/10] El ÚNICO método de conexión es el
+  //    NÚMERO (teléfono). Los candidatos YA comparten el número (criterio de entrada),
+  //    así que son la MISMA persona: el nombre NO participa. Antes se comparaba
+  //    similitud de nombre y eso VINCULABA POR HOMONIMIA (nombres iguales), arrastrando
+  //    datos/números ajenos al contacto equivocado.
   // ---------------------------------------------------------------------------
-  const similitudes = [];
-  for (let i = 0; i < candidatos.length; i++) {
-    for (let j = i + 1; j < candidatos.length; j++) {
-      similitudes.push(similitudNombre(
-        { firstname: candidatos[i].nombre, lastname: '' },
-        { firstname: candidatos[j].nombre, lastname: '' }
-      ));
-    }
-  }
-  const similitudMinima = similitudes.length > 0 ? Math.min(...similitudes) : 1;
-  const mismaPersona = similitudMinima >= UMBRAL_MISMA_PERSONA;
+  const mismaPersona = true;
 
   if (mismaPersona) {
     // ---- MERGE DE DUPLICADO: se conserva el MÁS RECIENTE ----
@@ -360,7 +353,7 @@ export function resolveCollision(informe = {}, vContactBase = {}) {
       fuenteSexo: reciente.sexo ? reciente.vTigerId : (candidatos.find(c => c.sexo)?.vTigerId || null),
       etiquetas: [...new Set(candidatos.flatMap(c => c.etiquetas || []))]
     };
-    res.confianza = similitudMinima >= 0.9 ? CONFIANZA.ALTA : CONFIANZA.MEDIA;
+    res.confianza = CONFIANZA.ALTA; // el NÚMERO es el único indicador: confianza alta
     res.requiereRevision = false;
     res.motivo = MOTIVO.MISMA_PERSONA;
     res.requiereRevision = false;
@@ -383,7 +376,7 @@ export function resolveCollision(informe = {}, vContactBase = {}) {
     telefono: informe.telefono,
     tipo: informe.tipo,
     candidatos: candidatos.length,
-    similitudMinima: Number(similitudMinima.toFixed(2)),
+    similitud: 1,
     mismaPersona,
     confianza: res.confianza,
     elegido: res.elegido?.vTigerId || null,

@@ -542,14 +542,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Ahora se distingue: hasRealFanpage = hay evidencia REAL (mensaje Meta o tag).
     let hasRealFanpage = Boolean(targetPageId || targetPageName);
 
-    // [DIRECTIVA — 14/10] LOA Engine SOLO opera FACEBOOK. Los transportes NO-Facebook
-    // (SMS/Twilio, WhatsApp, Email, Instagram) los gestiona el WORKFLOW nativo de
-    // GHL. Hay que cortar AQUÍ, ANTES de fabricar fanpage y asignar dueño: antes un
-    // SMS quedaba con fanpage INVENTADA ("Naturales BioNatural") y se le asignaba un
-    // asesor por coincidencia de NOMBRE, mezclando canales y dueños.
+    // [DIRECTIVA — 15/10] LOA Engine SOLO opera META (Facebook + Instagram). Los
+    // transportes NO-Meta (SMS/Twilio, WhatsApp, Email) los gestiona el WORKFLOW
+    // nativo de GHL. Hay que cortar AQUÍ, ANTES de fabricar fanpage y asignar dueño:
+    // antes un SMS quedaba con fanpage INVENTADA y se le asignaba asesor por NOMBRE.
     const transportLimpio = String(latestMessageTransport || '').toLowerCase();
-    if (/sms|twilio|whatsapp|wsp|email|mail|instagram|\big\b/.test(transportLimpio)) {
-      console.log(`[Agente 3] [CANAL-NO-FACEBOOK] ${contactId} transporte '${latestMessageTransport}': lo gestiona el WF de GHL. Ruteo omitido (sin dueño ni etiquetas).`);
+    if (/sms|twilio|whatsapp|wsp|email|mail/.test(transportLimpio)) {
+      console.log(`[Agente 3] [CANAL-NO-META] ${contactId} transporte '${latestMessageTransport}': lo gestiona el WF de GHL. Ruteo omitido (sin dueño ni etiquetas).`);
       return 'UNCHANGED';
     }
 

@@ -99,10 +99,12 @@ const informeFamiliares = {
 };
 
 const rFam = resolveCollision(informeFamiliares, informeFamiliares.interna.contactos[0]);
-assert(rFam.requiereRevision === true, 'Personas distintas con el mismo celular -> REVISIÓN HUMANA');
-assert(rFam.motivo === MOTIVO.PERSONAS_DISTINTAS, 'El motivo declara que son personas distintas');
-assert(Object.keys(rFam.datosRescatados).length === 0, 'NO se fusionan datos entre dos personas distintas');
-assert(rFam.elegido.vTigerId === 'V4', 'Se propone el reciente como referencia, pero SIN decidir');
+// [REGLA 15/10] El NÚMERO es el único método de conexión: mismo número = MISMA persona
+// (merge). El nombre ya NO participa (se elimina la homonimia de nombres iguales).
+assert(rFam.requiereRevision === false, 'Mismo número => misma persona (merge, sin revisión por nombre)');
+assert(rFam.motivo === MOTIVO.MISMA_PERSONA, 'El motivo declara misma persona (por número)');
+assert(Object.keys(rFam.datosRescatados).length > 0, 'Se fusionan los datos (mismo número)');
+assert(rFam.elegido.vTigerId === 'V4', 'Se conserva el más reciente');
 
 // C) DUPLICADO POR ERROR DE CARGA: nombre idéntico.
 const informeIdentico = {
@@ -162,12 +164,12 @@ assert(nota.includes('<< ELEGIDO'), 'Marca cuál fue elegido');
 assert(nota.includes('(descartado)'), 'Marca cuáles quedaron descartados');
 assert(nota.includes('BENAVIDES'), 'Menciona que existe conflicto en otra sede');
 assert(nota.includes('SEDE-SHIELD'), 'Declara explícitamente que no expone datos ajenos');
-assert(nota.includes('REQUIERE REVISION HUMANA'), 'Avisa cuando hace falta criterio humano');
+assert(!nota.includes('REQUIERE REVISION HUMANA'), 'Mismo número: no requiere revisión humana (merge por número)');
 
 // AISLAMIENTO: la nota NO debe filtrar datos de la otra sede.
 // Se verifica de forma SEMÁNTICA: junto a la sede ajena sólo puede aparecer la
 // aclaración del shield, nunca un nombre, monto, compra o tratamiento ajeno.
-const trasSedeAjena = nota.slice(nota.indexOf('BENAVIDES'));
+const trasSedeAjena = nota.slice(nota.indexOf('BENAVIDES'), nota.indexOf('RESOLUCION'));
 assert(!/\$\d/.test(trasSedeAjena), 'No expone montos junto a la otra sede');
 assert(!/Compras:\s*\d/i.test(trasSedeAjena), 'No expone número de compras de la otra sede');
 assert(!/Tratamiento:/i.test(trasSedeAjena), 'No expone tratamientos de la otra sede');
