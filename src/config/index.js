@@ -249,8 +249,10 @@ Object.defineProperty(PALACIOS_USERS, 'ultra', {
 // SMS" cuando un cliente responde a un SMS. El motor no asigna ni toca SMS por sí.
 export const MONITOR_SMS_POR_SEDE = {
   // BENAVIDES: usuario exclusivo de SMS indicado por el coordinador (15/10).
-  BENAVIDES: { id: 'WdGF34yWYow4SRUXoTnb', name: 'MONITOR SMS' }
-  // PALACIOS / ROOSEVELT / PIURA: se agregan cuando el negocio indique su ID.
+  BENAVIDES: { id: 'WdGF34yWYow4SRUXoTnb', name: 'MONITOR SMS' },
+  // PALACIOS: usuario exclusivo de SMS indicado por el coordinador (15/10).
+  PALACIOS: { id: 'EawXcwpPnXeJRhrxJlri', name: 'MONITOR SMS' }
+  // ROOSEVELT / PIURA: se agregan cuando el negocio indique su ID.
 };
 
 // ==========================================
