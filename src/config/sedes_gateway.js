@@ -136,7 +136,14 @@ export const SEDES_GATEWAY = {
       '568453466348355',  // Bio Naturales
       '1075001465705985'  // BioNatural Plus
     ],
-    users: {}
+    users: {
+      redes: {
+        id: 'nFCbXqI0h1JPg0NCMzJo',
+        name: 'REDES ROOSEVELT BIONATURAL',
+        email: 'bionatural.roosevelt@gmail.com',
+        role: 'ACCOUNT-USER'
+      }
+    }
   },
 
   PIURA: {
@@ -153,7 +160,14 @@ export const SEDES_GATEWAY = {
       '1147257965133802', // Natural Bio
       '1057863707412893'  // BioNatural
     ],
-    users: {}
+    users: {
+      redes: {
+        id: '2vIwv7mCV1bC5ZlIBxAJ',
+        name: 'REDES PIURA BIONATURAL',
+        email: 'bionatural.piura@gmail.com',
+        role: 'ACCOUNT-USER'
+      }
+    }
   }
 };
 

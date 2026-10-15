@@ -647,6 +647,24 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
           }
         }
+      } else if (resolvedSede.sedeId === 'ROOSEVELT') {
+        // [REGLA ESTRICTA DE PROPIETARIO — ROOSEVELT]
+        // Una sola REDES para las dos páginas de META. Asignación por PAGE ID
+        // (exacto), nunca por nombre. Sin evidencia de fanpage → revisar-ruteo.
+        if (resolvedSede.users.redes?.id) {
+          targetAdvisorId = resolvedSede.users.redes.id;
+          targetAdvisorName = resolvedSede.users.redes.name;
+          if (!hasRealFanpage) routingReviewReason = 'sin evidencia de fanpage de Meta';
+        }
+      } else if (resolvedSede.sedeId === 'PIURA') {
+        // [REGLA ESTRICTA DE PROPIETARIO — PIURA]
+        // Una sola REDES para las dos páginas de META. Asignación por PAGE ID
+        // (exacto), nunca por nombre. Sin evidencia de fanpage → revisar-ruteo.
+        if (resolvedSede.users.redes?.id) {
+          targetAdvisorId = resolvedSede.users.redes.id;
+          targetAdvisorName = resolvedSede.users.redes.name;
+          if (!hasRealFanpage) routingReviewReason = 'sin evidencia de fanpage de Meta';
+        }
       }
     }
 
