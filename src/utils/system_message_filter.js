@@ -139,3 +139,15 @@ export function resolveChannelFromEvent({
 
   return 'DESCONOCIDO';
 }
+
+/**
+ * [REGLA DEFINITIVA — 14/10] El motor SOLO opera canales DEFINIDOS: FACEBOOK
+ * (Messenger y formulario de Lead Ads). WSP (WhatsApp), SMS, Email e Instagram DM
+ * los gestiona GHL nativamente (workflows del propio GHL): el motor NO se entromete
+ * en ellos, jamás les asigna dueño ni les toca etiquetas.
+ */
+export const CANALES_PERMITIDOS = ['FB-MSGR', 'FORM'];
+
+export function esCanalPermitido(channel) {
+  return CANALES_PERMITIDOS.includes(String(channel || ''));
+}
