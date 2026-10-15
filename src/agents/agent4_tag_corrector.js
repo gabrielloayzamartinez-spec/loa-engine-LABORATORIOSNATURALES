@@ -20,43 +20,14 @@ async function fetchWithRetry(url, options, attempt = 1) {
  * Buscar al contacto en GHL por coincidencia de conversación reciente (Bypass de FB API)
  */
 async function findGhlContactByConversation(messageText, targetLocId, targetHeaders) {
-  try {
-    const locId = targetLocId || locationId;
-    const headers = targetHeaders || getGhlHeaders({ locationId: locId });
-    const url = `https://services.leadconnectorhq.com/conversations/search?locationId=${locId}&limit=10`;
-    const res = await fetchWithRetry(url, { headers });
-    if (res.status !== 200) return null;
-    
-    const data = await res.json();
-    const conversations = data.conversations || [];
-    
-    if (messageText && messageText.trim().length > 0) {
-      const targetText = messageText.toLowerCase().trim();
-      let match = conversations.find(c => 
-        c.lastMessageType === 'TYPE_FACEBOOK' && 
-        c.lastMessageBody && 
-        (c.lastMessageBody.toLowerCase().trim() === targetText || 
-         c.lastMessageBody.toLowerCase().includes(targetText) ||
-         targetText.includes(c.lastMessageBody.toLowerCase()))
-      );
-      if (match && match.contactId) {
-        return { id: match.contactId, name: match.contactName };
-      }
-    }
-
-    const fbConvs = conversations.filter(c => c.lastMessageType === 'TYPE_FACEBOOK');
-    if (fbConvs.length > 0) {
-       const mostRecent = fbConvs[0];
-       const timeDiff = Date.now() - mostRecent.dateUpdated;
-       if (timeDiff < 60000) { 
-          return { id: mostRecent.contactId, name: mostRecent.contactName };
-       }
-    }
-    return null;
-  } catch (err) {
-    console.error("[GHL API] Error buscando conversación:", err.message);
-    return null;
-  }
+  // [REGLA DEFINITIVA — 15/10] Se DESHABILITA el emparejamiento por TEXTO de mensaje
+  // y por "conversación más reciente": eso asociaba el Ad ID (y datos) al contacto
+  // EQUIVOCADO cuando dos personas escribían el mismo texto (ej. "SÍ" de la campaña
+  // SMS), y dejaba contactos "con un número que no les pertenece". El ÚNICO indicador
+  // de acción es el NÚMERO (teléfono). Sin un número de referencia válido en el
+  // evento, el Agente 4 NO corrige nada (fail-safe).
+  console.warn('[Agente 4] [BLOQUEADO] Emparejamiento por texto/recencia deshabilitado (solo número). Corrección omitida para no tocar contactos ajenos.');
+  return null;
 }
 
 /**
