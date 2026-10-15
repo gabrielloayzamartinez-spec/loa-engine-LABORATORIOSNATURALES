@@ -23,13 +23,29 @@
 let tareaActiva = null;
 let tareaActivaDesde = null;
 
+// [WATCHDOG DEL TURNO] Si una tarea de nivel 2 se cuelga (una llamada que nunca
+// responde), su `.finally()` no corre, el turno queda tomado PARA SIEMPRE y todas
+// las demás tareas (incluido el backfill) se estancan en silencio. Caso real:
+// backfill 54 h sin avanzar por un turno colgado. Tope: 45 min (un ciclo normal
+// no supera los ~30 min).
+const TOPE_TURNO_MS = 45 * 60 * 1000;
+
 /**
  * Intenta tomar el turno para una tarea de nivel 2.
  * @param {string} tarea nombre de la tarea (p.ej. 'backfill-compradores')
  * @returns {boolean} true si puede arrancar (no hay otra tarea en curso)
  */
 export function tomarTurno(tarea) {
-  if (tareaActiva) return false;
+  if (tareaActiva) {
+    const transcurrido = Date.now() - (tareaActivaDesde || 0);
+    if (transcurrido > TOPE_TURNO_MS) {
+      console.warn(`[Ciclo Operativo] [WATCHDOG] Tarea '${tareaActiva}' colgada ${Math.round(transcurrido / 60000)} min (tope 45): se libera el turno.`);
+      tareaActiva = null;
+      tareaActivaDesde = null;
+    } else {
+      return false;
+    }
+  }
   tareaActiva = tarea;
   tareaActivaDesde = Date.now();
   return true;

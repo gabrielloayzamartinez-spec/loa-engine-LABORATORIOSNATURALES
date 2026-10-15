@@ -866,7 +866,9 @@ app.get('/api/health', (req, res) => {
           ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA', 'EMPRESA'].map(s => [s, getRepartoCuota(s)])
         ),
         planDelDia: planDelDia(120000)
-      }
+      },
+      // [CICLO OPERATIVO] Qué tarea de nivel 2 tiene el turno ahora (serialización).
+      cicloOperativo: getCicloOperativo()
     },
     timestamp: new Date().toISOString()
   });
