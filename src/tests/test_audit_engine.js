@@ -7,7 +7,7 @@
  * 4. Inferencia geográfica desde teléfonos de USA.
  */
 
-import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, extractShippingData, isValidMetaAdId, isAdsetCandidate } from '../agents/nlp_symptom_engine.js';
+import { analyzeSymptoms, inferTreatmentFromCampaignOrUtm, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, extractShippingData, isValidMetaAdId, isAdsetCandidate, buildOrigenDeContacto } from '../agents/nlp_symptom_engine.js';
 import { buildAdHistoryNoteBody } from '../agents/chat_router_agent.js';
 import { learningBrain } from '../services/learning_brain.js';
 import { SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, getMetaConfigBySede, getActiveSedes, resolveSedeCustomFields, resolveSedePipeline } from '../config/index.js';
@@ -87,6 +87,24 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
         if (srcPikalex !== 'PALACIOS-CLICK2RING-FB-MSGR-Potencia') {
           throw new Error(`Fuente con PIKALEX debe normalizar a CLICK2RING: ${srcPikalex}`);
         }
+      }
+    },
+    {
+      name: 'Regla 4A2: Origen de contacto SEDE-PROVEEDOR-CANAL-PADECIMIENTO desde el CONJUNTO de anuncios',
+      run: () => {
+        const o = buildOrigenDeContacto({
+          pageId: '566501466542620',
+          pageName: 'Naturales BioNatural',
+          campaignName: 'ERNESTO PALACIOS',
+          adsetName: 'ARTRITIS - ERNESTO - 2pm a 9pm - 300',
+          channel: 'FB-MSGR'
+        });
+        if (o.sede !== 'PALACIOS') throw new Error(`sede ${o.sede}`);
+        if (o.proveedor !== 'ERNESTO') throw new Error(`proveedor ${o.proveedor}`);
+        if (o.padecimiento !== 'Artritis') throw new Error(`padecimiento ${o.padecimiento}`);
+        if (o.origen !== 'PALACIOS-ERNESTO-FB-MSGR-Artritis') throw new Error(`origen ${o.origen}`);
+        if (o.fuentes.padecimiento !== 'adset') throw new Error(`fuente padecimiento ${o.fuentes.padecimiento}`);
+        if (o.completo !== true) throw new Error('debe estar completo');
       }
     },
     {

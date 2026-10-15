@@ -491,6 +491,55 @@ export function buildVtigerSource({
 }
 
 /**
+ * [ARMADO DE ORIGEN DE CONTACTO — 15/10]
+ * Consolida la relación SEDE-PROVEEDOR-CANAL-PADECIMIENTO en UN solo punto de verdad.
+ * Cada componente se resuelve con su fuente de mayor prioridad y se devuelve la
+ * TRAZABILIDAD (de dónde salió cada parte), para poder auditar contactos incompletos.
+ *
+ * Prioridad del PADECIMIENTO:
+ *   1. Nombre del CONJUNTO de anuncios (adset)  ← la fuente real del anuncio
+ *   2. Tratamiento explícito ya resuelto
+ *   3. 'General' (sin padecimiento identificable)
+ */
+export function buildOrigenDeContacto({
+  pageId = '',
+  pageName = '',
+  campaignName = '',
+  adsetName = '',
+  adName = '',
+  channel = '',
+  treatment = ''
+}) {
+  const sede = resolveLeadSede({ pageId, pageName, campaignName });
+  const proveedor = resolveLeadProvider({ pageId, pageName, campaignName, adsetName, adName });
+  const canal = (channel || '').toUpperCase() || 'DESCONOCIDO';
+
+  const adsetTreatment = inferTreatmentFromCampaignOrUtm(adsetName);
+  const padecimiento = adsetTreatment
+    || (treatment && String(treatment).length > 2 ? String(treatment) : null)
+    || 'General';
+
+  const origen = `${sede}-${proveedor}-${canal}-${padecimiento}`;
+
+  return {
+    origen,
+    sede,
+    proveedor,
+    canal,
+    padecimiento,
+    fuentes: {
+      sede: pageId ? 'page-id' : (campaignName ? 'campana' : 'default'),
+      proveedor: (adsetName || adName) ? 'adset-anuncio' : (pageId ? 'page-id' : 'default'),
+      canal: canal === 'DESCONOCIDO' ? 'sin-evidencias' : 'transporte-evento',
+      padecimiento: adsetTreatment ? 'adset' : (treatment ? 'tratamiento' : 'general')
+    },
+    completo: Boolean(
+      sede !== 'PALACIOS' || true, // la sede siempre resuelve (con fallback)
+    ) && canal !== 'DESCONOCIDO' && padecimiento !== 'General'
+  };
+}
+
+/**
  * Valida si un valor corresponde a un identificador numérico de anuncio de Meta Ads.
  * Meta Ad IDs son secuencias numéricas de 8 a 25 dígitos (ej: 120226588408570607).
  * Rechaza cadenas de origen o texto como "PALACIOS-ERNESTO-FB-MSGR-Artritis", "N/A", etc.
