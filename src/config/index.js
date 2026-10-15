@@ -242,6 +242,18 @@ Object.defineProperty(PALACIOS_USERS, 'ultra', {
 });
 
 // ==========================================
+// 5B. MONITOR SMS — EXCLUSIVO DEL CANAL SMS
+// ==========================================
+// El único dueño del canal SMS. LOA Engine NO lo usa para META (Facebook/Instagram):
+// es la referencia del WORKFLOW NATIVO de GHL que reasigna al "MONITOR SMS" cuando
+// un cliente responde a un SMS. El motor no asigna ni toca SMS por sí mismo.
+export const MONITOR_SMS = {
+  id: 'WdGF34yWYow4SRUXoTnb',
+  name: 'MONITOR SMS',
+  canalExclusivo: 'SMS'
+};
+
+// ==========================================
 // 6. GATEWAY MULTI-SEDE ORCHESTRATOR
 // ==========================================
 export {
