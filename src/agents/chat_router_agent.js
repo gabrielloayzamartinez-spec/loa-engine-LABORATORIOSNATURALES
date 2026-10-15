@@ -187,6 +187,22 @@ let origenRuteoActual = 'desconocido';
 const ruteosPorOrigen = new Map();            // origen -> { count, primera, ultima }
 const contactosPorOrigen = new Map();         // origen -> Set(contactId)
 
+// [ANTI-BUCLE — 15/10] Cooldown para ruteos SIN mensaje nuevo. El backfill (nivel 2)
+// actualiza contactos en GHL y cada actualización dispara un webhook de "contacto
+// actualizado" que re-enrutaba el MISMO contacto en bucle (BUCLE_DE_REPROCESO: 141
+// contactos x 3+ en una hora). Con mensaje nuevo (mensajeMs > 0) NO aplica: eso es
+// una atención real de nivel 1 y siempre pasa.
+const ultimoRuteoSinMensaje = new Map();      // contactId -> ts del último ruteo sin mensaje
+const COOLDOWN_SIN_MENSAJE_MS = 5 * 60 * 1000;
+
+function cooldownRuteoSinMensaje(contactId) {
+  const ahora = Date.now();
+  const ultimo = ultimoRuteoSinMensaje.get(contactId) || 0;
+  if (ahora - ultimo < COOLDOWN_SIN_MENSAJE_MS) return true;
+  ultimoRuteoSinMensaje.set(contactId, ahora);
+  return false;
+}
+
 function contarRuteoDeContacto(contactId, origen = 'desconocido') {
   const ahora = Date.now();
   const reg = ruteosPorContacto.get(contactId);
@@ -348,6 +364,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const mensajeMsEntrante = Number(options.mensajeMs) || 0;
     if (!isDryRun && mensajeMsEntrante > 0 && yaAtendido(contactId, mensajeMsEntrante)) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
+      return 'UNCHANGED';
+    }
+    // [ANTI-BUCLE] Sin mensaje nuevo (webhook de "contacto actualizado" del backfill o
+    // sync): si este contacto ya se ruteó en los últimos 5 min, se omite. Evita que el
+    // nivel 2 dispare el ruteo de nivel 1 en bucle sobre los mismos contactos.
+    if (!isDryRun && mensajeMsEntrante === 0 && cooldownRuteoSinMensaje(contactId)) {
+      console.log(`[Agente 3] [ANTI-BUCLE] ${contactId} sin mensaje nuevo y recién ruteado (${origenRuteoActual}): se omite para no re-procesar.`);
       return 'UNCHANGED';
     }
 
