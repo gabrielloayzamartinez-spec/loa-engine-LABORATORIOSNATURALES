@@ -128,11 +128,15 @@ export function resolveChannelFromEvent({
   if (isForm || formId || /FORMULARIO|\bFORM\b/.test(c)) return 'FORM';
 
   // Metadatos explícitos del transporte (máxima prioridad)
-  if (/sms|twilio/.test(t) || /sms|twilio/.test(s)) return 'SMS';
-  if (/whatsapp|wsp/.test(t) || /whatsapp|wsp/.test(s) || /WHATSAPP|\bWSP\b/.test(c)) return 'WHATSAPP';
-  if (/email|mail/.test(t)) return 'EMAIL';
-  if (/instagram|\big\b/.test(t)) return 'IG-DM';
-  if (/facebook|messenger|\bfb\b/.test(t)) return 'FB-MSGR';
+  // [15/10] GHL usa `message_type` nativos: TYPE_SMS, TYPE_EMAIL, TYPE_FACEBOOK,
+  // TYPE_IG_DM, y TYPE_CUSTOM_PROVIDER para WhatsApp. Antes TYPE_CUSTOM_PROVIDER no
+  // se reconocía y el mensaje de WSP caía a DESCONOCIDO/FB-MSGR: se mezclaba con Meta
+  // y se le asignaba un dueño de REDES. Ahora se mapean los tipos nativos de GHL.
+  if (/sms|twilio|type_sms/.test(t) || /sms|twilio/.test(s)) return 'SMS';
+  if (/whatsapp|wsp|type_custom_provider|custom[-_ ]?provider|waba/.test(t) || /whatsapp|wsp|waba/.test(s) || /WHATSAPP|\bWSP\b/.test(c)) return 'WHATSAPP';
+  if (/email|mail|type_email/.test(t)) return 'EMAIL';
+  if (/instagram|ig[-_ ]?dm|type_ig/.test(t)) return 'IG-DM';
+  if (/facebook|messenger|\bfb\b|type_facebook/.test(t)) return 'FB-MSGR';
 
   // Sin transporte explícito: sólo es Messenger si hay evidencia real de Meta.
   if (hasMetaPage || /MESSENGER|FB-?MSGR/.test(c)) return 'FB-MSGR';

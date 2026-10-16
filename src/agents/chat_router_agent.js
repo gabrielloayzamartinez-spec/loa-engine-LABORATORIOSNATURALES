@@ -1,6 +1,6 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
 import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
-import { resolveChannelFromEvent, detectSystemMessage } from '../utils/system_message_filter.js';
+import { resolveChannelFromEvent, detectSystemMessage, esCanalPermitido } from '../utils/system_message_filter.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
@@ -570,7 +570,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // nativo de GHL. Hay que cortar AQUÍ, ANTES de fabricar fanpage y asignar dueño:
     // antes un SMS quedaba con fanpage INVENTADA y se le asignaba asesor por NOMBRE.
     const transportLimpio = String(latestMessageTransport || '').toLowerCase();
-    if (/sms|twilio|whatsapp|wsp|email|mail/.test(transportLimpio)) {
+    // [CANAL-NO-META] Reconoce los `message_type` nativos de GHL, incluido
+    // TYPE_CUSTOM_PROVIDER (WhatsApp) que antes no se detectaba y dejaba al WSP
+    // caer a FB-MSGR/REDES. El canal se corta AQUÍ, antes de asignar dueño.
+    if (/sms|twilio|whatsapp|wsp|type_custom_provider|custom[-_ ]?provider|waba|email|mail|type_email/.test(transportLimpio)) {
       console.log(`[Agente 3] [CANAL-NO-META] ${contactId} transporte '${latestMessageTransport}': lo gestiona el WF de GHL. Ruteo omitido (sin dueño ni etiquetas).`);
       return 'UNCHANGED';
     }
@@ -1124,15 +1127,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       hasMetaPage: hasRealFanpage
     });
 
-    // [DIRECTIVA — 14/10] LOA Engine SOLO opera contactos de FACEBOOK (Messenger o
-    // formulario de Lead Ads). Los transportes NO-Facebook (SMS/texto, WhatsApp,
-    // Email, Instagram DM) se gestionan por el WORKFLOW nativo de GHL: el router NO
-    // debe asignarles dueño ni etiquetarlos, porque eso rompía su workflow. Los
-    // contactos sin transporte (DESCONOCIDO, p.ej. compradores del backfill) SÍ se
-    // siguen procesando.
-    const CANALES_NO_FACEBOOK = ['SMS', 'WHATSAPP', 'EMAIL', 'IG-DM'];
-    if (CANALES_NO_FACEBOOK.includes(targetChannel)) {
-      console.log(`[Agente 3] [CANAL-NO-FACEBOOK] ${contactId} es ${targetChannel}: lo gestiona el workflow de GHL. Ruteo omitido (no se asigna dueño ni etiquetas).`);
+    // [REGLA DEFINITIVA — 15/10] El motor SOLO opera canales META: FACEBOOK (Messenger
+    // y formulario de Lead Ads) e INSTAGRAM (IG-DM). SMS, WhatsApp y Email los gestiona
+    // GHL nativamente (MONITOR SMS / workflows). Si el canal resuelto NO es META, se
+    // corta AQUÍ: no se asigna dueño ni etiquetas.
+    if (!esCanalPermitido(targetChannel)) {
+      console.log(`[Agente 3] [CANAL-NO-META] ${contactId} es ${targetChannel}: lo gestiona GHL (workflow nativo). Ruteo omitido (no se asigna dueño ni etiquetas).`);
       return 'UNCHANGED';
     }
 
