@@ -24,13 +24,14 @@ const HEADERS_CONV = {
 
 const PIPELINES_CACHE_FILE = path.join(process.cwd(), 'src', 'config', 'pipelines_cache.json');
 
-// Cargar IDs de pipeline cacheados o usar constantes seguras
-let AUDIT_PIPELINE_ID = 'UuLt1X7copaVFO50wIfU';
-let STAGE_X1_ID = '1508276b-2f3b-4827-956a-a9f646baba97';
-let STAGE_X2_ID = '1ef02601-a1f4-4125-8a3b-69fb2daf93bb';
-let STAGE_X3_ID = 'ca77226a-08c2-4e01-86c8-d71771a843f8';
-let STAGE_X4_ID = '9b617a07-a418-4770-bede-81f8ec732b03';
-let STAGE_SPAM_ID = '6a901cbc-92af-4cb6-a590-626b9f72e7b0';
+// Cargar IDs de pipeline cacheados o usar la FUENTE ÚNICA (routing_tables.js)
+import { AUDIT_PIPELINE } from '../config/routing_tables.js';
+let AUDIT_PIPELINE_ID = AUDIT_PIPELINE.pipelineId;
+let STAGE_X1_ID = AUDIT_PIPELINE.stageX1Id;
+let STAGE_X2_ID = AUDIT_PIPELINE.stageX2Id;
+let STAGE_X3_ID = AUDIT_PIPELINE.stageX3Id;
+let STAGE_X4_ID = AUDIT_PIPELINE.stageX4Id;
+let STAGE_SPAM_ID = AUDIT_PIPELINE.stageSpamId;
 
 try {
   if (fs.existsSync(PIPELINES_CACHE_FILE)) {
