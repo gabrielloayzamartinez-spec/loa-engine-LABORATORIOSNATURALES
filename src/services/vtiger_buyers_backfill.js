@@ -493,28 +493,30 @@ export async function runBuyersBackfill({
       const deadlineCiclo = Date.now() + MAX_CICLO_MS;
 
       const procesarUno = async (vContact) => {
-        let temporizador = null;
-        try {
-          const r = await Promise.race([
-            syncVtigerContactDual(vContact),
-            new Promise((resolve) => {
-              temporizador = setTimeout(
-                () => resolve({ __timeout: true }),
-                TIMEOUT_CONTACTO_MS
-              );
-            })
-          ]);
-          if (r && r.__timeout) {
-            recordAuditEvent({ type: 'BUYERS_BACKFILL_CONTACT_TIMEOUT', severity: 'warn', sede, vTigerId: vContact?.id, timeoutMs: TIMEOUT_CONTACTO_MS });
-            return { ok: false, skipped: false, created: false, fallido: true };
-          }
-          return { ok: r.ok, skipped: r.skipped, created: r.created, fallido: false };
-        } catch (err) {
-          recordAuditEvent({ type: 'BUYERS_BACKFILL_CONTACT_FAIL', severity: 'warn', sede, vTigerId: vContact?.id, message: err.message });
-          return { ok: false, skipped: false, created: false, fallido: true };
-        } finally {
-          if (temporizador) clearTimeout(temporizador);
+        // [REINTENTO DEL TIMEOUT — 16/10] Antes un contacto que daba timeout se
+        // marcaba 'fallido' de una vez y el cursor lo saltaba: dependía del refill
+        // volver a sincronizarlo. Ahora se reintenta UNA vez (vTiger puede estar
+        // saturado de forma transitoria). Si vuelve a fallar, queda 'fallido'.
+        const syncConTimeout = () => new Promise((resolve) => {
+          const t = setTimeout(() => resolve({ __timeout: true }), TIMEOUT_CONTACTO_MS);
+          syncVtigerContactDual(vContact)
+            .then(r => { clearTimeout(t); resolve(r); })
+            .catch(err => { clearTimeout(t); resolve({ __error: err }); });
+        });
+
+        let r = await syncConTimeout();
+        if (r && r.__timeout) {
+          r = await syncConTimeout(); // reintento único
         }
+        if (r && r.__timeout) {
+          recordAuditEvent({ type: 'BUYERS_BACKFILL_CONTACT_TIMEOUT', severity: 'warn', sede, vTigerId: vContact?.id, timeoutMs: TIMEOUT_CONTACTO_MS });
+          return { ok: false, skipped: false, created: false, fallido: true };
+        }
+        if (r && r.__error) {
+          recordAuditEvent({ type: 'BUYERS_BACKFILL_CONTACT_FAIL', severity: 'warn', sede, vTigerId: vContact?.id, message: r.__error.message });
+          return { ok: false, skipped: false, created: false, fallido: true };
+        }
+        return { ok: r.ok, skipped: r.skipped, created: r.created, fallido: false };
       };
 
       let procesadosLote = 0;
