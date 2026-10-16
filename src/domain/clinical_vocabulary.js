@@ -85,6 +85,7 @@ export const TREATMENT_ALIASES = {
   'artritis': 'Artritis', 'artrosis': 'Artritis', 'articulaciones': 'Artritis',
   'articulacion': 'Artritis', 'reuma': 'Artritis', 'reumatismo': 'Artritis',
   'rodilla': 'Artritis', 'rodillas': 'Artritis', 'cartilago': 'Artritis',
+  'hueso': 'Artritis', 'huesos': 'Artritis', 'crujido': 'Artritis', 'crujidos': 'Artritis', 'crujen': 'Artritis',
   // Diabetes
   'diabetes': 'Diabetes', 'diabet': 'Diabetes', 'glucosa': 'Diabetes', 'azucar': 'Diabetes',
   'nopal': 'Diabetes', 'nopal plus': 'Diabetes', 'insulina': 'Diabetes',
@@ -95,6 +96,9 @@ export const TREATMENT_ALIASES = {
   'vigor': 'Potencia', 'sexual': 'Potencia', 'libido': 'Potencia',
   'energia masculina': 'Potencia', 'poder interior': 'Potencia', 'texto men': 'Potencia',
   'ereccion': 'Potencia', 'disfuncion': 'Potencia',
+  'masculin': 'Potencia', 'fuerza intima': 'Potencia', 'textomen': 'Potencia',
+  'testo': 'Potencia', 'pajarito': 'Potencia', 'ponga duro': 'Potencia',
+  'se me para': 'Potencia', 'no se me para': 'Potencia', 'se pare': 'Potencia',
   // Colageno
   'colageno': 'Colageno', 'colagen': 'Colageno', 'collagen': 'Colageno',
   'bio collagen': 'Colageno', 'piel': 'Colageno', 'arrugas': 'Colageno',
