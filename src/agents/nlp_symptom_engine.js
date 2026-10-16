@@ -114,6 +114,14 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
     }
   }
 
+  // [16/10] Fuente canónica (TREATMENT_ALIASES) también puntúa: antes el chat solo
+  // usaba SYMPTOM_DICTIONARY (lista aparte) y un padecimiento reconocido por el adset
+  // podía NO reconocerse en el chat. 750 = entre síntoma (500) y título directo (1000).
+  const canonicoChat = normalizeTreatment(text) || inferTreatmentFromCampaignOrUtm(campaignName) || inferTreatmentFromCampaignOrUtm(utmMedium);
+  if (canonicoChat && canonicoChat !== UNKNOWN_TREATMENT && scores[canonicoChat] !== undefined) {
+    scores[canonicoChat] += 750;
+  }
+
   // Filtrar tratamientos con puntuación > 0 y ordenar de mayor a menor
   const sortedTreatments = Object.entries(scores)
     .filter(([, score]) => score > 0)
@@ -329,8 +337,9 @@ export function resolveLeadSede({ pageId = '', pageName = '', campaignName = '' 
   if (sedePorPageId) return sedePorPageId;
 
   // 3. Fallback por Nombre de Fanpage
+  // (BENAVIDES_2 no es sede válida: todo lo de Benavides es 'BENAVIDES')
   if (pUpper.includes('BENAVIDES 2') || pUpper.includes('BENAVIDES_2')) {
-    return 'BENAVIDES_2';
+    return 'BENAVIDES';
   }
   if (pUpper.includes('BENAVIDES') || pUpper.includes('CORP') || pUpper.includes('FUERZA')) {
     return 'BENAVIDES';
