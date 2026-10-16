@@ -5,7 +5,7 @@ import { getOwnerKeyByPageId } from '../config/page_matrix.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
-import { analyzeSymptoms, extractShippingData, buildVtigerSource, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
+import { analyzeSymptoms, extractShippingData, buildVtigerSource, buildOrigenDeContacto, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
 import { extraerAdIdDeMensaje, extraerAdIdDeMensajes, extraerPageIdDeMensaje, resolverAdId } from '../services/ad_id_resolver.js';
 import { yaAtendido, marcarAtendido } from '../services/lead_activity_memory.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
@@ -1079,14 +1079,22 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       return 'UNCHANGED';
     }
 
-    const vtigerSource = buildVtigerSource({
-      sedeName: targetPageName,
-      campaignName: latestCampaign || targetAdName,
+    // [ARMADO DE ORIGEN DE CONTACTO — fuente única con trazabilidad]
+    // (buildOrigenDeContacto consolida SEDE-PROVEEDOR-CANAL-PADECIMIENTO y devuelve
+    //  la trazabilidad de cada componente + el flag 'completo'.)
+    const origenContacto = buildOrigenDeContacto({
       pageId: targetPageId,
-      provider: targetProvider,
+      pageName: targetPageName,
+      campaignName: latestCampaign || targetAdName,
+      adsetName: latestAdSetName,
+      adName: targetAdName,
       channel: targetChannel,
       treatment: targetTratamiento || 'General'
     });
+    const vtigerSource = origenContacto.origen;
+    if (!origenContacto.completo) {
+      console.log(`[Agente 3] [ORIGEN-INCOMPLETO] ${contactId} origen '${vtigerSource}' incompleto (fuentes: ${JSON.stringify(origenContacto.fuentes)}).`);
+    }
 
  // E. ETIQUETADO INTELIGENTE Y MULTI-CONDICIÓN
     const tagsToRemove = [];
