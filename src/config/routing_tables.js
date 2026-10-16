@@ -126,3 +126,17 @@ export const SEDE_CUSTOM_FIELDS = {
 // CANAL DE ORIGEN → ETIQUETA COMERCIAL
 // ------------------------------------------------------------------------------
 export const ORIGEN_LEAD_OPTIONS = ['vTiger_Antiguo', 'Messenger_Nuevo', 'WhatsApp_Nuevo'];
+
+// ------------------------------------------------------------------------------
+// PIPELINE DE AUDITORÍA MULTI-TOUCH — FUENTE ÚNICA
+// (antes duplicado en ad_attribution_engine.js y master_processor.js, y el segundo
+//  no tenía STAGE_SPAM)
+// ------------------------------------------------------------------------------
+export const AUDIT_PIPELINE = {
+  pipelineId: 'UuLt1X7copaVFO50wIfU',
+  stageX1Id: '1508276b-2f3b-4827-956a-a9f646baba97',
+  stageX2Id: '1ef02601-a1f4-4125-8a3b-69fb2daf93bb',
+  stageX3Id: 'ca77226a-08c2-4e01-86c8-d71771a843f8',
+  stageX4Id: '9b617a07-a418-4770-bede-81f8ec732b03',
+  stageSpamId: '6a901cbc-92af-4cb6-a590-626b9f72e7b0'
+};

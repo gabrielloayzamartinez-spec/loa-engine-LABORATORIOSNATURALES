@@ -1,4 +1,5 @@
 import { GHL_CONFIG, PAGE_TAG_MAP, PALACIOS_USERS, FB_PAGE_ID_MAP } from '../config/index.js';
+import { AUDIT_PIPELINE } from '../config/routing_tables.js';
 import { excludeLeadFromMetaAds, sendMetaConversionEvent, getMetaAdDetails } from '../services/meta_api_service.js';
 import { inferTreatmentFromCampaignOrUtm, analyzeSymptoms } from './nlp_symptom_engine.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
@@ -32,12 +33,13 @@ const MASTER_PIPELINE_ID = 'yDWAU0AGW3QiivEz4VJg';
 const MASTER_STAGE_PRECALIFICADO_ID = '29293e88-d26e-4095-bde9-d40aa0cf1024';
 const MASTER_STAGE_CALIFICADO_ID = '5e7d5fb0-0a71-46df-aa42-912fe0b487f1';
 
-let AUDIT_PIPELINE_ID = 'UuLt1X7copaVFO50wIfU';
+let AUDIT_PIPELINE_ID = AUDIT_PIPELINE.pipelineId;
 let STAGE_INTAKE_ID = 'd53708d8-3f95-486c-9f2f-a1425ce67874';
-let STAGE_X1_ID = '1508276b-2f3b-4827-956a-a9f646baba97';
-let STAGE_X2_ID = '1ef02601-a1f4-4125-8a3b-69fb2daf93bb';
-let STAGE_X3_ID = 'ca77226a-08c2-4e01-86c8-d71771a843f8';
-let STAGE_X4_ID = '9b617a07-a418-4770-bede-81f8ec732b03';
+let STAGE_X1_ID = AUDIT_PIPELINE.stageX1Id;
+let STAGE_X2_ID = AUDIT_PIPELINE.stageX2Id;
+let STAGE_X3_ID = AUDIT_PIPELINE.stageX3Id;
+let STAGE_X4_ID = AUDIT_PIPELINE.stageX4Id;
+let STAGE_SPAM_ID = AUDIT_PIPELINE.stageSpamId;
 
 const PIPELINES_CACHE_FILE = path.join(process.cwd(), 'src', 'config', 'pipelines_cache.json');
 try {
