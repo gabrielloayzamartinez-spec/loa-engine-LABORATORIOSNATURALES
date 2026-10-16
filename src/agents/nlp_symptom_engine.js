@@ -1,6 +1,7 @@
 import { learningBrain } from '../services/learning_brain.js';
 import { resolveChannelFromEvent } from '../utils/system_message_filter.js';
 import { normalizeTreatment, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
+import { getSedeByPageId, getProveedorByPageId } from '../config/page_matrix.js';
 
 /**
  * NLP Symptom Engine & Entity Extractor (Laboratorios Naturales)
@@ -322,36 +323,10 @@ export function resolveLeadSede({ pageId = '', pageName = '', campaignName = '' 
     return 'PALACIOS';
   }
 
-  // 2. Mapeo Oficial por Page ID de Fanpage
-  // BENAVIDES (Matriz Confirmada):
-  // - "Bio Natural" (126154270581792)
-  // - "Naturales Bio Corp" (510617778807469)
-  // - "BioNatural Fuerza" (1147742788423762)
-  if (pId === '126154270581792' || pId === '510617778807469' || pId === '1147742788423762') {
-    return 'BENAVIDES';
-  }
-
-  // PALACIOS:
-  // - "BioNatural - Ultra" (111906554968800)
-  // - "Naturales BioNatural" (566501466542620)
-  // - "Laboratorios Naturales BIO" (718150351371765)
-  if (pId === '111906554968800' || pId === '566501466542620' || pId === '718150351371765') {
-    return 'PALACIOS';
-  }
-
-  // ROOSEVELT:
-  // - "Bio Naturales" (568453466348355)
-  // - "BioNatural Plus" (1075001465705985)
-  if (pId === '568453466348355' || pId === '1075001465705985') {
-    return 'ROOSEVELT';
-  }
-
-  // PIURA:
-  // - "Natural Bio" (1147257965133802)
-  // - "BioNatural" (1057863707412893)
-  if (pId === '1147257965133802' || pId === '1057863707412893') {
-    return 'PIURA';
-  }
+  // 2. Mapeo Oficial por Page ID de Fanpage (FUENTE ÚNICA: page_matrix.js)
+  // Antes los 10 page ids estaban hardcodeados aquí y en 4 archivos más.
+  const sedePorPageId = getSedeByPageId(pId);
+  if (sedePorPageId) return sedePorPageId;
 
   // 3. Fallback por Nombre de Fanpage
   if (pUpper.includes('BENAVIDES 2') || pUpper.includes('BENAVIDES_2')) {
@@ -426,37 +401,19 @@ export function resolveLeadProvider({
     return 'DIURNAY';
   }
 
-  // 2. Mapeo Oficial por FANPAGE (Inmutable por Propiedad de Página)
-  // PALACIOS:
-  // - "BioNatural - Ultra" (111906554968800): ¡TODO lo de Ultra es CLICK2RING!
-  if (cleanPageId === '111906554968800' || cleanPageName.includes('ULTRA')) {
-    return 'CLICK2RING';
-  }
-  // - "Naturales BioNatural" (566501466542620): ERNESTO
-  if (cleanPageId === '566501466542620' || cleanPageName.includes('NATURALES BIONATURAL')) {
-    return 'ERNESTO';
-  }
-  // - "Laboratorios Naturales BIO" (718150351371765): IN_HOUSE
-  if (cleanPageId === '718150351371765' || cleanPageName.includes('LABORATORIOS NATURALES BIO')) {
-    return 'IN_HOUSE';
-  }
+  // 2. Mapeo Oficial por FANPAGE (FUENTE ÚNICA: page_matrix.js)
+  const provPorPageId = getProveedorByPageId(cleanPageId);
+  if (provPorPageId) return provPorPageId;
 
-  // BENAVIDES:
-  // - "Bio Natural" (126154270581792): CLICK2RING
-  if (cleanPageId === '126154270581792' || cleanPageName === 'BIO NATURAL' || cleanPageName.includes('NATURAL BIO BENAVIDES') || cleanPageName.includes('BIO NATURAL BENAVIDES')) {
-    return 'CLICK2RING';
-  }
-  // - "Naturales Bio Corp" (510617778807469): ERNESTO
-  if (cleanPageId === '510617778807469' || cleanPageName.includes('BIO CORP')) {
-    return 'ERNESTO';
-  }
-  // - "BioNatural Fuerza" (1147742788423762): REDES 2 BENAVIDES (confirmado por el
-  //   coordinador el 16/10; antes estaba IN_HOUSE).
-  if (cleanPageId === '1147742788423762' || cleanPageName.includes('FUERZA')) {
-    return 'REDES 2 BENAVIDES';
-  }
+  // 3. Fallback por NOMBRE de fanpage (solo cuando no hay page id mapeado)
+  if (cleanPageName.includes('ULTRA')) return 'CLICK2RING';
+  if (cleanPageName.includes('NATURALES BIONATURAL')) return 'ERNESTO';
+  if (cleanPageName.includes('LABORATORIOS NATURALES BIO')) return 'IN_HOUSE';
+  if (cleanPageName === 'BIO NATURAL' || cleanPageName.includes('NATURAL BIO BENAVIDES') || cleanPageName.includes('BIO NATURAL BENAVIDES')) return 'CLICK2RING';
+  if (cleanPageName.includes('BIO CORP')) return 'ERNESTO';
+  if (cleanPageName.includes('FUERZA')) return 'REDES 2 BENAVIDES';
 
-  // 3. Fallback solo para tráfico no clasificado sin fanpage mapeada
+  // 4. Fallback solo para tráfico no clasificado sin fanpage mapeada
   return isPaidAd ? 'CLICK2RING' : 'IN_HOUSE';
 }
 
