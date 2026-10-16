@@ -328,11 +328,11 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
           throw new Error(`Naturales Bio Corp debe ser BENAVIDES-ERNESTO, recibido: ${p2Sede}-${p2Prov}`);
         }
 
-        // BioNatural Fuerza (1147742788423762) -> IN_HOUSE
+        // BioNatural Fuerza (1147742788423762) -> REDES 2 BENAVIDES (confirmado 16/10)
         const p3Prov = resolveLeadProvider({ pageId: '1147742788423762', pageName: 'BioNatural Fuerza' });
         const p3Sede = resolveLeadSede({ pageId: '1147742788423762', pageName: 'BioNatural Fuerza' });
-        if (p3Prov !== 'IN_HOUSE' || p3Sede !== 'BENAVIDES') {
-          throw new Error(`BioNatural Fuerza debe ser BENAVIDES-IN_HOUSE, recibido: ${p3Sede}-${p3Prov}`);
+        if (p3Prov !== 'REDES 2 BENAVIDES' || p3Sede !== 'BENAVIDES') {
+          throw new Error(`BioNatural Fuerza debe ser BENAVIDES-REDES 2, recibido: ${p3Sede}-${p3Prov}`);
         }
 
         // 2. Verificación a Nivel Nombre de Campaña (Image 2)
