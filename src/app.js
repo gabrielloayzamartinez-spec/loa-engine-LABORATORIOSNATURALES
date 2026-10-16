@@ -3434,7 +3434,11 @@ export function registerBackgroundSchedulers() {
   let buyersBackfillTopeCicloMs = 90 * 60 * 1000;
 
   timers.push(setInterval(() => {
-    if (!tomarTurno('backfill-compradores')) return; // nivel 2 secuencial
+    // [15/10] El backfill YA NO comparte el turno del nivel 2: order-history (cada 15
+    // min, ciclo de varios minutos) y sales-bridge lo MONOPOLIZABAN y dejaban al
+    // backfill sin turno durante horas (estancado sin vTiger roto). El backfill tiene
+    // su propia guarda (buyersBackfillCorriendo) + watchdog + cuota, y el gate de
+    // vTiger (3 concurrentes) es el único recurso que se reparte solo entre todos.
     if (buyersBackfillCorriendo) {
       const transcurrido = Date.now() - buyersBackfillIniciadoEn;
       if (transcurrido > buyersBackfillTopeCicloMs) {
@@ -3493,7 +3497,7 @@ export function registerBackgroundSchedulers() {
         return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia, sedes: sedesDelCiclo });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
-      .finally(() => { buyersBackfillCorriendo = false; liberarTurno('backfill-compradores'); });
+      .finally(() => { buyersBackfillCorriendo = false; });
   }, 10 * 60 * 1000));
 
   // ==========================================================================
