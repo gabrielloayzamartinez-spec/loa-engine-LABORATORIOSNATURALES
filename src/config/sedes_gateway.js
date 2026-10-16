@@ -3,6 +3,7 @@ dotenv.config();
 
 import { readSecret, hasSecret, envList } from './secrets.js';
 import { SEDE_PIPELINES, SEDE_CUSTOM_FIELDS } from './routing_tables.js';
+import { getSedeByPageId } from './page_matrix.js';
 
 /**
  * ==============================================================================
@@ -208,12 +209,11 @@ export function resolveSedeContext({ locationId = '', pageId = '', sede = '' } =
     }
   }
 
-  // 2. Por Page ID de Facebook
+  // 2. Por Page ID de Facebook (FUENTE ÚNICA: page_matrix.js)
   if (pageId) {
-    for (const conf of Object.values(SEDES_GATEWAY)) {
-      if (conf.pageIds.includes(String(pageId))) {
-        return conf;
-      }
+    const sedeId = getSedeByPageId(pageId);
+    if (sedeId && SEDES_GATEWAY[sedeId]) {
+      return SEDES_GATEWAY[sedeId];
     }
     // [FAIL-CLOSED] Un pageId que no pertenece a ninguna sede NO debe caer por
     // accidente en PALACIOS. En modo estricto se rechaza (UNRESOLVED): un chat de
