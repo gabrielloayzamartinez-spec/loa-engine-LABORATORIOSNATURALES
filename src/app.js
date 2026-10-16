@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { GHL_CONFIG, META_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, getGhlHeaders, getActiveSedes } from './config/index.js';
-import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo, factorDeRitmoDeFondo, getPresupuestoFondo, restaurarPresupuestoFondo, exportarPresupuestoFondo, getRepartoCuota } from './utils/ghl_http_client.js';
+import { ghlFetch, GHL_HEADERS, getRateLimiterStatus, getConsumoPorServicio, getGhlRateState, hayCuotaRealDeFondo, factorDeRitmoDeFondo, getPresupuestoFondo, restaurarPresupuestoFondo, exportarPresupuestoFondo, getRepartoCuota, PRESUPUESTO_FONDO_DIARIO } from './utils/ghl_http_client.js';
 import { planDelDia, horaLima, franjaDeHora } from './config/quota_curve.js';
 import { processMasterContact } from './agents/master_processor.js';
 import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_auditor_healer.js';
@@ -22,7 +22,7 @@ import { runForwardCure, runBackwardCure, getBiCuratorMetrics } from './services
 import { envInt } from './config/secrets.js';
 import { sanitizeContactPayload, sanitizeObject, sanitizeString, sanitizePhone, sanitizeEmail, sanitizeId, detectInjectionPatterns } from './utils/sanitize.js';
 import { recordAuditEvent, getAuditMetrics, readAuditEvents } from './services/audit_logger.js';
-import { getVtigerConfigStatus, getVtigerGateMetrics, getVtigerCircuit } from './services/vtigerClient.js';
+import { getVtigerConfigStatus, getVtigerGateMetrics, getVtigerCircuit, VTIGER_SEDES_VALIDAS } from './services/vtigerClient.js';
 import { readSecret } from './config/secrets.js';
 import { isCentralConfigured } from './services/dual_sync_service.js';
 import { verificarCredencialEmpresa } from './services/dual_sync_service.js';
@@ -912,9 +912,9 @@ app.get('/api/health', (req, res) => {
         hora: horaLima(),
         franja: franjaDeHora(horaLima()),
         porSede: Object.fromEntries(
-          ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA', 'EMPRESA'].map(s => [s, getRepartoCuota(s)])
+          [...VTIGER_SEDES_VALIDAS, 'EMPRESA'].map(s => [s, getRepartoCuota(s)])
         ),
-        planDelDia: planDelDia(120000)
+        planDelDia: planDelDia(PRESUPUESTO_FONDO_DIARIO)
       },
       // [CICLO OPERATIVO] Qué tarea de nivel 2 tiene el turno ahora (serialización).
       cicloOperativo: getCicloOperativo()
@@ -1755,7 +1755,7 @@ app.post('/api/vtiger/buyers-backfill', async (req, res) => {
     // repartir el ancho de banda entre 4 y sin disparar 4 lotes en paralelo).
     const sedesPedidas = String(req.query.sedes || req.body?.sedes || '')
       .toUpperCase().split(',').map(s => s.trim())
-      .filter(s => ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'].includes(s));
+      .filter(s => VTIGER_SEDES_VALIDAS.includes(s));
     const sedes = sedesPedidas.length ? sedesPedidas : undefined;
     res.json({ success: true, message: `Backfill de compradores iniciado (${lotes} lote(s) de ${lote}${sedes ? ` en ${sedes.join(', ')}` : ''}). Consulta /api/vtiger/buyers-backfill/status.` });
     setImmediate(() => {
@@ -1925,7 +1925,7 @@ app.post('/api/vtiger/buyers-backfill/reanudar', async (req, res) => {
   try {
     const sede = String(req.query.sede || '').toUpperCase();
     const objetivo = (sede === '' || sede === 'TODAS' || sede === 'ALL')
-      ? ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA']
+      ? [...VTIGER_SEDES_VALIDAS]
       : sede.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
     // 1) Desatascar flags falsos (un lote vacio transitorio no debe bloquear).
     const desatascadas = await desatascarBackfill(objetivo);
@@ -2080,7 +2080,7 @@ app.post('/api/sedes/crear-campos-atribucion', async (req, res) => {
   try {
     const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
     const sedesDestino = (sede === 'TODAS' || sede === 'ALL')
-      ? ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA', 'EMPRESA']
+      ? [...VTIGER_SEDES_VALIDAS, 'EMPRESA']
       : [sede];
     const resultado = {};
     for (const sId of sedesDestino) {
@@ -3229,7 +3229,7 @@ export function registerBackgroundSchedulers() {
     const sedesActivas = getActiveSedes().filter(s => !s.isPaused).map(s => s.sedeId);
     if (sedesActivas.length === 0) { liberarTurno('refill-comercial'); return; }
     // Prioridad Palacios (la regla de negocio), luego el resto.
-    const orden = ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'].filter(s => sedesActivas.includes(s));
+    const orden = VTIGER_SEDES_VALIDAS.filter(s => sedesActivas.includes(s));
     const sedeDelTurno = orden[0] || sedesActivas[0];
     refillComercial({ sede: sedeDelTurno, lote: 20, lotes: 1, ejecutar: true })
       .then(r => {
@@ -3493,7 +3493,7 @@ export function registerBackgroundSchedulers() {
         // su bloque y respetando su propia cuota: runBuyersBackfill filtra internamente
         // las que no tienen cupo. El gate de vTiger (3 concurrentes) es el ÚNICO
         // recurso compartido y se reparte solo entre las sedes activas.
-        const sedesDelCiclo = ['PALACIOS', 'BENAVIDES', 'ROOSEVELT', 'PIURA'];
+        const sedesDelCiclo = [...VTIGER_SEDES_VALIDAS];
         return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia, sedes: sedesDelCiclo });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))

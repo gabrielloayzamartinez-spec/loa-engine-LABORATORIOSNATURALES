@@ -206,7 +206,7 @@ export function factorDeRitmoDeFondo(subaccount = 'GENERAL') {
  * El trabajo EN VIVO no se cuenta ni se limita: siempre pasa.
  * ==============================================================================
  */
-const PRESUPUESTO_FONDO_DIARIO = Math.min(Math.max(parseInt(process.env.GHL_PRESUPUESTO_FONDO_DIARIO || '120000', 10) || 120000, 0), 200000);
+export const PRESUPUESTO_FONDO_DIARIO = Math.min(Math.max(parseInt(process.env.GHL_PRESUPUESTO_FONDO_DIARIO || '120000', 10) || 120000, 0), 200000);
 /** Fecha (día de Lima, UTC-5 sin horario de verano) en formato YYYY-MM-DD. */
 function diaLima() {
   return new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10);
