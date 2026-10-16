@@ -1,6 +1,7 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
 import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
 import { resolveChannelFromEvent, detectSystemMessage, esCanalPermitido } from '../utils/system_message_filter.js';
+import { getOwnerKeyByPageId } from '../config/page_matrix.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
@@ -627,88 +628,30 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     const resolvedSede = resolveSedeContext({ pageId: targetPageId, sede: currentSedeName, locationId: activeLocationId });
     if (resolvedSede && resolvedSede.users) {
-      if (resolvedSede.sedeId === 'BENAVIDES') {
-        // ================================================================
-        // [REGLA ESTRICTA DE PROPIETARIO — BENAVIDES]
-        //   Naturales Bio Corp (510617778807469)                     -> REDES 1
-        //   Bio Natural (126154270581792) / BioNatural Fuerza (…8423762) -> REDES 2
-        //
-        // MISMO DEFECTO QUE PALACIOS: el `else` atrapaba todo lo que no fuera
-        // "corp", asi que un lead sin evidencia de fanpage caia en REDES 2 sin
-        // dejar rastro. Ahora se evalua la evidencia REAL y se marca la revision.
-        // ================================================================
-        const esCorp = targetPageId === '510617778807469';
-        const esRedes2 = targetPageId === '126154270581792'
-          || targetPageId === '1147742788423762';
+      // [REGLA ESTRICTA DE PROPIETARIO — FUENTE ÚNICA (page_matrix.js)]
+      // La asignación es por PAGE ID (condición exacta), NUNCA por nombre de fanpage.
+      // El dueño se resuelve desde PAGE_MATRIX.ownerKey y se busca en users de la sede.
+      const ownerKey = getOwnerKeyByPageId(targetPageId);
+      const ownerUser = ownerKey ? resolvedSede.users[ownerKey] : null;
 
-        if (esCorp) {
-          targetAdvisorId = resolvedSede.users.redes1.id;
-          targetAdvisorName = resolvedSede.users.redes1.name;
+      if (ownerUser) {
+        targetAdvisorId = ownerUser.id;
+        targetAdvisorName = ownerUser.name;
+      } else {
+        // Fallback por continuidad operativa: dueño por defecto de la sede, PERO se
+        // marca "revisar-ruteo" para no asignar en silencio a un contacto sin fanpage.
+        const defaultKey = resolvedSede.sedeId === 'PALACIOS' ? 'ernesto'
+          : resolvedSede.sedeId === 'BENAVIDES' ? 'redes2'
+          : 'redes';
+        const defUser = resolvedSede.users[defaultKey];
+        if (defUser) {
+          targetAdvisorId = defUser.id;
+          targetAdvisorName = defUser.name;
+        }
+        if (!hasRealFanpage) {
+          routingReviewReason = 'sin evidencia de fanpage de Meta';
         } else {
-          targetAdvisorId = resolvedSede.users.redes2.id;
-          targetAdvisorName = resolvedSede.users.redes2.name;
-          if (!hasRealFanpage) {
-            routingReviewReason = 'sin evidencia de fanpage de Meta';
-          } else if (!esRedes2) {
-            routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
-          }
-        }
-      } else if (resolvedSede.sedeId === 'PALACIOS') {
-        // ================================================================
-        // [REGLA ESTRICTA DE PROPIETARIO — PALACIOS]
-        //   CLICK2RING (REDES 2):
-        //     - BioNatural - Ultra (111906554968800)
-        //   ERNESTO (REDES 1):
-        //     - Naturales BioNatural (566501466542620)
-        //     - Laboratorios Naturales BIO (718150351371765) — formularios
-        //
-        // [CAMBIO DE DESIGNACION] "Laboratorios Naturales BIO" estaba en CLICK2RING
-        // y por decision del negocio paso a REDES 1 ERNESTO. Se movio la evidencia
-        // (page id y nombre) de un grupo al otro: no se agrego logica nueva.
-        //
-        // DEFECTO ANTERIOR: el `else` asignaba ERNESTO a CUALQUIER cosa que no
-        // fuera ULTRA, incluso cuando la pagina NO se pudo confirmar (mensaje sin
-        // metadatos de Meta, SMS, formulario). Asi un lead de ULTRA sin evidencia
-        // terminaba en ERNESTO y sin dejar rastro. Ahora se evalua la evidencia
-        // REAL y, si la pagina no esta mapeada o no hay evidencia, se mantiene la
-        // continuidad operativa (ERNESTO) PERO se marca "revisar-ruteo".
-        // ================================================================
-        // [DIRECTIVA — 14/10] La asignación es por PAGE ID (condición exacta), NUNCA
-        // por coincidencia de NOMBRE de fanpage: el nombre mezclaba leads entre
-        // dueños ("ultra"/"bionatural" por subcadena).
-        const esClick2Ring = targetPageId === '111906554968800';
-        const esErnesto = targetPageId === '566501466542620'
-          || targetPageId === '718150351371765';
-
-        if (esClick2Ring) {
-          targetAdvisorId = resolvedSede.users.ultra.id;
-          targetAdvisorName = resolvedSede.users.ultra.name;
-        } else {
-          targetAdvisorId = resolvedSede.users.ernesto.id;
-          targetAdvisorName = resolvedSede.users.ernesto.name;
-          if (!hasRealFanpage) {
-            routingReviewReason = 'sin evidencia de fanpage de Meta';
-          } else if (!esErnesto) {
-            routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
-          }
-        }
-      } else if (resolvedSede.sedeId === 'ROOSEVELT') {
-        // [REGLA ESTRICTA DE PROPIETARIO — ROOSEVELT]
-        // Una sola REDES para las dos páginas de META. Asignación por PAGE ID
-        // (exacto), nunca por nombre. Sin evidencia de fanpage → revisar-ruteo.
-        if (resolvedSede.users.redes?.id) {
-          targetAdvisorId = resolvedSede.users.redes.id;
-          targetAdvisorName = resolvedSede.users.redes.name;
-          if (!hasRealFanpage) routingReviewReason = 'sin evidencia de fanpage de Meta';
-        }
-      } else if (resolvedSede.sedeId === 'PIURA') {
-        // [REGLA ESTRICTA DE PROPIETARIO — PIURA]
-        // Una sola REDES para las dos páginas de META. Asignación por PAGE ID
-        // (exacto), nunca por nombre. Sin evidencia de fanpage → revisar-ruteo.
-        if (resolvedSede.users.redes?.id) {
-          targetAdvisorId = resolvedSede.users.redes.id;
-          targetAdvisorName = resolvedSede.users.redes.name;
-          if (!hasRealFanpage) routingReviewReason = 'sin evidencia de fanpage de Meta';
+          routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
         }
       }
     }
