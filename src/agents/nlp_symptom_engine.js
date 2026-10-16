@@ -452,9 +452,10 @@ export function resolveLeadProvider({
   if (cleanPageId === '510617778807469' || cleanPageName.includes('BIO CORP')) {
     return 'ERNESTO';
   }
-  // - "BioNatural Fuerza" (1147742788423762): IN_HOUSE
+  // - "BioNatural Fuerza" (1147742788423762): REDES 2 BENAVIDES (confirmado por el
+  //   coordinador el 16/10; antes estaba IN_HOUSE).
   if (cleanPageId === '1147742788423762' || cleanPageName.includes('FUERZA')) {
-    return 'IN_HOUSE';
+    return 'REDES 2 BENAVIDES';
   }
 
   // 3. Fallback solo para tráfico no clasificado sin fanpage mapeada
