@@ -1,4 +1,5 @@
 import { GHL_CONFIG, PAGE_TAG_MAP, PALACIOS_USERS } from '../config/index.js';
+import { SEDE_CUSTOM_FIELDS } from '../config/routing_tables.js';
 import fs from 'fs';
 import path from 'path';
 import { fetchConTimeout } from '../utils/http_timeout.js';
@@ -82,8 +83,15 @@ export async function runSupervisorAuditor() {
       let hasUtmSource = false;
       
       if (contact.customFields) {
+         // [16/10] El Ad ID lo escribe el router/Agente 4 en los campos OFICIALES por
+         // sede (SEDE_CUSTOM_FIELDS.idAnuncio + adIdAlt). Antes el auditor leía OTROS
+         // campos (6w3yMjLgIw6npUKWIosr / ujLG5Ogp94WfynVubapT), así que el dato se
+         // perdía entre procesos. Ahora se leen los campos oficiales de TODAS las sedes.
+         const idsAdOficiales = new Set(
+           Object.values(SEDE_CUSTOM_FIELDS).flatMap(cf => [cf.idAnuncio, cf.adIdAlt]).filter(Boolean)
+         );
          for (const cf of contact.customFields) {
-            if (['6w3yMjLgIw6npUKWIosr', 'ujLG5Ogp94WfynVubapT'].includes(cf.id) && cf.value && cf.value !== 'N/A') {
+            if (idsAdOficiales.has(cf.id) && cf.value && cf.value !== 'N/A') {
                hasAdId = true;
             }
             if (cf.id === 'L3eEulpe8II7q0UAJnKZ' && cf.value) {
