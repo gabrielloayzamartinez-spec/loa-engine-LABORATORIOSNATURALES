@@ -1,5 +1,6 @@
 import { learningBrain } from '../services/learning_brain.js';
 import { resolveChannelFromEvent } from '../utils/system_message_filter.js';
+import { normalizeTreatment, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
 
 /**
  * NLP Symptom Engine & Entity Extractor (Laboratorios Naturales)
@@ -134,22 +135,19 @@ export function analyzeSymptoms(text, campaignName = '', utmMedium = '') {
 }
 
 /**
- * Infiere la condición/tratamiento a partir de textos de UTM (utmCampaign, utmMedium, utmContent, nombre de campaña).
- * Crucial para leads que solo escriben "MUESTRA GRATIS" sin expresar síntomas explícitos en el chat.
+ * Infiere la condición/tratamiento a partir de textos de UTM (utmCampaign, utmMedium,
+ * utmContent, nombre de campaña) o del NOMBRE DEL CONJUNTO de anuncios (adset).
+ *
+ * [16/10] Fuente ÚNICA de verdad: delega en `normalizeTreatment()` (domain/clinical_vocabulary)
+ * en lugar de mantener una lista de regex propia. Antes había TRES listas de vocabulario
+ * divergentes (SYMPTOM_DICTIONARY, inferTreatmentFromCampaignOrUtm y TREATMENT_ALIASES):
+ * un padecimiento reconocido en una lista no lo estaba en otra, y el origen del adset
+ * se resolvía con una lista vieja. Ahora un solo vocabulario.
  */
 export function inferTreatmentFromCampaignOrUtm(text) {
   if (!text) return null;
-  const norm = normalizeText(text);
-  if (/gumm(?:y|ies)|gomita|gomitas/i.test(norm)) return 'Gummies';
-  if (/colageno|colagen|collagen|piel|arrugas/i.test(norm)) return 'Colageno';
-  if (/potencia|sexual|vigor|ereccion|masculin|fuerza intima|poder interior|testosterona|tetosterona|texto men|textomen|testo\b|pajarito|ponga duro/i.test(norm)) return 'Potencia';
-  if (/diabetes|glucosa|azucar|nopal/i.test(norm)) return 'Diabetes';
-  if (/prostata|prostatico/i.test(norm)) return 'Prostata';
-  if (/vision|vista|catarata|ojos/i.test(norm)) return 'Vision';
-  if (/gastro|gastritis|colon|acidez|reflujo/i.test(norm)) return 'Gastro';
-  if (/artritis|articulacion|rodilla|cartilago|hueso|artrosis/i.test(norm)) return 'Artritis';
-  if (/hongos?|onicomicosis|pie de atleta/i.test(norm)) return 'Hongos';
-  return null;
+  const canonico = normalizeTreatment(text);
+  return (canonico && canonico !== UNKNOWN_TREATMENT) ? canonico : null;
 }
 
 /**
