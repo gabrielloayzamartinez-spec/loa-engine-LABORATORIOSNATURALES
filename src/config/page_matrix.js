@@ -26,7 +26,8 @@
 export const PAGE_MATRIX = {
   // ── PALACIOS ──────────────────────────────────────────────
   '566501466542620': { sede: 'PALACIOS', proveedor: 'ERNESTO', ownerKey: 'ernesto', pageName: 'Naturales BioNatural' },
-  '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: 'ernesto', pageName: 'Laboratorios Naturales BIO', canal: 'WSP' },
+  // WSP: sin usuario de REDES (REDES 1/2 son SOLO Facebook; WSP no tiene dueño).
+  '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, pageName: 'Laboratorios Naturales BIO', canal: 'WSP' },
   '111906554968800': { sede: 'PALACIOS', proveedor: 'CLICK2RING', ownerKey: 'ultra', pageName: 'BioNatural - Ultra' },
   // ── BENAVIDES ─────────────────────────────────────────────
   '510617778807469': { sede: 'BENAVIDES', proveedor: 'ERNESTO', ownerKey: 'redes1', pageName: 'Naturales Bio Corp' },

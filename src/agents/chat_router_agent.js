@@ -1,7 +1,7 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
 import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
 import { resolveChannelFromEvent, detectSystemMessage, esCanalPermitido } from '../utils/system_message_filter.js';
-import { getOwnerKeyByPageId } from '../config/page_matrix.js';
+import { getOwnerKeyByPageId, getPageMatrixEntry } from '../config/page_matrix.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
@@ -631,6 +631,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       // [REGLA ESTRICTA DE PROPIETARIO — FUENTE ÚNICA (page_matrix.js)]
       // La asignación es por PAGE ID (condición exacta), NUNCA por nombre de fanpage.
       // El dueño se resuelve desde PAGE_MATRIX.ownerKey y se busca en users de la sede.
+      const pageEntry = getPageMatrixEntry(targetPageId);
+      // [16/10] Los REDES 1/2 son SOLO Facebook. Una página de canal NO-Facebook
+      // (ej. WSP) NO tiene dueño de REDES: se deja sin dueño para el workflow de GHL.
+      if (pageEntry?.canal && pageEntry.canal !== 'FB-MSGR') {
+        console.log(`[Agente 3] [PAGINA-NO-FACEBOOK] ${contactId} página ${targetPageName || targetPageId} es canal ${pageEntry.canal}: no se asigna dueño de REDES.`);
+        return 'UNCHANGED';
+      }
       const ownerKey = getOwnerKeyByPageId(targetPageId);
       const ownerUser = ownerKey ? resolvedSede.users[ownerKey] : null;
 
