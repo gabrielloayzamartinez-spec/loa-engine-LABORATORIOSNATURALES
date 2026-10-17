@@ -188,19 +188,20 @@ let origenRuteoActual = 'desconocido';
 const ruteosPorOrigen = new Map();            // origen -> { count, primera, ultima }
 const contactosPorOrigen = new Map();         // origen -> Set(contactId)
 
-// [ANTI-BUCLE — 15/10] Cooldown para ruteos SIN mensaje nuevo. El backfill (nivel 2)
-// actualiza contactos en GHL y cada actualización dispara un webhook de "contacto
-// actualizado" que re-enrutaba el MISMO contacto en bucle (BUCLE_DE_REPROCESO: 141
-// contactos x 3+ en una hora). Con mensaje nuevo (mensajeMs > 0) NO aplica: eso es
-// una atención real de nivel 1 y siempre pasa.
-const ultimoRuteoSinMensaje = new Map();      // contactId -> ts del último ruteo sin mensaje
-const COOLDOWN_SIN_MENSAJE_MS = 5 * 60 * 1000;
+// [ANTI-BUCLE — 17/10] Cooldown por CONTACTO (5 min), no solo por mensaje. El radar,
+// el guardian, el webhook y el trabajo del día piden el MISMO contacto en ráfaga con
+// timestamps ligeramente distintos: el `yaAtendido` (clave mensaje) no los atrapa y el
+// contacto se re-enruta 3+ veces (BUCLE_DE_REPROCESO: 190 contactos, 78% desperdicio,
+// y CONSUMO_EXCESIVO ~19k llamadas/h). Con este cooldown, un contacto se enruta COMO
+// MÁXIMO una vez por ventana, sin importar quién lo pida.
+const ultimoRuteoPorContacto = new Map();       // contactId -> ts del último ruteo
+const COOLDOWN_RUTEO_MS = 5 * 60 * 1000;
 
-function cooldownRuteoSinMensaje(contactId) {
+function enCooldownDeRuteo(contactId) {
   const ahora = Date.now();
-  const ultimo = ultimoRuteoSinMensaje.get(contactId) || 0;
-  if (ahora - ultimo < COOLDOWN_SIN_MENSAJE_MS) return true;
-  ultimoRuteoSinMensaje.set(contactId, ahora);
+  const ultimo = ultimoRuteoPorContacto.get(contactId) || 0;
+  if (ahora - ultimo < COOLDOWN_RUTEO_MS) return true;
+  ultimoRuteoPorContacto.set(contactId, ahora);
   return false;
 }
 
@@ -367,11 +368,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
       return 'UNCHANGED';
     }
-    // [ANTI-BUCLE] Sin mensaje nuevo (webhook de "contacto actualizado" del backfill o
-    // sync): si este contacto ya se ruteó en los últimos 5 min, se omite. Evita que el
-    // nivel 2 dispare el ruteo de nivel 1 en bucle sobre los mismos contactos.
-    if (!isDryRun && mensajeMsEntrante === 0 && cooldownRuteoSinMensaje(contactId)) {
-      console.log(`[Agente 3] [ANTI-BUCLE] ${contactId} sin mensaje nuevo y recién ruteado (${origenRuteoActual}): se omite para no re-procesar.`);
+    // [ANTI-BUCLE — 17/10] Cooldown por CONTACTO (no solo sin mensaje). Varios procesos
+    // (radar, guardian, webhook, trabajo del día) piden el mismo contacto en ráfaga con
+    // timestamps distintos y el `yaAtendido` no los atrapa. Un contacto se enruta como
+    // máximo una vez cada 5 min, sin importar el proceso.
+    if (!isDryRun && enCooldownDeRuteo(contactId)) {
+      console.log(`[Agente 3] [ANTI-BUCLE] ${contactId} recién ruteado (${origenRuteoActual}): se omite para no re-procesar.`);
       return 'UNCHANGED';
     }
 
