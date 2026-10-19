@@ -95,6 +95,41 @@ export function extraerTelefono(fieldData = []) {
 const FIELD_META_AD_ID = process.env.GHL_META_AD_ID_FIELD || ''; // opcional
 const FIELD_FORM_ID = process.env.GHL_FORM_ID_FIELD || '';        // opcional (lo crea el operador)
 
+// Nombre del custom field "id_form_clipo" creado por el operador en GHL (Palacios).
+const NOMBRE_FIELD_FORM_ID = process.env.GHL_FORM_ID_FIELD_NAME || 'id_form_clipo';
+
+// Cache del id del campo resuelto por nombre (locationId -> id), con TTL de 30 min.
+const campoIdCache = new Map();
+
+/**
+ * Resuelve el ID del custom field por su NOMBRE (ej. "id_form_clipo") consultando
+ * la lista de custom fields de la subcuenta. Se cachea para no repetir la llamada.
+ */
+async function resolverCampoPorNombre(locationId, headers, nombre) {
+  const clave = `${locationId}:${nombre}`;
+  const cached = campoIdCache.get(clave);
+  if (cached && Date.now() - cached.ts < 30 * 60 * 1000) return cached.id;
+
+  try {
+    const res = await ghlFetch(
+      `https://services.leadconnectorhq.com/custom-fields/?locationId=${locationId}`,
+      { headers }, 1, 'Leadgen'
+    );
+    if (res.status !== 200) return '';
+    const data = await res.json();
+    const campos = data.customFields || [];
+    const campo = campos.find(c =>
+      String(c?.name || '').toLowerCase().replace(/\s+/g, '_') === String(nombre).toLowerCase()
+    );
+    const id = campo?.id || '';
+    campoIdCache.set(clave, { id, ts: Date.now() });
+    return id;
+  } catch (err) {
+    console.warn(`[Leadgen] No se pudo resolver el campo "${nombre}": ${err.message}`);
+    return '';
+  }
+}
+
 async function vincularEnSede(locationId, headers, phone, datos, sedeName) {
   const existente = await findContactByPhone(locationId, phone, headers);
   if (!existente?.id) return null;
@@ -102,10 +137,12 @@ async function vincularEnSede(locationId, headers, phone, datos, sedeName) {
   const customFields = [];
   const tagsNuevas = [];
 
-  // form_id: se guarda en tag (siempre) y en custom field (si existe).
+  // form_id: se guarda en tag (siempre) y en el custom field "id_form_clipo".
   if (datos.formId) {
     tagsNuevas.push(`form-id-${datos.formId}`);
-    if (FIELD_FORM_ID) customFields.push({ id: FIELD_FORM_ID, field_value: datos.formId });
+    // Prioridad: el campo por NOMBRE (id_form_clipo), o el env si está configurado.
+    const idCampo = (await resolverCampoPorNombre(locationId, headers, NOMBRE_FIELD_FORM_ID)) || FIELD_FORM_ID;
+    if (idCampo) customFields.push({ id: idCampo, field_value: datos.formId });
   }
   if (FIELD_META_AD_ID && datos.adId) {
     customFields.push({ id: FIELD_META_AD_ID, field_value: datos.adId });
