@@ -1619,17 +1619,20 @@ app.get('/webhook/meta', (req, res) => {
   }
 });
 
-app.post('/webhook/meta', async (req, res) => {
-  try {
-    const payload = req.body;
-    // Responder rápido a Facebook para evitar timeouts
-    res.status(200).send('EVENT_RECEIVED');
-    
-    // Procesar en segundo plano
-    await processMetaWebhook(payload);
-  } catch (error) {
-    console.error("[Meta Webhook Receptor Error]:", error.message);
-  }
+app.post('/webhook/meta', (req, res) => {
+  // [NON-BLOCKING FAST PATH — 19/10] Responde 200 ANTES de cualquier I/O (Meta
+  // corta la conexión a los ~20s y reintenta si no hay ack rápido). El payload se
+  // captura y se despacha a un worker en segundo plano: PROHIBIDO hacer GET/PUT a
+  // GHL o consultar vTiger antes de este 200 OK.
+  const payload = req.body;
+  res.status(200).send('EVENT_RECEIVED');
+
+  // Worker en segundo plano (fire-and-forget): el Nivel 1 NO espera al Nivel 2.
+  setImmediate(() => {
+    processMetaWebhook(payload).catch(err => {
+      console.error('[Meta Webhook Receptor Error]:', err.message);
+    });
+  });
 });
 
 // ==========================================
