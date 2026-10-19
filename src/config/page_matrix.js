@@ -26,8 +26,9 @@
 export const PAGE_MATRIX = {
   // ── PALACIOS ──────────────────────────────────────────────
   '566501466542620': { sede: 'PALACIOS', proveedor: 'ERNESTO', ownerKey: 'ernesto', pageName: 'Naturales BioNatural' },
-  // 19/10: iniciativa de FORMULARIOS — se desvincula de ERNESTO (sin dueño de REDES,
-  // para trabajo ordenado). El número se sincroniza con vTiger pero no se asigna dueño.
+  // 19/10: SOLO acciones IN-HOUSE. Esta página gestiona WSP ADS (WhatsApp, sin dueño)
+  // y FORMS ADS (formularios, sin dueño). El número se sincroniza con vTiger pero
+  // NUNCA se asigna dueño de REDES (trabajo ordenado, sin mezclarse con ERNESTO).
   '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'Laboratorios Naturales BIO' },
   '111906554968800': { sede: 'PALACIOS', proveedor: 'CLICK2RING', ownerKey: 'ultra', pageName: 'BioNatural - Ultra' },
   // ── BENAVIDES ─────────────────────────────────────────────
