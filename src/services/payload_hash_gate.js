@@ -69,3 +69,40 @@ export async function deberiaSaltar(clave, payload) {
 export function limpiarGate() {
   cache.clear();
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PRE-GATE DE vTIGER: salta el GET + el PUT si los datos comerciales no cambiaron
+// ──────────────────────────────────────────────────────────────────────────────
+// El Reverse Sync recibe registros con `modifiedtime` cambiado, pero el cambio de
+// vTiger suele ser ADMINISTRATIVO (un campo que no importa a GHL). Este hash cubre
+// SOLO los campos comerciales que alimentan el payload; si son idénticos al último
+// visto, se salta la sincronización completa (0 GET + 0 PUT).
+// ==============================================================================
+const CAMPOS_COMERCIALES = [
+  'firstname', 'lastname', 'email', 'mobile', 'phone', 'homephone', 'otherphone',
+  'cf_3451', 'cf_2572', 'cf_2610', 'cf_3507', 'cf_3472',
+  'spl_num_compras', 'spl_fecha_ultima_compra', 'spl_fecha_primera_compra',
+  'cf_3392', 'cf_994', 'cf_1876', 'contact_no', 'cf_1157',
+  'splareacodes_state', 'splareacodes_state_code', 'wcf_acf_atf_3390'
+];
+
+/** Hash estable de los campos COMERCIALES de un registro vTiger. */
+export function hashVtigerCommercial(vContact = {}) {
+  const recorte = {};
+  for (const k of CAMPOS_COMERCIALES) {
+    if (vContact[k] !== undefined && vContact[k] !== null && vContact[k] !== '') {
+      recorte[k] = vContact[k];
+    }
+  }
+  return hashPayload(recorte);
+}
+
+/**
+ * Pre-gate: si los datos comerciales de vTiger no cambiaron desde la última vez,
+ * devuelve true (saltar la sincronización). Guarda el hash nuevo cuando cambió.
+ */
+export async function deberiaSaltarVtiger(clave, vContact) {
+  const h = hashVtigerCommercial(vContact);
+  if (!h) return false;
+  return deberiaSaltar(`vt:${clave}`, { h });
+}
