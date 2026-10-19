@@ -10,6 +10,7 @@ import { sedeClause, VTIGER_SEDES_VALIDAS } from '../services/vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { normalizeToE164, buildSanitizedGeoFields } from '../utils/geo_phone_sanitizer.js';
+import { estaEnCooldown } from '../services/reactive_cooldown.js';
 import { getStateStore } from '../services/state/state_store.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
@@ -361,6 +362,11 @@ async function procesarContactoModificado(vContact) {
         reason: 'sin teléfono válido no se sincroniza (identificador único ausente)'
       });
       return { ok: false, reason: 'sin telefono' };
+    }
+    // [COOLDOWN UNIFICADO] Si el reactivo (/webhook/vtiger/reactive) ya procesó este
+    // registro hace <10 min, el batch lo salta para no duplicar la escritura.
+    if (await estaEnCooldown(vContact.id, phoneDigits)) {
+      return { ok: false, skipped: true, reason: 'cooldown reactivo' };
     }
     return await aplicarCambioEnGhl(vContact, phoneDigits);
   } catch (err) {
