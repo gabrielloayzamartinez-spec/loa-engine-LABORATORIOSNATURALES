@@ -9,6 +9,7 @@ import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_aud
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
 import { routeChatByContact, runChatRouterPoller, runInboxSedeCleaner, getCostoRuteo } from './agents/chat_router_agent.js';
 import { processMetaWebhook } from './agents/meta_webhook_agent.js';
+import { procesarLeadgen } from './services/meta_leadgen_service.js';
 import { runSupervisorAuditor, auditorStats } from './agents/auditor_agent.js';
 import { setupAllPipelines } from './scripts/pipeline_manager.js';
 import { runPreFlightSanityCheck } from './tests/test_audit_engine.js';
@@ -1631,6 +1632,29 @@ app.post('/webhook/meta', (req, res) => {
   setImmediate(() => {
     processMetaWebhook(payload).catch(err => {
       console.error('[Meta Webhook Receptor Error]:', err.message);
+    });
+  });
+});
+
+// [META LEAD ADS — leadgen] Verificación del webhook de formularios.
+app.get('/webhook/meta/leadgen', (req, res) => {
+  const verifyToken = META_CONFIG.webhookVerifyToken;
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (!verifyToken) return res.sendStatus(403);
+  if (mode === 'subscribe' && token === verifyToken) return res.status(200).send(challenge);
+  return res.sendStatus(403);
+});
+
+// [META LEAD ADS — leadgen] Recepción del evento: captura form_id + teléfono y lo
+// vincula al contacto en GHL (Sede + Central). Fast-path: 200 inmediato + worker.
+app.post('/webhook/meta/leadgen', (req, res) => {
+  const payload = req.body;
+  res.status(200).send('EVENT_RECEIVED');
+  setImmediate(() => {
+    procesarLeadgen(payload).catch(err => {
+      console.error('[Leadgen Webhook Error]:', err.message);
     });
   });
 });
