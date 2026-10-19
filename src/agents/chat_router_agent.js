@@ -1127,6 +1127,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       newTagsSet.add(pageSlug);
     }
 
+    // [FORM — 19/10] Los leads de FORMULARIOS (Lead Ads que aperturan chat por
+    // Messenger) se marcan con la etiqueta 'form' para poder segmentarlos en GHL.
+    if (targetChannel === 'FORM') {
+      newTagsSet.add('form');
+    }
+
     // 1. Definir la ÚNICA etiqueta de producto permitida (El Tratamiento Principal)
     // [VOCABULARIO CANÓNICO] La lista incluye la etiqueta legada
     // `producto-tetosterona`, que aún existe en contactos reales: así la limpieza
