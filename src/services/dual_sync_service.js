@@ -40,7 +40,7 @@ import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { detectarSedeEnTexto } from './contact_collision_service.js';
 import { readSecret } from '../config/secrets.js';
-import { deberiaSaltar } from './payload_hash_gate.js';
+import { deberiaSaltar, deberiaSaltarVtiger } from './payload_hash_gate.js';
 
 // ------------------------------------------------------------------------------
 // 1. CONFIGURACIÓN (todo por entorno; nada hardcodeado)
@@ -1166,6 +1166,14 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
       reason: 'sede sin credenciales y Empresa no configurada: sin destino'
     });
     return { ok: false, skipped: true, reason: `sede ${sedeId} sin credenciales y Empresa no configurada` };
+  }
+
+  // [PRE-GATE DE VTIGER] Si los datos COMERCIALES no cambiaron desde la última vez,
+  // se salta TODA la sincronización (0 GET + 0 PUT en GHL). Reduce el tráfico del
+  // Reverse Sync/reactivo cuando vTiger mueve `modifiedtime` por cambios
+  // administrativos que no afectan a los ~33 campos que importan a GHL.
+  if (await deberiaSaltarVtiger(`${sedeId}:${phone}`, vContact)) {
+    return { ok: true, skipped: true, reason: 'NO_CHANGES_VTIGER', phone, sedeId };
   }
 
   const resultado = { ok: true, phone, sedeId, macro: null, operativa: null, contactId: null };
