@@ -2281,6 +2281,23 @@ app.post('/webhook/vtiger', async (req, res) => {
   }
 });
 
+// [SYNCHRONIZACIÓN REACTIVA vTiger → GHL — event-driven, unidireccional]
+// vTiger emite SOLO transiciones de estado clave (allow-list), nunca cada guardado.
+// El payload se normaliza/valida en vtiger_reactive_sync (idempotencia por event_id,
+// reconciliación por vtiger_record_id, retry con backoff vía el log de fallos).
+app.post('/webhook/vtiger/reactive', async (req, res) => {
+  try {
+    const { procesarEventoReactivo, VTIGER_SCHEMA_VERSION } = await import('./services/vtiger_reactive_sync.js');
+    const raw = req.body || {};
+    const sede = String(req.query?.sede || '').toUpperCase() || undefined;
+    const resultado = await procesarEventoReactivo(raw, { sede });
+    res.status(200).json({ success: resultado.ok !== false, schemaVersion: VTIGER_SCHEMA_VERSION, ...resultado });
+  } catch (err) {
+    console.error('[Reactive Sync] Error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/vtiger/sync', async (req, res) => {
   try {
     const result = await syncVtigerGroundTruthToBrain(30);
