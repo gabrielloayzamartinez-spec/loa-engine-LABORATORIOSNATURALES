@@ -156,15 +156,15 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
       }
     },
     {
-      name: 'Regla 4D: Laboratorios Naturales BIO debe resolver ERNESTO (designada a REDES 1)',
+      name: 'Regla 4D: Laboratorios Naturales BIO debe resolver IN_HOUSE (sin dueño de REDES)',
       run: () => {
         const prov = resolveLeadProvider({
           pageId: '718150351371765',
           pageName: 'Laboratorios Naturales BIO',
           isPaidAd: false
         });
-        if (prov !== 'ERNESTO') {
-          throw new Error(`Proveedor esperado ERNESTO para Labs Bio, recibido: ${prov}`);
+        if (prov !== 'IN_HOUSE') {
+          throw new Error(`Proveedor esperado IN_HOUSE para Labs Bio, recibido: ${prov}`);
         }
         const source = buildVtigerSource({
           sedeName: 'Laboratorios Naturales BIO',
@@ -172,7 +172,7 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
           channel: 'FB-MSGR',
           treatment: 'General'
         });
-        if (source !== 'PALACIOS-ERNESTO-FB-MSGR-General') {
+        if (source !== 'PALACIOS-IN_HOUSE-FB-MSGR-General') {
           throw new Error(`Fuente incorrecta para Labs Bio: ${source}`);
         }
       }
@@ -183,7 +183,7 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
         const pagesToTest = [
           { pageName: 'BioNatural - Ultra', expectedSede: 'PALACIOS', expectedProv: 'CLICK2RING' },
           { pageName: 'Naturales BioNatural', expectedSede: 'PALACIOS', expectedProv: 'ERNESTO' },
-          { pageName: 'Laboratorios Naturales BIO', expectedSede: 'PALACIOS', expectedProv: 'ERNESTO' },
+          { pageName: 'Laboratorios Naturales BIO', expectedSede: 'PALACIOS', expectedProv: 'IN_HOUSE' },
           { pageName: 'Natural Bio Benavides', expectedSede: 'BENAVIDES', expectedProv: 'CLICK2RING' },
           { pageName: 'Bio Natural Piura', expectedSede: 'PIURA', expectedProv: 'IN_HOUSE' },
           { pageName: 'Bio Naturales Roosevelt', expectedSede: 'ROOSEVELT', expectedProv: 'IN_HOUSE' }

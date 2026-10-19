@@ -640,6 +640,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         console.log(`[Agente 3] [PAGINA-NO-FACEBOOK] ${contactId} página ${targetPageName || targetPageId} es canal ${pageEntry.canal}: no se asigna dueño de REDES.`);
         return 'UNCHANGED';
       }
+      // [19/10] Página desvinculada de REDES (sinDueno): los leads de esta iniciativa
+      // (formularios) NO se asignan a ningún dueño de REDES; solo se sincronizan.
+      if (pageEntry?.sinDueno) {
+        console.log(`[Agente 3] [PAGINA-SIN-DUENO] ${contactId} página ${targetPageName || targetPageId} está desvinculada de REDES: no se asigna dueño.`);
+        return 'UNCHANGED';
+      }
       const ownerKey = getOwnerKeyByPageId(targetPageId);
       const ownerUser = ownerKey ? resolvedSede.users[ownerKey] : null;
 
