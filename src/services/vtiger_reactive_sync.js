@@ -21,6 +21,8 @@ import { recordAuditEvent } from './audit_logger.js';
 import { getStateStore } from './state/state_store.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { SEDES_GATEWAY } from '../config/index.js';
+import { normalizeToE164 } from '../utils/geo_phone_sanitizer.js';
+import { marcarProcesadoReactivo } from './reactive_cooldown.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // CONSTANTES DEL PROTOCOLO
@@ -109,13 +111,9 @@ function limpiarTexto(v, max = 120) {
   return String(v ?? '').trim().slice(0, max);
 }
 
-function limpiarTelefono(v) {
-  const d = String(v ?? '').replace(/\D/g, '');
-  if (!d) return '';
-  if (d.length === 10) return `+1${d}`;
-  if (d.length === 11 && d.startsWith('1')) return `+${d}`;
-  return d.length >= 7 ? `+${d}` : '';
-}
+// [FUENTE ÚNICA] Se usa normalizeToE164 (el mismo normalizador del Dual Sync),
+// no un helper local: un solo formato canónico en todo el motor evita duplicados
+// por diferencias de prefijo (+51, 51, espacios) entre Sede y Central.
 
 /**
  * Normaliza el payload recibido de vTiger a una estructura interna estable.
@@ -128,7 +126,7 @@ export function normalizarEventoVtiger(raw = {}) {
   const eventId = limpiarTexto(meta.event_id, 80);
   const eventType = limpiarTexto(meta.event_type, 40);
   const vtigerId = limpiarTexto(meta.vtiger_record_id || c.id || c.contactid || c.contact_id, 40);
-  const phone = limpiarTelefono(c.phone || c.mobile || c.homephone || c.telefono);
+  const phone = normalizeToE164(c.phone || c.mobile || c.homephone || c.telefono);
 
   if (!eventId) return { ok: false, error: 'falta meta.event_id (obligatorio para idempotencia)' };
   if (!eventType) return { ok: false, error: 'falta meta.event_type' };
@@ -254,6 +252,9 @@ export async function procesarEventoReactivo(raw, opts = {}) {
     }
 
     await marcarProcesado(e.eventId);
+    // [COOLDOWN UNIFICADO] Se marca para que el Reverse Sync / Sales Bridge no
+    // reprocesen este registro en los próximos minutos (auditoría B).
+    await marcarProcesadoReactivo(e.vtigerId, e.phone);
     recordAuditEvent({
       type: 'VTIGER_REACTIVE_OK',
       severity: 'info',
