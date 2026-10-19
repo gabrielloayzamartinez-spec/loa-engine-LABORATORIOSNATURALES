@@ -417,7 +417,7 @@ export function resolveLeadProvider({
   // 3. Fallback por NOMBRE de fanpage (solo cuando no hay page id mapeado)
   if (cleanPageName.includes('ULTRA')) return 'CLICK2RING';
   if (cleanPageName.includes('NATURALES BIONATURAL')) return 'ERNESTO';
-  if (cleanPageName.includes('LABORATORIOS NATURALES BIO')) return 'IN_HOUSE';
+  if (cleanPageName.includes('LABORATORIOS NATURALES BIO')) return 'ERNESTO';
   if (cleanPageName === 'BIO NATURAL' || cleanPageName.includes('NATURAL BIO BENAVIDES') || cleanPageName.includes('BIO NATURAL BENAVIDES')) return 'CLICK2RING';
   if (cleanPageName.includes('BIO CORP')) return 'ERNESTO';
   if (cleanPageName.includes('FUERZA')) return 'REDES 2 BENAVIDES';
