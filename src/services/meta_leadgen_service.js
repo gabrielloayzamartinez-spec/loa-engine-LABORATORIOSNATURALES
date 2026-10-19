@@ -365,16 +365,10 @@ async function procesarLeadDetalle(detalle, pageId, leadgenId = '') {
     contactId
   });
 
-  // [NIVEL 2 EN BACKGROUND] Un Lead Ad ya trae número: se valida la sede con
-  // vTiger en paralelo, sin bloquear la entrega del lead.
-  setImmediate(async () => {
-    try {
-      const { runVtigerSalesBridge } = await import('./vtiger_sales_bridge.js');
-      await runVtigerSalesBridge({ soloCompradores: true, limitePorSede: 1 });
-    } catch (err) {
-      console.warn(`[Leadgen] Nivel 2 background falló: ${err.message}`);
-    }
-  });
+  // [19/10 — FIX BUCLE] El enriquecimiento vTiger YA NO se dispara por cada lead:
+  // el Reverse Sync (cada 3 min) y el Sales Bridge (cada 10 min) lo cubren de forma
+  // periódica y controlada. Disparar runVtigerSalesBridge por lead saturaba la cola
+  // y causaba un bucle que no continuaba.
 
   return { ok: true, contactId };
 }
