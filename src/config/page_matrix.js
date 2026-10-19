@@ -26,8 +26,9 @@
 export const PAGE_MATRIX = {
   // ── PALACIOS ──────────────────────────────────────────────
   '566501466542620': { sede: 'PALACIOS', proveedor: 'ERNESTO', ownerKey: 'ernesto', pageName: 'Naturales BioNatural' },
-  // 19/10: designada a REDES 1 ERNESTO (Palacios) — decisión del negocio.
-  '718150351371765': { sede: 'PALACIOS', proveedor: 'ERNESTO', ownerKey: 'ernesto', pageName: 'Laboratorios Naturales BIO' },
+  // 19/10: iniciativa de FORMULARIOS — se desvincula de ERNESTO (sin dueño de REDES,
+  // para trabajo ordenado). El número se sincroniza con vTiger pero no se asigna dueño.
+  '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'Laboratorios Naturales BIO' },
   '111906554968800': { sede: 'PALACIOS', proveedor: 'CLICK2RING', ownerKey: 'ultra', pageName: 'BioNatural - Ultra' },
   // ── BENAVIDES ─────────────────────────────────────────────
   '510617778807469': { sede: 'BENAVIDES', proveedor: 'ERNESTO', ownerKey: 'redes1', pageName: 'Naturales Bio Corp' },
