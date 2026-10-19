@@ -368,14 +368,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
       return 'UNCHANGED';
     }
-    // [ANTI-BUCLE — 17/10] Cooldown por CONTACTO (no solo sin mensaje). Varios procesos
-    // (radar, guardian, webhook, trabajo del día) piden el mismo contacto en ráfaga con
-    // timestamps distintos y el `yaAtendido` no los atrapa. Un contacto se enruta como
-    // máximo una vez cada 5 min, sin importar el proceso.
-    if (!isDryRun && enCooldownDeRuteo(contactId)) {
-      console.log(`[Agente 3] [ANTI-BUCLE] ${contactId} recién ruteado (${origenRuteoActual}): se omite para no re-procesar.`);
-      return 'UNCHANGED';
-    }
+    // [19/10 HOTFIX — LATENCIA N1] El dueño (Nivel 1) se asigna SIN cooldown. Antes el
+    // cooldown de 5 min estaba AQUÍ: si el radar ya había tocado el contacto, el webhook
+    // con el PAGE_ID quedaba en cooldown y el dueño NO se asignaba durante 2-4 min.
+    // El cooldown anti-bucle se movió al Nivel 2 (vTiger / enriquecimiento).
 
     console.log(`[Agente 3] Analizando ruteo para el contacto ${contactId}... (Live: ${isLive}, DryRun: ${isDryRun})`);
 
@@ -867,8 +863,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     let vtigerTreatment = null;
     let vContact = null;
+    // [19/10] El Nivel 2 (vTiger) tiene su PROPIO cooldown anti-bucle (5 min). No
+    // retrasa el dueño (ya asignado arriba); solo evita re-consultar vTiger en ráfaga
+    // por el radar/guardian/webhook. Sin teléfono → no hay Nivel 2 (el findVTiger ya
+    // lo descarta, pero se evita incluso la llamada).
+    const vTigerEnCooldown = !isDryRun && enCooldownDeRuteo(`vt:${contactId}`);
     try {
-      vContact = await findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName);
+      if (!vTigerEnCooldown && effectivePhone) {
+        vContact = await findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName);
+      }
       if (vContact) {
  // SEDE-SHIELD: Bloqueo total de contacto de otra sede
         const vSede = (vContact.cf_3451 || '').toUpperCase().trim();
