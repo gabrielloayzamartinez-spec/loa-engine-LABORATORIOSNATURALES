@@ -303,79 +303,146 @@ export async function procesarLeadgen(payload) {
           recordAuditEvent({ type: 'LEADGEN_DETALLE_FALLIDO', severity: 'warn', leadgenId, pageId });
           continue;
         }
-
-        const phone = extraerTelefono(detalle.field_data);
-        const { fullName, firstName, lastName } = extraerNombre(detalle.field_data);
-        const email = extraerEmail(detalle.field_data);
-        const formId = String(detalle.form_id || '').trim();
-        const adId = String(detalle.ad_id || '').trim();
-        const adgroupId = String(detalle.adset_id || detalle.adgroup_id || '').trim();
-
-        if (!phone) {
-          recordAuditEvent({ type: 'LEADGEN_SIN_TELEFONO', severity: 'warn', leadgenId, pageId, formId });
-          continue;
-        }
-
-        const sedeName = getSedeByPageId(pageId) || 'PALACIOS';
-        const sedeCfg = SEDES_GATEWAY[sedeName];
-        if (!sedeCfg?.ghl?.locationId) {
-          recordAuditEvent({ type: 'LEADGEN_SEDE_SIN_CREDENCIALES', severity: 'warn', leadgenId, pageId, sedeName });
-          continue;
-        }
-
-        const headers = {
-          Authorization: `Bearer ${sedeCfg.ghl.apiKey}`,
-          Version: '2021-07-28',
-          'Content-Type': 'application/json',
-          Accept: 'application/json'
-        };
-        const datos = { formId, adId, adgroupId, pageId, fullName, firstName, lastName, email };
-
-        // Sede operativa.
-        const contactId = await vincularEnSede(sedeCfg.ghl.locationId, headers, phone, datos, sedeName);
-
-        // Central (EMPRESA): solo si está configurada.
-        const centralLoc = process.env.GHL_LOCATION_ID_CENTRAL;
-        const centralKey = process.env.GHL_API_KEY_CENTRAL;
-        if (centralLoc && centralKey) {
-          const centralHeaders = {
-            Authorization: `Bearer ${centralKey}`,
-            Version: '2021-07-28',
-            'Content-Type': 'application/json',
-            Accept: 'application/json'
-          };
-          await vincularEnSede(centralLoc, centralHeaders, phone, datos, 'Central');
-        }
-
-        recordAuditEvent({
-          type: 'LEADGEN_VINCULADO',
-          severity: 'info',
-          leadgenId,
-          pageId,
-          formId,
-          adId,
-          adgroupId,
-          sede: sedeName,
-          phone,
-          contactId
-        });
-
-        // [NIVEL 2 EN BACKGROUND] Un Lead Ad ya trae número: se valida la sede con
-        // vTiger en paralelo, sin bloquear la entrega del lead.
-        setImmediate(async () => {
-          try {
-            const { runVtigerSalesBridge } = await import('./vtiger_sales_bridge.js');
-            await runVtigerSalesBridge({ soloCompradores: true, limitePorSede: 1 });
-          } catch (err) {
-            console.warn(`[Leadgen] Nivel 2 background falló: ${err.message}`);
-          }
-        });
+        await procesarLeadDetalle(detalle, pageId, leadgenId);
       }
     }
     return { ok: true };
   } catch (err) {
     console.error('[Leadgen] Error general:', err.message);
     recordAuditEvent({ type: 'LEADGEN_EXCEPTION', severity: 'error', message: err.message });
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Procesa el DETALLE de un lead (venga del webhook o del backfill): extrae teléfono,
+ * nombre y correo, vincula form_id + atribución en GHL (Sede + Central) y despacha
+ * el Nivel 2 en background. Es la unidad compartida por ambas rutas.
+ */
+async function procesarLeadDetalle(detalle, pageId, leadgenId = '') {
+  const phone = extraerTelefono(detalle.field_data);
+  const { fullName, firstName, lastName } = extraerNombre(detalle.field_data);
+  const email = extraerEmail(detalle.field_data);
+  const formId = String(detalle.form_id || '').trim();
+  const adId = String(detalle.ad_id || '').trim();
+  const adgroupId = String(detalle.adset_id || detalle.adgroup_id || '').trim();
+
+  if (!phone) {
+    recordAuditEvent({ type: 'LEADGEN_SIN_TELEFONO', severity: 'warn', leadgenId, pageId, formId });
+    return { ok: false, reason: 'sin telefono' };
+  }
+
+  const sedeName = getSedeByPageId(pageId) || 'PALACIOS';
+  const sedeCfg = SEDES_GATEWAY[sedeName];
+  if (!sedeCfg?.ghl?.locationId) {
+    recordAuditEvent({ type: 'LEADGEN_SEDE_SIN_CREDENCIALES', severity: 'warn', leadgenId, pageId, sedeName });
+    return { ok: false, reason: 'sede sin credenciales' };
+  }
+
+  const headers = {
+    Authorization: `Bearer ${sedeCfg.ghl.apiKey}`,
+    Version: '2021-07-28',
+    'Content-Type': 'application/json',
+    Accept: 'application/json'
+  };
+  const datos = { formId, adId, adgroupId, pageId, fullName, firstName, lastName, email };
+
+  // Sede operativa.
+  const contactId = await vincularEnSede(sedeCfg.ghl.locationId, headers, phone, datos, sedeName);
+
+  // Central (EMPRESA): solo si está configurada.
+  const centralLoc = process.env.GHL_LOCATION_ID_CENTRAL;
+  const centralKey = process.env.GHL_API_KEY_CENTRAL;
+  if (centralLoc && centralKey) {
+    const centralHeaders = {
+      Authorization: `Bearer ${centralKey}`,
+      Version: '2021-07-28',
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+    await vincularEnSede(centralLoc, centralHeaders, phone, datos, 'Central');
+  }
+
+  recordAuditEvent({
+    type: 'LEADGEN_VINCULADO',
+    severity: 'info',
+    leadgenId,
+    pageId,
+    formId,
+    adId,
+    adgroupId,
+    sede: sedeName,
+    phone,
+    contactId
+  });
+
+  // [NIVEL 2 EN BACKGROUND] Un Lead Ad ya trae número: se valida la sede con
+  // vTiger en paralelo, sin bloquear la entrega del lead.
+  setImmediate(async () => {
+    try {
+      const { runVtigerSalesBridge } = await import('./vtiger_sales_bridge.js');
+      await runVtigerSalesBridge({ soloCompradores: true, limitePorSede: 1 });
+    } catch (err) {
+      console.warn(`[Leadgen] Nivel 2 background falló: ${err.message}`);
+    }
+  });
+
+  return { ok: true, contactId };
+}
+
+/**
+ * BACKFILL de Lead Ads históricos: lee los leads pasados de un formulario
+ * (GET /{form_id}/leads) y los procesa uno a uno, para sincronizar el pasado
+ * operativo del canal, no solo los entrantes.
+ */
+export async function backfillLeadgen({ formId, pageId, limit = 100, cursor = null } = {}) {
+  try {
+    const apiVersion = META_CONFIG.graphApiVersion || 'v20.0';
+    const sedeMeta = getMetaConfigBySede({ pageId });
+    const systemToken = sedeMeta?.accessToken || getMetaCandidateTokens({ pageId })[0] || '';
+    if (!systemToken || !formId || !pageId) {
+      recordAuditEvent({ type: 'LEADGEN_BACKFILL_SKIP', severity: 'warn', formId, pageId, reason: 'falta token/form_id/page_id' });
+      return { ok: false, reason: 'falta token/form_id/page_id' };
+    }
+
+    const tokenUrl = `https://graph.facebook.com/${apiVersion}/${pageId}?fields=access_token&access_token=${systemToken}`;
+    const tokenRes = await fetchConTimeout(tokenUrl);
+    const tokenData = tokenRes.ok ? await tokenRes.json() : {};
+    const pageToken = tokenData.access_token;
+    if (!pageToken) return { ok: false, reason: 'sin page token' };
+
+    const url = `https://graph.facebook.com/${apiVersion}/${formId}/leads?fields=id,created_time,field_data,form_id,ad_id,adset_id&limit=${limit}${cursor ? `&after=${cursor}` : ''}&access_token=${pageToken}`;
+    const res = await fetchConTimeout(url);
+    if (!res.ok) {
+      const err = await res.text().catch(() => '');
+      recordAuditEvent({ type: 'LEADGEN_BACKFILL_FAIL', severity: 'error', formId, pageId, message: err.slice(0, 200) });
+      return { ok: false, reason: `HTTP ${res.status}` };
+    }
+
+    const data = await res.json();
+    const leads = data.data || [];
+    let procesados = 0;
+    let sinTelefono = 0;
+    for (const lead of leads) {
+      const r = await procesarLeadDetalle(lead, pageId, lead.id);
+      if (r.ok) procesados++;
+      else if (r.reason === 'sin telefono') sinTelefono++;
+    }
+
+    recordAuditEvent({
+      type: 'LEADGEN_BACKFILL_OK',
+      severity: 'info',
+      formId,
+      pageId,
+      total: leads.length,
+      procesados,
+      sinTelefono,
+      next: data.paging?.cursors?.after || null
+    });
+    return { ok: true, total: leads.length, procesados, sinTelefono, next: data.paging?.cursors?.after || null };
+  } catch (err) {
+    console.error('[Leadgen Backfill] Error:', err.message);
+    recordAuditEvent({ type: 'LEADGEN_BACKFILL_EXCEPTION', severity: 'error', message: err.message });
     return { ok: false, error: err.message };
   }
 }
