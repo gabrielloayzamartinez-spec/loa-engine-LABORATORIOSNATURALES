@@ -40,6 +40,7 @@ import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { detectarSedeEnTexto } from './contact_collision_service.js';
 import { readSecret } from '../config/secrets.js';
+import { deberiaSaltar } from './payload_hash_gate.js';
 
 // ------------------------------------------------------------------------------
 // 1. CONFIGURACIÓN (todo por entorno; nada hardcodeado)
@@ -1219,11 +1220,15 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
         ghlExistenteCentral: existenteCentral
       });
 
-      resultado.macro = await upsertWithHistoryProtection(construido.macro, {
-        headers: centralHeaders,
-        existente: existenteCentral,
-        tagsNuevas: construido.tagsNuevas
-      });
+      // [DIFFING GATE] Si el payload hacia Central no cambió, se salta (0 llamadas).
+      const saltaMacro = await deberiaSaltar(`central:${phone}`, construido.macro);
+      resultado.macro = saltaMacro
+        ? { ok: true, skipped: true, reason: 'NO_CHANGES', contactId: existenteCentral?.id || null }
+        : await upsertWithHistoryProtection(construido.macro, {
+            headers: centralHeaders,
+            existente: existenteCentral,
+            tagsNuevas: construido.tagsNuevas
+          });
 
       // [DEFECTO CORREGIDO] El audit leia `construido.macro` (el PAYLOAD) en vez de
       // `resultado.macro` (el RESULTADO del upsert). El payload no tiene `ok`, asi
@@ -1273,11 +1278,15 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
       ghlExistenteSede: existenteSede
     });
 
-    resultado.operativa = await upsertWithHistoryProtection(construidoSede.operativa, {
-      headers: sedeHeaders,
-      existente: existenteSede,
-      tagsNuevas: construidoSede.tagsNuevas
-    });
+    // [DIFFING GATE] Si el payload hacia la Sede no cambió, se salta (0 llamadas).
+    const saltaSede = await deberiaSaltar(`${sedeLocId}:${phone}`, construidoSede.operativa);
+    resultado.operativa = saltaSede
+      ? { ok: true, skipped: true, reason: 'NO_CHANGES', contactId: existenteSede?.id || null }
+      : await upsertWithHistoryProtection(construidoSede.operativa, {
+          headers: sedeHeaders,
+          existente: existenteSede,
+          tagsNuevas: construidoSede.tagsNuevas
+        });
     resultado.contactId = resultado.operativa.contactId;
     resultado.created = resultado.operativa.created;
 
