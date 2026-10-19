@@ -114,18 +114,9 @@ export function extraerNombre(fieldData = []) {
   return { fullName, firstName, lastName };
 }
 
-/** Extrae correo electrónico desde field_data. */
-export function extraerEmail(fieldData = []) {
-  for (const f of fieldData) {
-    const name = String(f?.name || '').toLowerCase().trim();
-    if (name.includes('email') || name.includes('correo')) {
-      const raw = Array.isArray(f?.values) ? f.values[0] : (f?.values || '');
-      const val = String(raw || '').trim();
-      if (val && val.includes('@')) return val;
-    }
-  }
-  return '';
-}
+// [19/10] El email se ELIMINÓ del flujo: la operación no usa Gmail/email, y
+// extraerlo causaba errores. El único dato de contacto es el TELÉFONO (llave única).
+
 
 // ──────────────────────────────────────────────────────────────────────────────
 // 3. VINCULACIÓN DEL form_id AL CONTACTO EN GHL (no destructiva)
@@ -255,7 +246,6 @@ async function vincularEnSede(locationId, headers, phone, datos, sedeName) {
   if (datos.fullName) createPayload.name = datos.fullName;
   if (datos.firstName) createPayload.firstName = datos.firstName;
   if (datos.lastName) createPayload.lastName = datos.lastName;
-  if (datos.email) createPayload.email = datos.email;
 
   try {
     const resCreate = await ghlFetch('https://services.leadconnectorhq.com/contacts/', {
@@ -322,7 +312,6 @@ export async function procesarLeadgen(payload) {
 async function procesarLeadDetalle(detalle, pageId, leadgenId = '') {
   const phone = extraerTelefono(detalle.field_data);
   const { fullName, firstName, lastName } = extraerNombre(detalle.field_data);
-  const email = extraerEmail(detalle.field_data);
   const formId = String(detalle.form_id || '').trim();
   const adId = String(detalle.ad_id || '').trim();
   const adgroupId = String(detalle.adset_id || detalle.adgroup_id || '').trim();
@@ -345,7 +334,7 @@ async function procesarLeadDetalle(detalle, pageId, leadgenId = '') {
     'Content-Type': 'application/json',
     Accept: 'application/json'
   };
-  const datos = { formId, adId, adgroupId, pageId, fullName, firstName, lastName, email };
+  const datos = { formId, adId, adgroupId, pageId, fullName, firstName, lastName };
 
   // Sede operativa.
   const contactId = await vincularEnSede(sedeCfg.ghl.locationId, headers, phone, datos, sedeName);
