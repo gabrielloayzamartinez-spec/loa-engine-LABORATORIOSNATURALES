@@ -964,7 +964,9 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   const particionMacro = { protegidos: [] };
   const particionSede = { protegidos: [] };
 
-  const tagsNuevas = ['vtiger', 'vtiger-sincronizado'];
+  // [19/10 — REDUCCIÓN DE ETIQUETAS] 'vtiger' y 'vtiger-sincronizado' eran ruido
+  // redundante: cliente-vtiger/convertido/compro ya resumen el estado comercial.
+  const tagsNuevas = [];
   if (esComprador) tagsNuevas.push('compro', 'convertido', 'cliente-vtiger');
   if (tratamiento) tagsNuevas.push(`producto-${tratamiento.toLowerCase()}`);
 

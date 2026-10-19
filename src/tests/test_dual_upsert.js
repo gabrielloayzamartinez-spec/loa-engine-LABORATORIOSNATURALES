@@ -172,7 +172,7 @@ assert(!payloads.operativa.customFields.some(f => f.id === 'C_OFICINA'), 'La car
 
 assert(payloads.tagsNuevas.includes('convertido') && payloads.tagsNuevas.includes('compro'), 'Las etiquetas de comprador se aplican en la creación');
 assert(payloads.tagsNuevas.includes('producto-diabetes'), 'Se etiqueta el producto canónico');
-assert(payloads.tagsNuevas.includes('vtiger-sincronizado'), 'Se marca el registro como sincronizado con vTiger');
+assert(!payloads.tagsNuevas.includes('vtiger-sincronizado') && !payloads.tagsNuevas.includes('vtiger'), 'Se eliminan las etiquetas vTiger redundantes (cliente-vtiger ya resume)');
 
 // Geografía corregida en ambas cargas
 assert(payloads.operativa.city === 'Miami' && payloads.operativa.state === 'FL', `Ciudad y estado separados correctamente (city=${payloads.operativa.city}, state=${payloads.operativa.state})`);
