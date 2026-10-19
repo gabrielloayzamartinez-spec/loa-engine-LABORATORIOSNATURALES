@@ -9,7 +9,7 @@ import { runContinuousAutoAuditCycle, getHealMetrics } from './services/auto_aud
 import { testMetaConnection, excludeLeadFromMetaAds, scanMetaInboxForDuplicates } from './services/meta_api_service.js';
 import { routeChatByContact, runChatRouterPoller, runInboxSedeCleaner, getCostoRuteo } from './agents/chat_router_agent.js';
 import { processMetaWebhook } from './agents/meta_webhook_agent.js';
-import { procesarLeadgen } from './services/meta_leadgen_service.js';
+import { procesarLeadgen, backfillLeadgen } from './services/meta_leadgen_service.js';
 import { runSupervisorAuditor, auditorStats } from './agents/auditor_agent.js';
 import { setupAllPipelines } from './scripts/pipeline_manager.js';
 import { runPreFlightSanityCheck } from './tests/test_audit_engine.js';
@@ -1657,6 +1657,19 @@ app.post('/webhook/meta/leadgen', (req, res) => {
       console.error('[Leadgen Webhook Error]:', err.message);
     });
   });
+});
+
+// [META LEAD ADS — backfill] Sincroniza los leads PASADOS de un formulario
+// (no solo los entrantes). Body: { formId, pageId, limit?, cursor? }.
+app.post('/api/meta/leadgen/backfill', async (req, res) => {
+  try {
+    const { formId, pageId, limit, cursor } = req.body || {};
+    const resultado = await backfillLeadgen({ formId, pageId, limit, cursor });
+    res.status(200).json({ success: resultado.ok !== false, ...resultado });
+  } catch (err) {
+    console.error('[Leadgen Backfill Error]:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // ==========================================
