@@ -38,6 +38,12 @@ const store = getStateStore('actividad_leads');
 const CLAVE = 'atendidos_v1';
 const TTL_MS = 48 * 60 * 60 * 1000;     // 48 h, igual que la ventana del radar
 const MAX_ENTRADAS = 20000;
+// [GRACIA CONTRA LA DERIVA DE TIMESTAMPS — 19/10] El radar, el guardian y el trabajo
+// del día leen el MISMO mensaje con timestamps ligeramente distintos (milisegundos o
+// segundos de diferencia). Sin esta gracia, `mensajeMs <= reg.mensajeMs` fallaba por
+// unos ms y el mismo lead se re-atendía (BUCLE_DE_REPROCESO). 1 min de gracia: un
+// mensaje real NUEVO (>1 min después) sí se atiende.
+const GRACE_MS = 60 * 1000;
 // Ventana de gracia para contactos SIN fecha de mensaje (formularios, SMS, o
 // contactos que solo aparecen porque el nivel 2 los escribió). Evita re-atenderlos
 // en cada ciclo. Configurable con GHL_VENTANA_SIN_MENSAJE_HORAS.
@@ -109,7 +115,7 @@ export function yaAtendido(contactId, mensajeMs) {
   if (!reg) return false;
 
   if (Number.isFinite(mensajeMs) && mensajeMs > 0) {
-    return mensajeMs <= reg.mensajeMs;
+    return mensajeMs <= (reg.mensajeMs + GRACE_MS);
   }
   // Sin evidencia de mensaje: ventana de gracia (por defecto 12 h).
   return (Date.now() - reg.atendidoEn) <= VENTANA_SIN_MENSAJE_MS;
