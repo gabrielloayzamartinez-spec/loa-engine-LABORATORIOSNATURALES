@@ -1351,10 +1351,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       if ((contact.tags || []).includes('compro')) tagsToRemove.push('compro');
     }
 
- // INYECCIÓN FLUIDA DE ETIQUETAS VTIGER EN VIVO
+ // INYECCIÓN FLUIDA DE ETIQUETAS VTIGER EN VIVO (SOLO LAS ESENCIALES)
     if (vContact || targetVtigerNota) {
-      newTagsSet.add('vtiger');
-      newTagsSet.add('vtiger-sincronizado');
+      // [19/10 — REDUCCIÓN DE ETIQUETAS] Se eliminan 'vtiger', 'vtiger-sincronizado',
+      // 'vtiger-status-*' y 'canal-*': eran ruido redundante (cliente/prospecto-vtiger
+      // ya resume el estado comercial). Se mantiene solo la etiqueta accionable.
       if (finalCustomerWon) {
         newTagsSet.add('cliente-vtiger');
         newTagsSet.delete('prospecto-vtiger');
@@ -1364,13 +1365,17 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         newTagsSet.delete('cliente-vtiger');
         if ((contact.tags || []).includes('cliente-vtiger')) tagsToRemove.push('cliente-vtiger');
       }
-      if (vContact?.cf_994) {
-        const vStClean = String(vContact.cf_994).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        if (vStClean) newTagsSet.add(`vtiger-status-${vStClean}`);
+      // Purga de las etiquetas vTiger ruidosas que hayan quedado de sincronizaciones previas.
+      for (const t of ['vtiger', 'vtiger-sincronizado']) {
+        newTagsSet.delete(t);
+        if ((contact.tags || []).includes(t)) tagsToRemove.push(t);
       }
-      if (vContact?.cf_3507) {
-        const vCanalClean = String(vContact.cf_3507).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        if (vCanalClean) newTagsSet.add(`canal-${vCanalClean}`);
+      for (const t of Array.from(newTagsSet)) {
+        const ts = String(t).trim();
+        if (ts.startsWith('vtiger-status-') || ts.startsWith('canal-')) {
+          newTagsSet.delete(t);
+          tagsToRemove.push(ts);
+        }
       }
     }
 
