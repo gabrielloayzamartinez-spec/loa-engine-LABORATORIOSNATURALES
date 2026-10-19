@@ -1132,15 +1132,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     if (targetPageName) {
-      const pageSlug = targetPageName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      newTagsSet.add(pageSlug);
+      // [19/10 — REDUCCIÓN] El slug de la página ya no se inyecta como tag: la
+      // sede/página viven en los custom fields (sede_asignada, origen_lead).
     }
 
-    // [FORM — 19/10] Los leads de FORMULARIOS (Lead Ads que aperturan chat por
-    // Messenger) se marcan con la etiqueta 'form' para poder segmentarlos en GHL.
-    if (targetChannel === 'FORM') {
-      newTagsSet.add('form');
-    }
+    // [19/10 — REDUCCIÓN] El tag 'form' se eliminó: el formulario ya se registra
+    // en el custom field id_form_clipo (leadgen) y en el canal del origen.
 
     // 1. Definir la ÚNICA etiqueta de producto permitida (El Tratamiento Principal)
     // [VOCABULARIO CANÓNICO] La lista incluye la etiqueta legada
@@ -1199,7 +1196,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
  // ARQUITECTURA MULTI-TENANT: Cada subcuenta en GHL es su propia sede soberana e independiente.
     // La mudanza de sede entre subcuentas ya no existe. Cada contacto pertenece a la sede de su subcuenta.
     const isMudanzaDeSede = false;
-    newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
+    // [19/10 — REDUCCIÓN] El tag 'sede-*' se eliminó: la sede vive en el custom
+    // field sede_asignada (y cada subcuenta ya es soberana por ubicación).
 
     // [AUDITORIA DE RUTEO] Si la asignacion no se pudo confirmar con evidencia de
     // Meta, se marca el contacto para revision humana. Es el "ojo" permanente sobre
