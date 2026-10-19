@@ -90,6 +90,19 @@ export async function processMetaWebhook(payload) {
            console.error("[Agente 4 Disparo Error]:", err);
         });
       }
+
+      // 3. Disparar el procesador de Lead Ads si viene un evento 'leadgen' en entry.changes
+      const changes = entry.changes || [];
+      const hasLeadgen = changes.some(c => c.field === 'leadgen');
+      if (hasLeadgen) {
+        import('../services/meta_leadgen_service.js').then(({ procesarLeadgen }) => {
+          procesarLeadgen({ object: 'page', entry: [entry] }).catch(err => {
+            console.error('[Leadgen Forwarded Error]:', err.message);
+          });
+        }).catch(err => {
+          console.error('[Leadgen Import Error]:', err.message);
+        });
+      }
     }
   } catch (err) {
     console.error("[Agente 4 Meta Webhook Error]:", err.message);

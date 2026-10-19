@@ -33,15 +33,16 @@ import { findContactByPhone } from './dual_sync_service.js';
  */
 export async function consultarLeadgenDetalle(leadgenId, pageId) {
   try {
+    const apiVersion = META_CONFIG.graphApiVersion || 'v20.0';
     const sedeMeta = getMetaConfigBySede({ pageId });
-    const systemToken = sedeMeta?.accessToken || getMetaCandidateTokens({ pageId })[0] || '';
+    const systemToken = sedeMeta?.accessToken || getMetaCandidateTokens({ pageId })[0] || SEDES_GATEWAY.PALACIOS?.meta?.accessToken || '';
     if (!systemToken) {
       console.warn(`[Leadgen] Sin token de sistema para page ${pageId}`);
       return null;
     }
 
     // Token de la página (necesario para leer el lead de esa página).
-    const tokenUrl = `https://graph.facebook.com/${META_CONFIG.graphApiVersion}/${pageId}?fields=access_token&access_token=${systemToken}`;
+    const tokenUrl = `https://graph.facebook.com/${apiVersion}/${pageId}?fields=access_token&access_token=${systemToken}`;
     const tokenRes = await fetchConTimeout(tokenUrl);
     if (!tokenRes.ok) {
       console.warn(`[Leadgen] No se pudo obtener page token para ${pageId}: HTTP ${tokenRes.status}`);
@@ -51,7 +52,7 @@ export async function consultarLeadgenDetalle(leadgenId, pageId) {
     const pageToken = tokenData.access_token;
     if (!pageToken) return null;
 
-    const url = `https://graph.facebook.com/${META_CONFIG.graphApiVersion}/${leadgenId}?fields=field_data,form_id,ad_id,adgroup_id,page_id,created_time&access_token=${pageToken}`;
+    const url = `https://graph.facebook.com/${apiVersion}/${leadgenId}?fields=id,created_time,field_data,form_id,ad_id,adset_id&access_token=${pageToken}`;
     const res = await fetchConTimeout(url);
     if (!res.ok) {
       console.warn(`[Leadgen] Detalle de lead ${leadgenId}: HTTP ${res.status}`);
@@ -65,7 +66,7 @@ export async function consultarLeadgenDetalle(leadgenId, pageId) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 2. EXTRACCIÓN DEL TELÉFONO DESDE field_data
+// 2. EXTRACCIÓN DE DATOS DESDE field_data
 // ──────────────────────────────────────────────────────────────────────────────
 /** field_data viene como [{name, values:[...]}, ...]. Se busca el teléfono. */
 export function extraerTelefono(fieldData = []) {
@@ -89,6 +90,43 @@ export function extraerTelefono(fieldData = []) {
   return '';
 }
 
+/** Extrae nombre completo y/o desglose desde field_data. */
+export function extraerNombre(fieldData = []) {
+  let fullName = '';
+  let firstName = '';
+  let lastName = '';
+  for (const f of fieldData) {
+    const name = String(f?.name || '').toLowerCase().trim();
+    const raw = Array.isArray(f?.values) ? f.values[0] : (f?.values || '');
+    const val = String(raw || '').trim();
+    if (!val) continue;
+    if (name === 'full_name' || name === 'nombre_completo' || name === 'nombre') {
+      fullName = val;
+    } else if (name === 'first_name' || name === 'primer_nombre') {
+      firstName = val;
+    } else if (name === 'last_name' || name === 'apellido' || name === 'apellidos') {
+      lastName = val;
+    }
+  }
+  if (!fullName && (firstName || lastName)) {
+    fullName = `${firstName} ${lastName}`.trim();
+  }
+  return { fullName, firstName, lastName };
+}
+
+/** Extrae correo electrónico desde field_data. */
+export function extraerEmail(fieldData = []) {
+  for (const f of fieldData) {
+    const name = String(f?.name || '').toLowerCase().trim();
+    if (name.includes('email') || name.includes('correo')) {
+      const raw = Array.isArray(f?.values) ? f.values[0] : (f?.values || '');
+      const val = String(raw || '').trim();
+      if (val && val.includes('@')) return val;
+    }
+  }
+  return '';
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // 3. VINCULACIÓN DEL form_id AL CONTACTO EN GHL (no destructiva)
 // ──────────────────────────────────────────────────────────────────────────────
@@ -98,12 +136,18 @@ const FIELD_FORM_ID = process.env.GHL_FORM_ID_FIELD || '';        // opcional (l
 // Nombre del custom field "id_form_clipo" creado por el operador en GHL (Palacios).
 const NOMBRE_FIELD_FORM_ID = process.env.GHL_FORM_ID_FIELD_NAME || 'id_form_clipo';
 
+// Mapa determinista de Custom Field IDs para "id form clipo" / Form ID por sede
+const CONOCIDOS_FORM_ID_FIELDS = {
+  PALACIOS: 'ZGcmoMyhX0pHvat8ipHo',
+  '5NqOaPYqWyIw2FPBfoRg': 'ZGcmoMyhX0pHvat8ipHo'
+};
+
 // Cache del id del campo resuelto por nombre (locationId -> id), con TTL de 30 min.
 const campoIdCache = new Map();
 
 /**
  * Resuelve el ID del custom field por su NOMBRE (ej. "id_form_clipo") consultando
- * la lista de custom fields de la subcuenta. Se cachea para no repetir la llamada.
+ * la lista de custom fields de la subcuenta en GHL v2.
  */
 async function resolverCampoPorNombre(locationId, headers, nombre) {
   const clave = `${locationId}:${nombre}`;
@@ -112,17 +156,19 @@ async function resolverCampoPorNombre(locationId, headers, nombre) {
 
   try {
     const res = await ghlFetch(
-      `https://services.leadconnectorhq.com/custom-fields/?locationId=${locationId}`,
+      `https://services.leadconnectorhq.com/locations/${locationId}/customFields`,
       { headers }, 1, 'Leadgen'
     );
     if (res.status !== 200) return '';
     const data = await res.json();
     const campos = data.customFields || [];
-    const campo = campos.find(c =>
-      String(c?.name || '').toLowerCase().replace(/\s+/g, '_') === String(nombre).toLowerCase()
-    );
+    const target = String(nombre).toLowerCase().replace(/\s+/g, '_');
+    const campo = campos.find(c => {
+      const nom = String(c?.name || '').toLowerCase().replace(/\s+/g, '_');
+      return nom === target || nom.includes('id_form_clipo') || nom.includes('form_id') || nom.includes('id_form');
+    });
     const id = campo?.id || '';
-    campoIdCache.set(clave, { id, ts: Date.now() });
+    if (id) campoIdCache.set(clave, { id, ts: Date.now() });
     return id;
   } catch (err) {
     console.warn(`[Leadgen] No se pudo resolver el campo "${nombre}": ${err.message}`);
@@ -130,43 +176,102 @@ async function resolverCampoPorNombre(locationId, headers, nombre) {
   }
 }
 
+/**
+ * Resuelve el Custom Field ID del formulario para una sede dada, con prioridad:
+ * 1. Mapeo determinista conocido (cero latencia)
+ * 2. Variable de entorno explícita GHL_FORM_ID_FIELD
+ * 3. Descubrimiento dinámico por nombre vía API de GHL
+ */
+async function resolverCampoFormId(locationId, headers, sedeName) {
+  if (sedeName && CONOCIDOS_FORM_ID_FIELDS[sedeName]) return CONOCIDOS_FORM_ID_FIELDS[sedeName];
+  if (locationId && CONOCIDOS_FORM_ID_FIELDS[locationId]) return CONOCIDOS_FORM_ID_FIELDS[locationId];
+  if (FIELD_FORM_ID) return FIELD_FORM_ID;
+  return await resolverCampoPorNombre(locationId, headers, NOMBRE_FIELD_FORM_ID);
+}
+
 async function vincularEnSede(locationId, headers, phone, datos, sedeName) {
-  const existente = await findContactByPhone(locationId, phone, headers);
-  if (!existente?.id) return null;
+  let existente = await findContactByPhone(locationId, phone, headers);
+
+  // Si no se encuentra de inmediato, dar una pequeña ventana de gracia (1.5s) por si GHL
+  // nativo está creando el contacto concurrentemente.
+  if (!existente?.id) {
+    await new Promise(r => setTimeout(r, 1500));
+    existente = await findContactByPhone(locationId, phone, headers);
+  }
 
   const customFields = [];
-  const tagsNuevas = [];
+  const tagsNuevas = ['meta-ads', 'lead-ad', 'form'];
 
-  // form_id: se guarda en tag (siempre) y en el custom field "id_form_clipo".
+  // form_id: se inyecta en el custom field oficial "id form clipo" y en etiqueta
   if (datos.formId) {
     tagsNuevas.push(`form-id-${datos.formId}`);
-    // Prioridad: el campo por NOMBRE (id_form_clipo), o el env si está configurado.
-    const idCampo = (await resolverCampoPorNombre(locationId, headers, NOMBRE_FIELD_FORM_ID)) || FIELD_FORM_ID;
+    const idCampo = await resolverCampoFormId(locationId, headers, sedeName);
     if (idCampo) customFields.push({ id: idCampo, field_value: datos.formId });
   }
-  if (FIELD_META_AD_ID && datos.adId) {
-    customFields.push({ id: FIELD_META_AD_ID, field_value: datos.adId });
+
+  // Atribución de anuncio (Ad ID y Adset ID)
+  const sedeCf = SEDES_GATEWAY[sedeName]?.customFields;
+  if (datos.adId) {
+    if (sedeCf?.idAnuncio) customFields.push({ id: sedeCf.idAnuncio, field_value: datos.adId });
+    if (sedeCf?.adIdAlt) customFields.push({ id: sedeCf.adIdAlt, field_value: datos.adId });
+    if (FIELD_META_AD_ID && FIELD_META_AD_ID !== sedeCf?.idAnuncio && FIELD_META_AD_ID !== sedeCf?.adIdAlt) {
+      customFields.push({ id: FIELD_META_AD_ID, field_value: datos.adId });
+    }
+  }
+  if (datos.adgroupId && sedeCf?.adsetId) {
+    customFields.push({ id: sedeCf.adsetId, field_value: datos.adgroupId });
   }
 
-  const body = {};
-  if (customFields.length) body.customFields = customFields;
+  // Si el contacto ya existe en GHL, actualizamos con merge no destructivo
+  if (existente?.id) {
+    const body = {};
+    if (customFields.length) body.customFields = customFields;
 
-  // [NO DESTRUCTIVO] Solo se añaden tags nuevos (merge), nunca se pisan los existentes.
-  if (tagsNuevas.length) {
+    // [NO DESTRUCTIVO] Solo se añaden tags nuevos (merge), nunca se pisan los existentes.
     const tagsActuales = new Set((existente.tags || []).map(t => String(t).trim()));
     for (const t of tagsNuevas) tagsActuales.add(t);
     body.tags = [...tagsActuales];
+
+    if (!Object.keys(body).length) return existente.id;
+
+    try {
+      await ghlFetch(`https://services.leadconnectorhq.com/contacts/${existente.id}`, {
+        method: 'PUT', headers, body: JSON.stringify(body)
+      }, 1, 'Leadgen');
+      return existente.id;
+    } catch (err) {
+      console.warn(`[Leadgen] No se pudo inyectar form_id en ${sedeName}: ${err.message}`);
+      return null;
+    }
   }
 
-  if (!Object.keys(body).length) return existente.id; // nada que inyectar
+  // Si el contacto NO existe aún en GHL, lo creamos directamente con los datos de Meta
+  const createPayload = {
+    locationId,
+    phone,
+    tags: tagsNuevas,
+    customFields
+  };
+  if (datos.fullName) createPayload.name = datos.fullName;
+  if (datos.firstName) createPayload.firstName = datos.firstName;
+  if (datos.lastName) createPayload.lastName = datos.lastName;
+  if (datos.email) createPayload.email = datos.email;
 
   try {
-    await ghlFetch(`https://services.leadconnectorhq.com/contacts/${existente.id}`, {
-      method: 'PUT', headers, body: JSON.stringify(body)
-    }, 1, 'Leadgen');
-    return existente.id;
+    const resCreate = await ghlFetch('https://services.leadconnectorhq.com/contacts/', {
+      method: 'POST', headers, body: JSON.stringify(createPayload)
+    }, 1, 'LeadgenCreate');
+
+    if (resCreate.ok) {
+      const dataCreate = await resCreate.json();
+      return dataCreate?.contact?.id || null;
+    } else {
+      const errText = await resCreate.text().catch(() => '');
+      console.warn(`[Leadgen] Contacto no creado en ${sedeName} (HTTP ${resCreate.status}): ${errText}`);
+      return null;
+    }
   } catch (err) {
-    console.warn(`[Leadgen] No se pudo inyectar form_id en ${sedeName}: ${err.message}`);
+    console.warn(`[Leadgen] Error creando contacto nuevo en ${sedeName}: ${err.message}`);
     return null;
   }
 }
@@ -178,7 +283,7 @@ async function vincularEnSede(locationId, headers, phone, datos, sedeName) {
  * Procesa un evento `leadgen` completo:
  *   - extrae page_id + leadgen_id
  *   - consulta el detalle en Meta
- *   - extrae el teléfono (llave única)
+ *   - extrae el teléfono (llave única), nombre y correo
  *   - vincula form_id + atribución en GHL (Sede + Central)
  *   - despacha la validación de sede (Nivel 2) en background
  */
@@ -200,9 +305,11 @@ export async function procesarLeadgen(payload) {
         }
 
         const phone = extraerTelefono(detalle.field_data);
+        const { fullName, firstName, lastName } = extraerNombre(detalle.field_data);
+        const email = extraerEmail(detalle.field_data);
         const formId = String(detalle.form_id || '').trim();
         const adId = String(detalle.ad_id || '').trim();
-        const adgroupId = String(detalle.adgroup_id || '').trim();
+        const adgroupId = String(detalle.adset_id || detalle.adgroup_id || '').trim();
 
         if (!phone) {
           recordAuditEvent({ type: 'LEADGEN_SIN_TELEFONO', severity: 'warn', leadgenId, pageId, formId });
@@ -222,7 +329,7 @@ export async function procesarLeadgen(payload) {
           'Content-Type': 'application/json',
           Accept: 'application/json'
         };
-        const datos = { formId, adId, adgroupId, pageId };
+        const datos = { formId, adId, adgroupId, pageId, fullName, firstName, lastName, email };
 
         // Sede operativa.
         const contactId = await vincularEnSede(sedeCfg.ghl.locationId, headers, phone, datos, sedeName);

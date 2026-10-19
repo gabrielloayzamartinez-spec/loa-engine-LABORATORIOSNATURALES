@@ -9,7 +9,7 @@
 
 > 📦 **IMPLEMENTACIÓN ENTREGADA EN UN REPOSITORIO INDEPENDIENTE**
 > El flujo completo (detector de compras + PDF + publicación + puente) vive ahora en un proyecto **autónomo y separado**, listo para ejecutarse por sí solo:
-> **`C:\Users\Lenovo\Desktop\LOA_INVOICE_ENGINE`** — cero dependencias externas, CLI propia, 7 suites de pruebas (261 asserts) en verde y commit inicial creado (rama `main`, 23 archivos).
+> **`C:\Users\Lenovo\Desktop\LOA_INVOICE_ENGINE`** — cero dependencias externas, CLI propia (`check`/`test-pdf`/`publish`/`once`/`scan`), **10 suites de pruebas (338 asserts)** en verde y 3 commits en la rama `main` (listo para `git push`). Incluye una suite de **integración por HTTP real** que levanta servidores locales con el protocolo de vTiger y GHL (cookies, 302, multipart) y ejecuta el flujo completo y el CLI contra ellos.
 > Este documento queda como **diseño de referencia**; los módulos de este motor son el prototipo del que se portó el código.
 
 ---
