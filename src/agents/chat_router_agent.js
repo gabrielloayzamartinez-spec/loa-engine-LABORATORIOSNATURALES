@@ -1,12 +1,12 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
 import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
 import { resolveChannelFromEvent, detectSystemMessage, esCanalPermitido } from '../utils/system_message_filter.js';
-import { getOwnerKeyByPageId, getPageMatrixEntry } from '../config/page_matrix.js';
+import { getOwnerKeyByPageId, getPageMatrixEntry, getQueueTagByPageId, getSmartViewTagsByPageId } from '../config/page_matrix.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, buildOrigenDeContacto, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
-import { extraerAdIdDeMensaje, extraerAdIdDeMensajes, extraerPageIdDeMensaje, resolverAdId } from '../services/ad_id_resolver.js';
+import { extraerAdIdDeMensaje, extraerAdIdDeMensajes, extraerPageIdDeMensaje, extraerPsidDeMensajes, resolverAdId } from '../services/ad_id_resolver.js';
 import { yaAtendido, marcarAtendido } from '../services/lead_activity_memory.js';
 import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
@@ -440,21 +440,21 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         // la primera). Un lead que entra por 2 anuncios de campañas distintas el MISMO
         // DÍA genera 2 conversaciones: si solo se lee la primera, el ad_id de la SEGUNDA
         // interacción se pierde y el origen queda atascado en el primer anuncio.
-        const todasMsgs = [];
-        const limiteConvs = Math.min(conversations.length, 5);
+        const limiteConvs = Math.min(conversations.length, isLive ? 2 : 5);
+        const fetchPromises = [];
         for (let ci = 0; ci < limiteConvs; ci++) {
           const conv = conversations[ci];
           if (!conv?.id) continue;
-          try {
-            const msgUrl = `https://services.leadconnectorhq.com/conversations/${conv.id}/messages?locationId=${activeLocationId}&limit=20`;
-            const msgRes = await fetchWithRetry(msgUrl, { headers: activeHeaders }, 1, isLive);
-            if (msgRes.status === 200) {
-              const msgData = await msgRes.json();
-              const msgs = msgData.messages?.messages || [];
-              todasMsgs.push(...msgs);
-            }
-          } catch { /* una conversación sin mensajes no aborta el lote */ }
+          const msgUrl = `https://services.leadconnectorhq.com/conversations/${conv.id}/messages?locationId=${activeLocationId}&limit=20`;
+          fetchPromises.push(
+            fetchWithRetry(msgUrl, { headers: activeHeaders }, 1, isLive)
+              .then(res => res.status === 200 ? res.json() : null)
+              .then(data => data?.messages?.messages || [])
+              .catch(() => [])
+          );
         }
+        const results = await Promise.all(fetchPromises);
+        const todasMsgs = results.flat();
 
         allMessages = todasMsgs.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
 
@@ -637,32 +637,34 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         return 'UNCHANGED';
       }
       // [19/10] Página desvinculada de REDES (sinDueno): los leads de esta iniciativa
-      // (formularios) NO se asignan a ningún dueño de REDES; solo se sincronizan.
+      // (formularios) NO se asignan a ningún dueño de REDES; se canalizan a Cola Forms y se sincronizan.
       if (pageEntry?.sinDueno) {
-        console.log(`[Agente 3] [PAGINA-SIN-DUENO] ${contactId} página ${targetPageName || targetPageId} está desvinculada de REDES: no se asigna dueño.`);
-        return 'UNCHANGED';
-      }
-      const ownerKey = getOwnerKeyByPageId(targetPageId);
-      const ownerUser = ownerKey ? resolvedSede.users[ownerKey] : null;
-
-      if (ownerUser) {
-        targetAdvisorId = ownerUser.id;
-        targetAdvisorName = ownerUser.name;
+        console.log(`[Agente 3] [PAGINA-SIN-DUENO] ${contactId} página ${targetPageName || targetPageId} está desvinculada de REDES: canalizado a Cola Forms.`);
+        targetAdvisorId = null;
+        targetAdvisorName = 'Cola Forms';
       } else {
-        // Fallback por continuidad operativa: dueño por defecto de la sede, PERO se
-        // marca "revisar-ruteo" para no asignar en silencio a un contacto sin fanpage.
-        const defaultKey = resolvedSede.sedeId === 'PALACIOS' ? 'ernesto'
-          : resolvedSede.sedeId === 'BENAVIDES' ? 'redes2'
-          : 'redes';
-        const defUser = resolvedSede.users[defaultKey];
-        if (defUser) {
-          targetAdvisorId = defUser.id;
-          targetAdvisorName = defUser.name;
-        }
-        if (!hasRealFanpage) {
-          routingReviewReason = 'sin evidencia de fanpage de Meta';
+        const ownerKey = getOwnerKeyByPageId(targetPageId);
+        const ownerUser = ownerKey ? resolvedSede.users[ownerKey] : null;
+
+        if (ownerUser) {
+          targetAdvisorId = ownerUser.id;
+          targetAdvisorName = ownerUser.name;
         } else {
-          routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
+          // Fallback por continuidad operativa: dueño por defecto de la sede, PERO se
+          // marca "revisar-ruteo" para no asignar en silencio a un contacto sin fanpage.
+          const defaultKey = resolvedSede.sedeId === 'PALACIOS' ? 'ernesto'
+            : resolvedSede.sedeId === 'BENAVIDES' ? 'redes2'
+            : 'redes';
+          const defUser = resolvedSede.users[defaultKey];
+          if (defUser) {
+            targetAdvisorId = defUser.id;
+            targetAdvisorName = defUser.name;
+          }
+          if (!hasRealFanpage) {
+            routingReviewReason = 'sin evidencia de fanpage de Meta';
+          } else {
+            routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
+          }
         }
       }
     }
@@ -798,6 +800,24 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] [AD-ID] Resuelto desde referral del mensaje (${deMensajes.fecha || 'sin fecha'}): ${latestAdId}`);
     }
 
+    // [EL RESPALDO CLAVE — SEGUNDO 0-1 DE AGENT 4]
+    // Si GHL no trajo el referral en el mensaje, consultamos inmediatamente el almacén
+    // de respaldo capturado de Meta en Segundo 0 por PSID o por Fanpage reciente.
+    if (!latestAdId) {
+      const psidMsg = extraerPsidDeMensajes(allMessages);
+      const resAd = resolverAdId({
+        mensajes: allMessages,
+        contacto: contact,
+        adIdActual: currentAdId,
+        psid: psidMsg || contact.psid,
+        pageId: targetPageId
+      });
+      if (resAd.adId) {
+        latestAdId = resAd.adId;
+        console.log(`[Agente 3] [RESPALDO-META] Ad ID resuelto desde ${resAd.fuente} (${resAd.evidencia}): ${latestAdId}`);
+      }
+    }
+
     // 2. Recopilar todas las fuentes de atribución disponibles en GHL ordenadas por recencia
     // [ORDEN CORREGIDO — CRÍTICO] ANTES: `attributionSource` (PRIMER toque) iba PRIMERO,
     // asi que `latestCampaign`/`latestAdSetName` tomaban la campaña VIEJA y el origen
@@ -870,7 +890,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const vTigerEnCooldown = !isDryRun && enCooldownDeRuteo(`vt:${contactId}`);
     try {
       if (!vTigerEnCooldown && effectivePhone) {
-        vContact = await findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName);
+        // [FAST-PATH] En ruteo en vivo, proteger con timeout rápido para no demorar la entrega del chat
+        vContact = await Promise.race([
+          findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('vTiger Timeout 1500ms')), 1500))
+        ]).catch(err => {
+          console.warn(`[Agente 3] [VTIGER-FAST-TIMEOUT] vTiger diferido para ${contactId}: ${err.message}`);
+          return null;
+        });
       }
       if (vContact) {
  // SEDE-SHIELD: Bloqueo total de contacto de otra sede
@@ -916,10 +943,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     let targetAdName = null;
 
     if (targetAdId && isValidMetaAdId(targetAdId)) {
-      const metaDetails = await getMetaAdDetails(targetAdId, {
-        sede: currentSedeName,
-        pageId: targetPageId,
-        locationId: activeLocationId
+      const metaDetails = await Promise.race([
+        getMetaAdDetails(targetAdId, {
+          sede: currentSedeName,
+          pageId: targetPageId,
+          locationId: activeLocationId
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Meta API Timeout 1500ms')), 1500))
+      ]).catch(err => {
+        console.warn(`[Agente 3] [META-FAST-TIMEOUT] Meta Ad Details diferido para ${targetAdId}: ${err.message}`);
+        return null;
       });
       if (metaDetails) {
         latestCampaign = metaDetails.campaignName || latestCampaign;
@@ -1230,6 +1263,26 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
+    // INYECCIÓN DE VISTAS INTELIGENTES (SMART VIEWS - OPERACIÓN ÁGIL NIVEL 1)
+    if (targetPageId) {
+      const smartViewTags = getSmartViewTagsByPageId(targetPageId);
+      const ALL_QUEUE_TAGS = ['cola-redes-1', 'cola-redes-2', 'cola-inhouse', 'cola-forms'];
+      const targetQueue = getQueueTagByPageId(targetPageId);
+      if (targetQueue) {
+        for (const qTag of ALL_QUEUE_TAGS) {
+          if (qTag !== targetQueue && newTagsSet.has(qTag)) {
+            newTagsSet.delete(qTag);
+            tagsToRemove.push(qTag);
+          }
+        }
+      }
+      for (const svTag of smartViewTags) {
+        newTagsSet.add(svTag);
+      }
+    } else if (currentSedeName) {
+      newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
+    }
+
     // Alerta de Lead Caliente (Teléfono o Dirección)
     if (shippingData.isHotLead) {
       newTagsSet.add('lead-caliente');
@@ -1411,7 +1464,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // la página de BENAVIDES, el SEDE-LOCK (cf_3451 = sede) hace que `findVTigerContact`
     // NO lo encuentre en Benavides: conversa normal, pero sus datos de compra NO se
     // filtran a Benavides. La compra queda SOLO en la subcuenta de la sede donde compró.
-    updatePayload.assignedTo = targetAdvisorId;
+    if (targetAdvisorId) {
+      updatePayload.assignedTo = targetAdvisorId;
+    }
 
  // INYECCIÓN AUTOMÁTICA DE "GENERAL INFO" (ESTRICTO USA)
     // 1. Teléfono
@@ -1461,7 +1516,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
  // Filtro Silencioso: Comprobar si realmente hay cambios antes de hacer PUT
-    const isSameAdvisor = contact.assignedTo === targetAdvisorId;
+    const isSameAdvisor = targetAdvisorId ? (contact.assignedTo === targetAdvisorId) : true;
     const isSameSource = contact.source === vtigerSource;
     const currentTags = (contact.tags || []).map(t => String(t).trim());
     const tagsChanged = newTagsSet.size !== currentTags.length || Array.from(newTagsSet).some(t => !currentTags.includes(t));
