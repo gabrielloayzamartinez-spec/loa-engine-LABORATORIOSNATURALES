@@ -67,3 +67,53 @@ export function getOwnerKeyByPageId(pageId) {
 export function getAllPageIds() {
   return Object.keys(PAGE_MATRIX);
 }
+
+/**
+ * Determina la etiqueta de cola (Smart View) correspondiente a una fanpage:
+ * - 'cola-redes-1': Asignada a Ernesto o Redes 1
+ * - 'cola-redes-2': Asignada a Click2Ring / Ultra o Redes 2
+ * - 'cola-forms': Formularios Lead Ads (Laboratorios Naturales BIO 718150351371765)
+ * - 'cola-inhouse': Operación In-House
+ */
+export function getQueueTagByPageId(pageId) {
+  const entry = getPageMatrixEntry(pageId);
+  if (!entry) return 'cola-general';
+
+  if (entry.sinDueno || String(pageId).trim() === '718150351371765') {
+    return 'cola-forms';
+  }
+
+  const prov = String(entry.proveedor || '').toUpperCase();
+  const owner = String(entry.ownerKey || '').toLowerCase();
+
+  if (prov === 'ERNESTO' || owner === 'ernesto' || owner === 'redes1') {
+    return 'cola-redes-1';
+  }
+  if (prov === 'CLICK2RING' || prov === 'REDES 2 BENAVIDES' || owner === 'ultra' || owner === 'redes2' || owner === 'click2ring') {
+    return 'cola-redes-2';
+  }
+  if (prov === 'IN_HOUSE') {
+    return 'cola-inhouse';
+  }
+  return 'cola-redes-1';
+}
+
+/**
+ * Obtiene el conjunto de etiquetas estratégicas para Vistas Inteligentes
+ * por página (Sede + Cola + Proveedor).
+ */
+export function getSmartViewTagsByPageId(pageId) {
+  const entry = getPageMatrixEntry(pageId);
+  if (!entry) return [];
+
+  const tags = [];
+  // Etiqueta de Sede
+  const sedeSlug = `sede-${String(entry.sede).toLowerCase()}`;
+  tags.push(sedeSlug);
+
+  // Etiqueta de Cola Operativa (Smart View)
+  const colaTag = getQueueTagByPageId(pageId);
+  tags.push(colaTag);
+
+  return tags;
+}

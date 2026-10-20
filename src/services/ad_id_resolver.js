@@ -37,6 +37,7 @@
  */
 
 import { isValidMetaAdId } from '../agents/nlp_symptom_engine.js';
+import { getMetaReferralByPsid, getLatestMetaReferralByPageId } from './meta_referral_store.js';
 
 /** Claves que Meta/GHL usan para el ID del anuncio, en cualquier canal. */
 const CLAVES_AD_ID = new Set(['ad_id', 'adid', 'ad_id_', 'ads_id', 'adid_', 'ad_id_fb']);
@@ -119,6 +120,33 @@ export function extraerPageIdDeMensaje(mensaje) {
   return null;
 }
 
+/** Extrae el PSID (Page-Scoped ID) de Meta de un mensaje de GHL. */
+export function extraerPsidDeMensaje(mensaje) {
+  if (!mensaje) return null;
+  const cands = [
+    mensaje?.meta?.fb?.senderId,
+    mensaje?.meta?.fb?.psid,
+    mensaje?.meta?.senderId,
+    mensaje?.meta?.psid,
+    mensaje?.senderId
+  ];
+  for (const c of cands) {
+    if (c && String(c).trim() !== '' && !String(c).includes('@')) {
+      return String(c).trim();
+    }
+  }
+  return null;
+}
+
+/** Recorre mensajes para obtener el primer PSID disponible. */
+export function extraerPsidDeMensajes(mensajes = []) {
+  for (const m of mensajes) {
+    const psid = extraerPsidDeMensaje(m);
+    if (psid) return psid;
+  }
+  return null;
+}
+
 /**
  * Recorre los mensajes (se esperan ordenados del MÁS NUEVO al más viejo) y
  * devuelve el Ad ID de la interacción publicitaria más reciente, junto con el
@@ -154,20 +182,47 @@ function adIdDeAtribucion(attr) {
  * @param {object} [opts.contacto]      contacto de GHL (para la atribución)
  * @param {string} [opts.adIdActual]    Ad ID ya guardado en el contacto
  * @param {string} [opts.adIdVtiger]    Ad ID registrado en vTiger (cf_2850)
+ * @param {string} [opts.psid]          PSID de Meta si está disponible
+ * @param {string} [opts.pageId]        Page ID de la fanpage
  * @returns {{adId: string|null, fuente: string|null, evidencia: string|null}}
  */
-export function resolverAdId({ mensajes = [], contacto = null, adIdActual = null, adIdVtiger = null } = {}) {
+export function resolverAdId({
+  mensajes = [],
+  contacto = null,
+  adIdActual = null,
+  adIdVtiger = null,
+  psid = null,
+  pageId = null
+} = {}) {
   // 1. Referral del mensaje más reciente (la interacción publicitaria actual).
   const deMensajes = extraerAdIdDeMensajes(mensajes);
   if (deMensajes.adId) {
     return { adId: deMensajes.adId, fuente: 'referral_mensaje', evidencia: `mensaje ${deMensajes.mensajeId || '?'} (${deMensajes.fecha || 'sin fecha'})` };
   }
 
-  // 2. Atribución MÁS RECIENTE de GHL.
+  // 2. Respaldo Clave de Meta Webhook (Segundo 0-1) capturado por Agent 4 (por PSID).
+  const targetPsid = psid || extraerPsidDeMensajes(mensajes) || contacto?.psid || null;
+  if (targetPsid) {
+    const metaRef = getMetaReferralByPsid(targetPsid);
+    if (metaRef?.adId && isValidMetaAdId(metaRef.adId)) {
+      return { adId: metaRef.adId, fuente: 'respaldo_meta_webhook_psid', evidencia: `Meta Webhook PSID ${targetPsid} (${metaRef.ref || 'sin ref'})` };
+    }
+  }
+
+  // 3. Atribución MÁS RECIENTE de GHL.
   const last = adIdDeAtribucion(contacto?.lastAttributionSource);
   if (last) return { adId: last, fuente: 'atribucion_ultima_ghl', evidencia: 'lastAttributionSource' };
 
-  // 3. Historial de atribuciones (de la más reciente a la más antigua).
+  // 4. Respaldo Clave de Meta Webhook por Fanpage reciente (ventana 5 min).
+  const targetPageId = pageId || extraerPageIdDeMensaje(mensajes[0]);
+  if (targetPageId) {
+    const pageRef = getLatestMetaReferralByPageId(targetPageId);
+    if (pageRef?.adId && isValidMetaAdId(pageRef.adId)) {
+      return { adId: pageRef.adId, fuente: 'respaldo_meta_webhook_page', evidencia: `Meta Webhook Page ${targetPageId} reciente` };
+    }
+  }
+
+  // 5. Historial de atribuciones (de la más reciente a la más antigua).
   if (Array.isArray(contacto?.attributions)) {
     for (const attr of [...contacto.attributions].reverse()) {
       const id = adIdDeAtribucion(attr);
@@ -175,19 +230,20 @@ export function resolverAdId({ mensajes = [], contacto = null, adIdActual = null
     }
   }
 
-  // 4. Atribución de primer toque.
+  // 6. Atribución de primer toque.
   const first = adIdDeAtribucion(contacto?.attributionSource);
   if (first) return { adId: first, fuente: 'atribucion_primer_toque_ghl', evidencia: 'attributionSource' };
 
-  // 5. El Ad ID ya guardado en el contacto (nunca se degrada a vacío).
+  // 7. El Ad ID ya guardado en el contacto (nunca se degrada a vacío).
   if (adIdActual && isValidMetaAdId(adIdActual)) {
     return { adId: String(adIdActual).trim(), fuente: 'campo_previo_contacto', evidencia: 'ID de Anuncio existente' };
   }
 
-  // 6. Lo que vTiger tenga registrado (cf_2850).
+  // 8. Lo que vTiger tenga registrado (cf_2850).
   if (adIdVtiger && isValidMetaAdId(adIdVtiger)) {
     return { adId: String(adIdVtiger).trim(), fuente: 'vtiger_cf_2850', evidencia: 'Ground Truth vTiger' };
   }
 
   return { adId: null, fuente: null, evidencia: null };
 }
+

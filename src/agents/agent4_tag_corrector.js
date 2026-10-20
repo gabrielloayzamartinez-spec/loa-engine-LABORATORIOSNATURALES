@@ -1,38 +1,20 @@
 import { GHL_CONFIG, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders } from '../config/index.js';
 import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
-import { fetchConTimeout } from '../utils/http_timeout.js';
-import { ghlFetch } from '../utils/ghl_http_client.js';
-
-const { apiKey, locationId } = GHL_CONFIG;
-
-async function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function fetchWithRetry(url, options, attempt = 1) {
-  // [CIERRE DE FUGA — AUDITORIA DE RATE LIMIT] Antes hacia `fetchConTimeout`
-  // directo (sin freno central). Ahora todas las llamadas a GHL pasan por el
-  // mismo token bucket, backoff de 429 y guardian de cuota diaria.
-  return ghlFetch(url, options, attempt, 'Agente4');
-}
+import { recordMetaReferral } from '../services/meta_referral_store.js';
 
 /**
- * Buscar al contacto en GHL por coincidencia de conversación reciente (Bypass de FB API)
- */
-async function findGhlContactByConversation(messageText, targetLocId, targetHeaders) {
-  // [REGLA DEFINITIVA — 15/10] Se DESHABILITA el emparejamiento por TEXTO de mensaje
-  // y por "conversación más reciente": eso asociaba el Ad ID (y datos) al contacto
-  // EQUIVOCADO cuando dos personas escribían el mismo texto (ej. "SÍ" de la campaña
-  // SMS), y dejaba contactos "con un número que no les pertenece". El ÚNICO indicador
-  // de acción es el NÚMERO (teléfono). Sin un número de referencia válido en el
-  // evento, el Agente 4 NO corrige nada (fail-safe).
-  console.warn('[Agente 4] [BLOQUEADO] Emparejamiento por texto/recencia deshabilitado (solo número). Corrección omitida para no tocar contactos ajenos.');
-  return null;
-}
-
-/**
- * Agente 4: Corrector de Etiquetas e IDs (Analista de Sanidad de Datos)
- * Escanea el payload en busca del referral (Ad ID) y corrige el contacto en GHL.
+ * Agente 4: Captura de Origen Publicitario en Segundo 0 (El Respaldo Clave)
+ *
+ * FLUJOGRAMA OPERATIVO (SEGUNDO 0-1):
+ * Cuando el lead hace clic en el anuncio y abre Messenger o WhatsApp, Meta
+ * dispara el webhook al motor con: page_id, PSID, ad_id (referral) y campaña.
+ *
+ * El Agente 4 captura el ad_id + campaña DE INMEDIATO y lo persiste en memoria
+ * y estado (meta_referral_store), SIN esperar a GHL.
+ *
+ * Cuando GHL cree el contacto en el segundo 2-3, si la integración nativa de GHL
+ * no trae el ad_id, el Router toma este respaldo clave para garantizar el 100%
+ * de atribución sin demoras.
  */
 export async function processAdIdCorrection(event, pageId = '') {
   try {
@@ -40,76 +22,33 @@ export async function processAdIdCorrection(event, pageId = '') {
     if (!referral && event.message?.referral) referral = event.message.referral;
     if (!referral && event.postback?.referral) referral = event.postback.referral;
 
-    if (!referral) return; // Si no hay referral, el Agente 4 no tiene nada que corregir.
+    if (!referral) return; // Sin referral, nada que respaldar
 
-    const adId = referral.ad_id;
-    const refParam = referral.ref;
+    const adId = referral.ad_id || referral.adId || '';
+    const refParam = referral.ref || '';
+    const senderPsid = event.sender?.id || '';
+    const adTitle = referral.ad_title || '';
+    const source = referral.source || 'ADS';
+    const type = referral.type || 'OPEN_THREAD';
 
-    // [RESOLUCIÓN MULTI-SEDE PUNTO A PUNTO]
-    const sedeConf = resolveSedeContext({ pageId });
-    if (!sedeConf || sedeConf.isUnresolved || sedeConf.isConfigured === false) {
-      console.warn(`[Agente 4] [SEDE-NO-CONFIGURADA] Sede no resoluble o sin credenciales (pageId: ${pageId}). Corrección omitida.`);
-      return;
-    }
+    // [SEGUNDO 0 — RESPALDO INMEDIATO EN MEMORIA / ESTADO]
+    const record = recordMetaReferral({
+      psid: senderPsid,
+      pageId,
+      adId,
+      ref: refParam,
+      adTitle,
+      source,
+      type
+    });
 
-    const targetLocId = sedeConf?.ghl?.locationId || locationId;
-    const targetHeaders = getGhlHeaders({ locationId: targetLocId });
-
-    if (global.pushLiveLog) global.pushLiveLog(`[AGENTE_4] [INFO] (${sedeConf?.sedeId || 'PALACIOS'}): Escaneando origen publicitario (Ad: ${adId || 'N/A'})`);
-
-    let messageText = "";
-    if (event.message && event.message.text) {
-       messageText = event.message.text;
-    } else if (event.postback && event.postback.title) {
-       messageText = event.postback.title;
-    }
-
-    // Esperamos 2.5 segundos para darle ventaja a GHL de procesar el chat
-    await sleep(2500);
-
-    const ghlContact = await findGhlContactByConversation(messageText, targetLocId, targetHeaders);
-    
-    if (!ghlContact) {
-      console.error(`[Agente 4] No se encontró el contacto GHL para corregir Ad ID en ${sedeConf?.sedeId || 'PALACIOS'}`);
-      return;
-    }
-      
-    const customFieldsToUpdate = [];
-    const isBenavidesLoc = targetLocId === SEDES_GATEWAY.BENAVIDES.ghl.locationId;
-    const ID_ANUNCIO_FIELD = isBenavidesLoc ? 'bjIdaPk0dzyuNw0RCMwn' : 'NR0eI8a2EvugkHhpRJ1w';
-    const AD_ID_ALT_FIELD = isBenavidesLoc ? 'xYgC0RFCZZ1GagK2aaXu' : 'PUUykPTCijq7rZoLYwAD';
-    const TRATAMIENTO_FIELD = isBenavidesLoc ? 'xqDD056VzkFTOxHniDkw' : '5Sci2WhOpJq9kZWsLTrp';
-    
-    if (adId) {
-      customFieldsToUpdate.push({ id: ID_ANUNCIO_FIELD, field_value: String(adId) });
-      customFieldsToUpdate.push({ id: AD_ID_ALT_FIELD, field_value: String(adId) });
-    }
-    
-    if (refParam) {
-      // [VOCABULARIO CANÓNICO] Se elimina el mapeo manual, que además tenía un
-      // error: 'rodilla'/'articulaciones' (síntomas de Artritis) se etiquetaban
-      // como 'Colageno'.
-      const tratamiento = normalizeTreatment(refParam);
-
-      if (tratamiento) {
-        customFieldsToUpdate.push({ id: TRATAMIENTO_FIELD, field_value: tratamiento });
-      }
-    }
-
-    if (customFieldsToUpdate.length > 0) {
-      const updateRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${ghlContact.id}`, {
-        method: 'PUT',
-        headers: targetHeaders,
-        body: JSON.stringify({ customFields: customFieldsToUpdate })
-      });
-      
-      if (updateRes.status === 200) {
-        if (global.pushLiveLog) global.pushLiveLog(`[AGENTE_4] [INFO] Corrección de AdID y Etiquetas aplicada para ${ghlContact.name} (${sedeConf?.sedeId || 'PALACIOS'})`);
-      } else {
-        console.error(`[Agente 4] Error corrigiendo GHL (${updateRes.status})`);
-      }
+    if (record) {
+      const msg = `[AGENTE_4] [RESPALDO-CAPTURADO] Ad ID: ${adId || 'N/A'} | PSID: ${senderPsid || 'N/A'} | Page: ${pageId} | Ref: ${refParam || 'N/A'}`;
+      console.log(msg);
+      if (global.pushLiveLog) global.pushLiveLog(msg);
     }
   } catch (err) {
-    console.error("[Agente 4 Corrector Error]:", err.message);
+    console.error('[Agente 4 Error]:', err.message);
   }
 }
+
