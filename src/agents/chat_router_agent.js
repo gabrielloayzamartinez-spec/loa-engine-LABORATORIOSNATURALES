@@ -680,7 +680,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Ahora se toman SOLO los asesores de la subcuenta activa. Si la sede no
     // tiene asesores configurados, NO se asigna uno ajeno: queda para revision.
     // ==================================================================
-    if (!targetAdvisorId) {
+    if (!targetAdvisorId && targetAdvisorName !== 'Cola Forms') {
       const sedeActual = Object.values(SEDES_GATEWAY)
         .find(s => s?.ghl?.locationId === activeLocationId);
       const asesoresPropios = sedeActual?.users
@@ -717,7 +717,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    if (!targetAdvisorId) {
+    if (!targetAdvisorId && targetAdvisorName !== 'Cola Forms') {
       console.log(`[Agente 3] No se encontró un asesor asignado para la página ${targetPageName}.`);
       return;
     }
@@ -878,8 +878,29 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
  // B. ANÁLISIS INTELIGENTE DE SÍNTOMAS (NLP + LEARNING BRAIN) Y DATOS DE ENVÍO
     const combinedText = allMessages.map(m => m.body || '').join(' \n ');
-    const shippingData = extractShippingData(combinedText, contact.phone);
-    const effectivePhone = contact.phone || (shippingData?.hasPhone ? shippingData.phone : null);
+
+    // [DETECCIÓN DE MENSAJE AUTOMÁTICO DE FORMULARIO DE META LEAD ADS]
+    // "Hello! I filled out your form and would like to know more about your business."
+    const isAutoFormLead = /filled\s+out\s+your\s+form|complet[eé]\s+tu\s+formulario|llen[eé]\s+tu\s+formulario/i.test(combinedText)
+      || Boolean((contact.tags || []).some(t => /^form-id-/i.test(String(t))));
+
+    let autoFormPhone = null;
+    let autoFormFullName = null;
+    if (isAutoFormLead) {
+      const phoneMatch = combinedText.match(/phone(?:\s*number)?\s*:\s*([^\r\n]+)/i);
+      if (phoneMatch) {
+        const rawP = phoneMatch[1].replace(/\D/g, '');
+        if (rawP.length === 10) autoFormPhone = `+1${rawP}`;
+        else if (rawP.length === 11 && rawP.startsWith('1')) autoFormPhone = `+${rawP}`;
+      }
+      const nameMatch = combinedText.match(/full\s*name\s*:\s*([^\r\n]+)/i);
+      if (nameMatch) {
+        autoFormFullName = nameMatch[1].trim();
+      }
+    }
+
+    const shippingData = extractShippingData(combinedText, contact.phone || autoFormPhone);
+    const effectivePhone = autoFormPhone || contact.phone || (shippingData?.hasPhone ? shippingData.phone : null);
 
     let vtigerTreatment = null;
     let vContact = null;
@@ -893,7 +914,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         // [FAST-PATH] En ruteo en vivo, proteger con timeout rápido para no demorar la entrega del chat
         vContact = await Promise.race([
           findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('vTiger Timeout 1500ms')), 1500))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('vTiger Timeout 2500ms')), 2500))
         ]).catch(err => {
           console.warn(`[Agente 3] [VTIGER-FAST-TIMEOUT] vTiger diferido para ${contactId}: ${err.message}`);
           return null;
@@ -1365,6 +1386,43 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (TIENE_TELEFONO_FIELD) customFieldsToUpdate.push({ id: TIENE_TELEFONO_FIELD, key: 'contact.tiene_telfono', field_value: (contact.phone || (shippingData && shippingData.hasPhone)) ? 'Sí' : 'No' });
     if (ULTIMA_INTERACCION_FIELD) customFieldsToUpdate.push({ id: ULTIMA_INTERACCION_FIELD, key: 'contact.ultima_interaccion', field_value: new Date().toISOString().split('T')[0] });
 
+    // Extracción de Form ID e inyección en custom field id_form_clipo
+    let targetFormId = null;
+    const allKnownTags = [...(contact.tags || []), ...Array.from(newTagsSet)];
+    for (const t of allKnownTags) {
+      const m = String(t).match(/^form-id-(\d+)$/i);
+      if (m) {
+        targetFormId = m[1];
+        break;
+      }
+    }
+    if (!targetFormId && isAutoFormLead) {
+      const msgFormMatch = combinedText.match(/form[_\-\s]*id[:=\s]+(\d{10,20})/i);
+      if (msgFormMatch) {
+        targetFormId = msgFormMatch[1];
+      } else {
+        const pageEntry = getPageMatrixEntry(targetPageId);
+        if (pageEntry?.defaultFormId) {
+          targetFormId = pageEntry.defaultFormId;
+        } else if (targetPageId === '718150351371765' || (targetPageName || '').toLowerCase().includes('laboratorios naturales bio') || activeLocationId === '5NqOaPYqWyIw2FPBfoRg') {
+          targetFormId = '4385767568340402';
+        }
+      }
+    }
+    const FORM_ID_FIELD_ID = (activeLocationId === '5NqOaPYqWyIw2FPBfoRg' || currentSedeName === 'PALACIOS')
+      ? (process.env.GHL_FORM_ID_FIELD || 'ZGcmoMyhX0pHvat8ipHo')
+      : process.env.GHL_FORM_ID_FIELD;
+    if (FORM_ID_FIELD_ID && targetFormId) {
+      customFieldsToUpdate.push({ id: FORM_ID_FIELD_ID, key: 'contact.id_form_clipo', field_value: String(targetFormId) });
+    }
+
+    // Si vTiger tiene origen específico de FORM (cf_3472), prevalece sobre el calculado
+    if (vContact?.cf_3472 && ORIGEN_LEAD_FIELD) {
+      const origIdx = customFieldsToUpdate.findIndex(cf => cf.id === ORIGEN_LEAD_FIELD);
+      if (origIdx >= 0) customFieldsToUpdate[origIdx].field_value = vContact.cf_3472;
+      else customFieldsToUpdate.push({ id: ORIGEN_LEAD_FIELD, key: 'contact.origen_lead', field_value: vContact.cf_3472 });
+    }
+
  // G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO - DOMINIO AISLADO)
     let finalCustomerWon = isCustomerWon;
     let finalMonetaryValue = 0;
@@ -1430,6 +1488,46 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
+    // [DIRECTIVA ESTRICTA PARA LEADS DE FORMULARIO META]
+    // Cuando el contacto proviene de un formulario automatizado de Meta ("Hello! I filled out your form..."):
+    // Solo debe portar las 3 etiquetas exactas requeridas:
+    // 1. 'cola-forms'
+    // 2. 'form-id-<formId>'
+    // 3. El slug de la fanpage (ej: 'laboratorios-naturales-bio')
+    // Cualquier otra etiqueta adicional se purga activamente.
+    if (isAutoFormLead) {
+      const pageSlug = (targetPageName || 'Laboratorios Naturales BIO')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+      const exactFormTags = new Set([
+        'cola-forms',
+        targetFormId ? `form-id-${targetFormId}` : null,
+        pageSlug
+      ].filter(Boolean));
+
+      for (const t of Array.from(newTagsSet)) {
+        if (!exactFormTags.has(t)) {
+          newTagsSet.delete(t);
+          if ((contact.tags || []).includes(t)) {
+            tagsToRemove.push(t);
+          }
+        }
+      }
+      for (const t of (contact.tags || [])) {
+        const trimmed = String(t).trim();
+        if (!exactFormTags.has(trimmed) && !tagsToRemove.includes(trimmed)) {
+          tagsToRemove.push(trimmed);
+        }
+      }
+      for (const reqTag of exactFormTags) {
+        newTagsSet.add(reqTag);
+      }
+    }
+
     // SINCRONIZACION DE PIPELINE (Orquestacion LOA)
     try {
       const cleanSede = (targetPageName?.toLowerCase().includes('bionatural') || targetPageName?.toLowerCase().includes('palacios')) 
@@ -1469,13 +1567,24 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
  // INYECCIÓN AUTOMÁTICA DE "GENERAL INFO" (ESTRICTO USA)
-    // 1. Teléfono
-    if (!contact.phone) {
-      if (shippingData && shippingData.hasPhone) {
+    // 1. Teléfono normalizado
+    if (!contact.phone || (autoFormPhone && contact.phone !== autoFormPhone)) {
+      if (autoFormPhone) {
+        updatePayload.phone = autoFormPhone;
+      } else if (shippingData && shippingData.hasPhone) {
         updatePayload.phone = shippingData.phone;
       } else if (vContact) {
         const vPhone = vContact.mobile || vContact.phone || vContact.homephone || vContact.otherphone;
         if (vPhone) updatePayload.phone = String(vPhone).replace(/\D/g, '');
+      }
+    }
+
+    // 1.1 Nombre (si viene en mensaje de formulario y contacto no tiene nombre válido)
+    if (autoFormFullName && (!contact.firstName || contact.firstName === 'Lead' || contact.firstName === '--')) {
+      const nameParts = autoFormFullName.split(/\s+/);
+      updatePayload.firstName = nameParts[0] || autoFormFullName;
+      if (nameParts.length > 1) {
+        updatePayload.lastName = nameParts.slice(1).join(' ');
       }
     }
 
@@ -1519,7 +1628,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const isSameAdvisor = targetAdvisorId ? (contact.assignedTo === targetAdvisorId) : true;
     const isSameSource = contact.source === vtigerSource;
     const currentTags = (contact.tags || []).map(t => String(t).trim());
-    const tagsChanged = newTagsSet.size !== currentTags.length || Array.from(newTagsSet).some(t => !currentTags.includes(t));
+    const tagsChanged = newTagsSet.size !== currentTags.length || Array.from(newTagsSet).some(t => !currentTags.includes(t)) || tagsToRemove.length > 0;
     const currentCFs = contact.customFields || [];
 
  // EJECUTAR PURGA DE ETIQUETAS FALSAS EN GHL (API V2)
@@ -1534,6 +1643,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     const CRITICAL_CF_IDS = [
       ...Object.values(sedeFields),
+      FORM_ID_FIELD_ID,
+      'ZGcmoMyhX0pHvat8ipHo',
       // Palacios (Legacy Fallback)
       '8EQtKkiW7Z022bcN0vhS', '5TY5AIOpu1c8f6WosyF2', 'RLxFOTXkICXLWShjaLaB',
       'GZKRu2z1Z156lRUfyrpo', '5js0Lfbh5XDLq87SDgdT', 'jfaxRCXTLZQCuzsTl49v',
@@ -1547,7 +1658,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const newVal = String(cf.field_value || '');
       return existingVal !== newVal;
     });
-    const hasPhoneUpdate = !contact.phone && shippingData.hasPhone;
+    const hasPhoneUpdate = (!contact.phone && shippingData.hasPhone) || (autoFormPhone && contact.phone !== autoFormPhone);
     const hasCountryUpdate = (!contact.country || contact.country === '--');
     const hasAddressUpdate = !contact.address1 && Boolean(shippingData.address1);
     const hasCityUpdate = !contact.city && Boolean(shippingData.city);
