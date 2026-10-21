@@ -151,12 +151,12 @@ export async function findContactsByPhoneInSede(telefono, sedeActiva) {
     'cf_2821',            // SEXO
     'modifiedtime', 'createdtime'
   ].join(', ');
-  const condicionTelefono = `homephone = '${ultimos10}' OR mobile = '${ultimos10}' OR phone = '${ultimos10}'`;
-  const q = `SELECT ${campos} FROM Contacts WHERE ${condicionTelefono}${sedeClause(sedeActiva)}`;
+  const condicionTelefono = `homephone = '${ultimos10}' AND cf_3451 = '${sedeActiva}' OR mobile = '${ultimos10}' AND cf_3451 = '${sedeActiva}' OR phone = '${ultimos10}' AND cf_3451 = '${sedeActiva}'`;
+  const q = `SELECT ${campos} FROM Contacts WHERE ${condicionTelefono}`;
 
   try {
     const filas = await queryVTiger(q, sedeActiva);
-    return (filas || []).filter(c => mismoTelefono(
+    return (filas || []).filter(c => String(c.cf_3451 || '').toUpperCase().trim() === String(sedeActiva).toUpperCase().trim() && mismoTelefono(
       c.homephone || c.mobile || c.phone,
       ultimos10
     ));

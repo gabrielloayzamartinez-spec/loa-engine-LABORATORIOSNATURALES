@@ -170,8 +170,11 @@ export async function findVTigerContact(ghlContact, targetSede = null) {
       // sede se une con OR y sigue aplicándose a toda la expresión.
       // [DATOS PARA EL MERGE SOP] Se añaden los campos comerciales al SELECT:
       // sin ellos el resolvedor de colisiones no sabe quién tiene compras y
-      // podría rescatar al contacto equivocado (defecto detectado y corregido).
-      const qPhone = `SELECT ${VTIGER_CONTACT_SELECT}, ${VTIGER_FIELDS.NUM_COMPRAS}, ${VTIGER_FIELDS.MONTO_INVERTIDO}, ${VTIGER_FIELDS.ESTADO_VENTA} FROM Contacts WHERE homephone = '${last10}' OR mobile = '${last10}' OR phone = '${last10}'${sedeClause} LIMIT 10;`;
+      // [SEDE-LOCK DISTRIBUTIVO EN SQL]
+      // En SQL, AND tiene mayor precedencia que OR. Para garantizar que NINGÚN registro
+      // de otra sede sea devuelto sin usar paréntesis (incompatibles con el parser vTiger),
+      // se distribuye la condición de sede a CADA campo telefónico de forma estricta.
+      const qPhone = `SELECT ${VTIGER_CONTACT_SELECT}, ${VTIGER_FIELDS.NUM_COMPRAS}, ${VTIGER_FIELDS.MONTO_INVERTIDO}, ${VTIGER_FIELDS.ESTADO_VENTA} FROM Contacts WHERE homephone = '${last10}' AND ${VTIGER_FIELDS.SEDE} = '${targetSedeUpper}' OR mobile = '${last10}' AND ${VTIGER_FIELDS.SEDE} = '${targetSedeUpper}' OR phone = '${last10}' AND ${VTIGER_FIELDS.SEDE} = '${targetSedeUpper}' LIMIT 10;`;
       let phoneMatches = await queryVTiger(qPhone, targetSedeUpper);
 
       // [SEDE-SHIELD] Segunda barrera: cualquier registro ajeno se descarta.

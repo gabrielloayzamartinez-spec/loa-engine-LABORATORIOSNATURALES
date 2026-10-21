@@ -357,7 +357,9 @@ export function resolveLeadSede({ pageId = '', pageName = '', campaignName = '' 
     return 'BENAVIDES';
   }
 
-  return 'PALACIOS';
+  // Si no hay evidencia de campaña o fanpage, no forzar una sede a ciegas.
+  // La subcuenta física de GHL o el llamante define la soberanía de la sede.
+  return null;
 }
 
 /**

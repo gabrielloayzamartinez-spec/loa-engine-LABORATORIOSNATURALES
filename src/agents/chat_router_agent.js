@@ -604,13 +604,19 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
- // Resolver Sede Actual: la subcuenta define la sede operativa (sedes herméticas)
+    // Resolver Sede Actual: la subcuenta física define la soberanía hermética
+    const subaccountSede = Object.values(SEDES_GATEWAY).find(s => s?.ghl?.locationId === activeLocationId)?.sedeId
+      || (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId ? 'BENAVIDES' : 'PALACIOS');
+
     let currentSedeName = resolveLeadSede({
       pageId: targetPageId,
       pageName: hasRealFanpage ? targetPageName : ''
-    });
-    if (!currentSedeName) {
-      currentSedeName = (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) ? 'BENAVIDES' : 'PALACIOS';
+    }) || subaccountSede;
+
+    // Hermetismo de Subcuenta: la subcuenta física prima sobre cualquier heurística
+    if (subaccountSede && currentSedeName !== subaccountSede) {
+      console.warn(`[Agente 3] [SEDE-SHIELD] Desalineación corregida: lead en subcuenta ${subaccountSede} intentó resolver como ${currentSedeName}. Fijando a ${subaccountSede}.`);
+      currentSedeName = subaccountSede;
     }
     if (!hasRealFanpage) {
       console.log(`[Agente 3] [PROCEDENCIA] Sin evidencia de fanpage de Meta (transporte: ${latestMessageTransport || 'desconocido'}). Sede operativa: ${currentSedeName}. No se atribuye proveedor de pauta.`);
@@ -1303,6 +1309,20 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     } else if (currentSedeName) {
       newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
     }
+
+    // [HERMETISMO DE SEDES] Purga quirúrgica de etiquetas de sedes ajenas
+    const ALL_SEDE_TAGS = ['sede-palacios', 'sede-benavides', 'sede-roosevelt', 'sede-piura'];
+    const currentSedeTag = `sede-${currentSedeName.toLowerCase()}`;
+    for (const sTag of ALL_SEDE_TAGS) {
+      if (sTag !== currentSedeTag && newTagsSet.has(sTag)) {
+        newTagsSet.delete(sTag);
+        tagsToRemove.push(sTag);
+      }
+      if (sTag !== currentSedeTag && (contact.tags || []).includes(sTag) && !tagsToRemove.includes(sTag)) {
+        tagsToRemove.push(sTag);
+      }
+    }
+    newTagsSet.add(currentSedeTag);
 
     // Alerta de Lead Caliente (Teléfono o Dirección)
     if (shippingData.isHotLead) {
