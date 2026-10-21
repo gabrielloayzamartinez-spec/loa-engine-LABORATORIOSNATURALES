@@ -19,6 +19,7 @@
 import { readSecret } from '../config/secrets.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { recordAuditEvent } from './audit_logger.js';
+import { isCentralConfigured } from './dual_sync_service.js';
 
 /** Normaliza un teléfono a los últimos 10 dígitos (NANP), o null si no sirve. */
 export function normalizarTelefonoAuditoria(phone) {
@@ -36,8 +37,8 @@ export function normalizarTelefonoAuditoria(phone) {
 export async function auditarDuplicadosEmpresa({ paginas = 5 } = {}) {
   const locId = readSecret('GHL_LOCATION_ID_CENTRAL');
   const apiKey = readSecret('GHL_API_KEY_CENTRAL');
-  if (!locId || !apiKey) {
-    return { ok: false, reason: 'Cuenta Empresa no configurada (GHL_LOCATION_ID_CENTRAL / GHL_API_KEY_CENTRAL)' };
+  if (!isCentralConfigured() || !locId || !apiKey) {
+    return { ok: false, reason: 'Cuenta Empresa pausada o no configurada (GHL_LOCATION_ID_CENTRAL / GHL_API_KEY_CENTRAL)' };
   }
 
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
@@ -140,8 +141,8 @@ function siguienteUrlContactos(d, contactos, locId) {
 export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false } = {}) {
   const locId = readSecret('GHL_LOCATION_ID_CENTRAL');
   const apiKey = readSecret('GHL_API_KEY_CENTRAL');
-  if (!locId || !apiKey) {
-    return { ok: false, reason: 'Cuenta Empresa no configurada' };
+  if (!isCentralConfigured() || !locId || !apiKey) {
+    return { ok: false, reason: 'Cuenta Empresa pausada o no configurada' };
   }
 
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
@@ -249,8 +250,8 @@ export async function depurarDuplicadosEmpresa({ paginas = 5, ejecutar = false }
 export async function depurarSinTelefonoEmpresa({ paginas = 5, ejecutar = false, borrar = false } = {}) {
   const locId = readSecret('GHL_LOCATION_ID_CENTRAL');
   const apiKey = readSecret('GHL_API_KEY_CENTRAL');
-  if (!locId || !apiKey) {
-    return { ok: false, reason: 'Cuenta Empresa no configurada' };
+  if (!isCentralConfigured() || !locId || !apiKey) {
+    return { ok: false, reason: 'Cuenta Empresa pausada o no configurada' };
   }
 
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', 'Content-Type': 'application/json', Accept: 'application/json' };

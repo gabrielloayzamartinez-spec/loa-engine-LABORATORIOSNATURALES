@@ -20,9 +20,8 @@ import { getMetaCandidateTokens } from '../services/meta_api_service.js';
 import { getSedeByPageId } from '../config/page_matrix.js';
 import { normalizeToE164 } from '../utils/geo_phone_sanitizer.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
-import { fetchConTimeout } from '../utils/http_timeout.js';
 import { recordAuditEvent } from './audit_logger.js';
-import { findContactByPhone } from './dual_sync_service.js';
+import { findContactByPhone, isCentralConfigured } from './dual_sync_service.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // 1. LECTURA DEL DETALLE DEL LEAD EN GRAPH API (App Maestra)
@@ -339,10 +338,10 @@ async function procesarLeadDetalle(detalle, pageId, leadgenId = '') {
   // Sede operativa.
   const contactId = await vincularEnSede(sedeCfg.ghl.locationId, headers, phone, datos, sedeName);
 
-  // Central (EMPRESA): solo si está configurada.
+  // Central (EMPRESA): solo si está configurada y activa (no pausada).
   const centralLoc = process.env.GHL_LOCATION_ID_CENTRAL;
   const centralKey = process.env.GHL_API_KEY_CENTRAL;
-  if (centralLoc && centralKey) {
+  if (centralLoc && centralKey && isCentralConfigured()) {
     const centralHeaders = {
       Authorization: `Bearer ${centralKey}`,
       Version: '2021-07-28',

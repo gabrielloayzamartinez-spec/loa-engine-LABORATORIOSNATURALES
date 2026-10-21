@@ -856,10 +856,13 @@ app.get('/api/health', (req, res) => {
     // incluye `credencial`: el resultado de una PRUEBA REAL contra GHL.
     cuentaEmpresa: {
       configurada: isCentralConfigured(),
+      pausada: String(process.env.PAUSE_CUENTA_EMPRESA || readSecret('PAUSE_CUENTA_EMPRESA') || '').toLowerCase() === 'true',
       locationIdPresente: Boolean(readSecret('GHL_LOCATION_ID_CENTRAL')),
       apiKeyPresente: Boolean(readSecret('GHL_API_KEY_CENTRAL')),
-      rol: 'analitica macro (sin ruteo ni chats)',
-      credencial: centralCredentialStatus
+      rol: 'analitica macro (pausada: foco 100% en subcuentas de sedes)',
+      credencial: isCentralConfigured()
+        ? centralCredentialStatus
+        : { configurada: false, valida: null, status: null, detalle: 'Cuenta Empresa pausada para concentrar el motor en subcuentas de sedes' }
     },
     meta: {
       // Presencia de la variable (comprobacion barata, no implica validez).
@@ -2191,6 +2194,9 @@ app.post('/api/sedes/completar-campos', async (req, res) => {
     // Credenciales del destino: la Empresa NO vive en SEDES_GATEWAY.
     let destinoLoc = null, destinoKey = null;
     if (destino === 'EMPRESA') {
+      if (!isCentralConfigured()) {
+        return res.status(400).json({ success: false, error: 'Cuenta Empresa pausada por configuración (PAUSE_CUENTA_EMPRESA=true).' });
+      }
       destinoLoc = readSecret('GHL_LOCATION_ID_CENTRAL');
       destinoKey = readSecret('GHL_API_KEY_CENTRAL');
     } else {

@@ -25,8 +25,7 @@ import { queryVTiger } from './vtiger_api_service.js';
 import { sedeClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
 import { SEDES_GATEWAY } from '../config/index.js';
-import { readSecret } from '../config/secrets.js';
-import { syncVtigerContactDual, pickPhone } from './dual_sync_service.js';
+import { syncVtigerContactDual, pickPhone, isCentralConfigured } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { getStateStore } from './state/state_store.js';
 import { ghlFetch, hayCuotaRealDeFondo } from '../utils/ghl_http_client.js';
@@ -68,6 +67,7 @@ export async function contarContactosGhl(locationId) {
   // sede. Sin este caso, el conteo de la Empresa devolvia null y el panel mostraba
   // la celda vacia. Su credencial se resuelve con las variables GHL_*_CENTRAL.
   const esEmpresa = Boolean(locationId) && locationId === readSecret('GHL_LOCATION_ID_CENTRAL');
+  if (esEmpresa && !isCentralConfigured()) return null;
   const apiKey = sedeConf?.ghl?.apiKey || (esEmpresa ? readSecret('GHL_API_KEY_CENTRAL') : null);
   if (!locationId || !apiKey) return null;
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
@@ -299,7 +299,9 @@ export async function runBuyersBackfill({
   // detiene solo y deja el resto de la cuota al trabajo EN VIVO. Antes seguia
   // consumiendo hasta el 93% y empujaba a GHL al 429, que despues frenaba a los
   // leads que escribian.
-  const empresaConCupo = tokenBucketQueue.hayCupoPesado('EMPRESA') && hayCuotaRealDeFondo('EMPRESA');
+  const empresaConCupo = isCentralConfigured()
+    ? (tokenBucketQueue.hayCupoPesado('EMPRESA') && hayCuotaRealDeFondo('EMPRESA'))
+    : true;
   const sedesObjetivo = sedesSolicitadas.filter(s =>
     tokenBucketQueue.hayCupoPesado(s) && hayCuotaRealDeFondo(s) && empresaConCupo
   );

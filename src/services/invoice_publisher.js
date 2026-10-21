@@ -28,7 +28,7 @@ import { crearClienteSesionWeb } from './vtiger_web_session.js';
 import { subirPdfAMediaLibrary } from './ghl_media_service.js';
 import { entregarFacturaDeOrden } from './invoice_delivery_service.js';
 import { CLAVES_PUENTE_FACTURA } from './invoice_bridge_service.js';
-import { resolveCustomFieldIds } from './dual_sync_service.js';
+import { resolveCustomFieldIds, isCentralConfigured } from './dual_sync_service.js';
 
 const BASE_GHL = 'https://services.leadconnectorhq.com';
 
@@ -171,8 +171,11 @@ export async function publicarFacturaDeContacto({
   deps = null
 } = {}) {
   if (!contactId) return { publicado: false, motivo: 'SIN_CONTACTO', url: null, numeroOrden: null, fileId: null, detalle: null, pasos: [] };
-  if (!apiKeyCentral || !locationIdCentral) {
-    return { publicado: false, motivo: 'CUENTA_EMPRESA_NO_CONFIGURADA', url: null, numeroOrden: null, fileId: null, detalle: 'Faltan GHL_API_KEY_CENTRAL / GHL_LOCATION_ID_CENTRAL', pasos: [] };
+  const centralActiva = (apiKeyCentral !== readSecret('GHL_API_KEY_CENTRAL'))
+    ? Boolean(apiKeyCentral && locationIdCentral)
+    : isCentralConfigured();
+  if (!centralActiva || !apiKeyCentral || !locationIdCentral) {
+    return { publicado: false, motivo: 'CUENTA_EMPRESA_NO_CONFIGURADA', url: null, numeroOrden: null, fileId: null, detalle: 'Cuenta Empresa pausada o sin credenciales (GHL_API_KEY_CENTRAL / GHL_LOCATION_ID_CENTRAL)', pasos: [] };
   }
 
   const headers = headersCentral(apiKeyCentral);

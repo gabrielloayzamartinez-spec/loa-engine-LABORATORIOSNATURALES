@@ -48,8 +48,14 @@ import { deberiaSaltar, deberiaSaltarVtiger } from './payload_hash_gate.js';
 const CENTRAL_LOCATION_ID = readSecret('GHL_LOCATION_ID_CENTRAL');
 const CENTRAL_API_KEY = readSecret('GHL_API_KEY_CENTRAL');
 
-/** ¿Está configurada la Cuenta Empresa? Si no, el middleware opera sólo por sede. */
+/** ¿Está configurada y activa la Cuenta Empresa? Si está pausada o faltan llaves, el motor opera 100% solo por sede. */
 export function isCentralConfigured() {
+  if (
+    String(process.env.PAUSE_CUENTA_EMPRESA || readSecret('PAUSE_CUENTA_EMPRESA') || '').toLowerCase() === 'true' ||
+    String(process.env.DISABLE_CUENTA_EMPRESA || readSecret('DISABLE_CUENTA_EMPRESA') || '').toLowerCase() === 'true'
+  ) {
+    return false;
+  }
   return Boolean(CENTRAL_LOCATION_ID && CENTRAL_API_KEY);
 }
 
@@ -1257,7 +1263,11 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
       });
     }
   } else {
-    console.log('[Dual Sync] [MACRO-SKIP] Cuenta Empresa no configurada (GHL_LOCATION_ID_CENTRAL / GHL_API_KEY_CENTRAL ausentes). Se sincroniza solo la sede.');
+    const pausada = String(process.env.PAUSE_CUENTA_EMPRESA || readSecret('PAUSE_CUENTA_EMPRESA') || '').toLowerCase() === 'true';
+    const motivo = pausada
+      ? 'Cuenta Empresa pausada (PAUSE_CUENTA_EMPRESA=true)'
+      : 'Cuenta Empresa no configurada (GHL_LOCATION_ID_CENTRAL / GHL_API_KEY_CENTRAL ausentes)';
+    console.log(`[Dual Sync] [MACRO-SKIP] ${motivo}. Se sincroniza exclusivamente la subcuenta de sede.`);
   }
 
   // ====== LLAMADA 2: OPERATIVA (subcuenta de la sede) ======

@@ -17,6 +17,7 @@
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { readSecret } from '../config/secrets.js';
 import { SEDES_GATEWAY } from '../config/index.js';
+import { isCentralConfigured } from './dual_sync_service.js';
 
 /** Resuelve los ids de campo por nombre (directo contra la API, sin cache global). */
 async function resolverCampos(locationId, apiKey) {
@@ -63,6 +64,7 @@ export async function procedenciaLeads({ destino = 'EMPRESA', paginas = 30 } = {
   const destinoUp = String(destino).toUpperCase();
   let locId, apiKey;
   if (destinoUp === 'EMPRESA' || destinoUp === 'CENTRAL') {
+    if (!isCentralConfigured()) return { ok: false, reason: 'Cuenta Empresa pausada o no configurada' };
     locId = readSecret('GHL_LOCATION_ID_CENTRAL');
     apiKey = readSecret('GHL_API_KEY_CENTRAL');
   } else {
