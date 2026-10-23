@@ -115,9 +115,9 @@ assert(provConPauta === 'CLICK2RING', `Un lead de pauta sin campana mapeada usa 
 assert(resolveLeadProvider({ pageId: '111906554968800' }) === 'CLICK2RING', 'La matriz oficial por fanpage sigue intacta (Ultra -> CLICK2RING)');
 assert(resolveLeadProvider({ pageId: '566501466542620' }) === 'ERNESTO', 'La matriz oficial por fanpage sigue intacta (Naturales BioNatural -> ERNESTO)');
 
-// Origen final de un lead de triage
+// Origen final de un lead de triage (asociado a sede por contexto de llamada)
 const fuentesTriage = buildVtigerSource({
-  sedeName: '', campaignName: '', pageId: '',
+  sedeName: 'PALACIOS', campaignName: '', pageId: '',
   provider: provSinEvidencia,
   channel: resolveChannelFromEvent({ type: 'SMS' }),
   treatment: normalizeTreatmentOrUnknown('')

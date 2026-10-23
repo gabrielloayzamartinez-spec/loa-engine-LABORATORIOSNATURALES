@@ -25,6 +25,7 @@ import { queryVTiger } from './vtiger_api_service.js';
 import { sedeClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
 import { SEDES_GATEWAY } from '../config/index.js';
+import { readSecret } from '../config/secrets.js';
 import { syncVtigerContactDual, pickPhone, isCentralConfigured } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { getStateStore } from './state/state_store.js';
