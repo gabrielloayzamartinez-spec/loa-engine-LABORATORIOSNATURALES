@@ -375,9 +375,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // UNA sola vez.
     // ========================================================================
     const mensajeMsEntrante = Number(options.mensajeMs) || 0;
-    // [FIX 28/10] Proceso de fondo SIN mensaje nuevo y ya ruteado hace < 5 min -> se
-    // salta (corta el bucle de reproceso). El N1 (webhook/radar con mensaje) no entra aquí.
-    if (!isDryRun && mensajeMsEntrante === 0 && ORIGENES_FONDO.has(origenRuteoActual) && enCooldownDeRuteo(`fondo:${contactId}`)) {
+    // [FIX 28/10] Cooldown anti-bucle para TODO proceso de fondo: si ya se ruteó hace
+    // < 5 min, se salta. El N1 (webhook/radar, que NO está en ORIGENES_FONDO) sigue
+    // en tiempo real, así que un mensaje nuevo lo atiende el radar y no depende del fondo.
+    if (!isDryRun && ORIGENES_FONDO.has(origenRuteoActual) && enCooldownDeRuteo(`fondo:${contactId}`)) {
       return 'UNCHANGED';
     }
     if (!isDryRun && mensajeMsEntrante > 0 && yaAtendido(contactId, mensajeMsEntrante)) {
