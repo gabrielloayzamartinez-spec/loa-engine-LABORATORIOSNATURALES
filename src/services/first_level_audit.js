@@ -26,37 +26,50 @@
  */
 
 import { ghlFetch } from '../utils/ghl_http_client.js';
-import { SEDES_GATEWAY, PALACIOS_USERS } from '../config/index.js';
+import { SEDES_GATEWAY } from '../config/index.js';
+import { PAGE_MATRIX } from '../config/page_matrix.js';
+import { resolveCustomFieldIds } from './dual_sync_service.js';
+import { resolverCamposSedeOperativos } from './ghl_fields_map.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const slugificar = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-/** Indice: slug de fanpage -> asesor esperado (derivado de la config). */
+/**
+ * Índice: slug de fanpage -> dueño esperado (FUENTE ÚNICA: page_matrix.js).
+ * Una página `sinDueno` (formularios / WSP ADS, ej. "Laboratorios Naturales BIO")
+ * exige que el contacto NO tenga dueño de REDES: se canaliza a Cola Forms.
+ */
 function construirReglas() {
   const porSlug = new Map();
-  for (const sede of Object.values(SEDES_GATEWAY)) {
-    for (const usuario of Object.values(sede?.users || {})) {
-      if (!usuario?.id) continue;
-      for (const nombrePagina of (usuario.pages || [])) {
-        porSlug.set(slugificar(nombrePagina), { id: usuario.id, name: usuario.name });
-      }
+  for (const [, entry] of Object.entries(PAGE_MATRIX)) {
+    const slug = slugificar(entry.pageName);
+    if (entry.sinDueno) {
+      porSlug.set(slug, { id: null, name: 'Cola Forms (sin dueño)', sinDueno: true });
+      continue;
     }
-  }
-  for (const usuario of Object.values(PALACIOS_USERS)) {
-    if (!usuario?.id) continue;
-    for (const nombrePagina of (usuario.pages || [])) {
-      const slug = slugificar(nombrePagina);
-      if (!porSlug.has(slug)) porSlug.set(slug, { id: usuario.id, name: usuario.name });
+    const sede = SEDES_GATEWAY[entry.sede];
+    const usuario = entry.ownerKey && sede?.users ? sede.users[entry.ownerKey] : null;
+    if (usuario?.id) {
+      porSlug.set(slug, { id: usuario.id, name: usuario.name, sinDueno: false });
     }
   }
   return porSlug;
 }
 
-/** Lee un campo personalizado del contacto por nombre (tolerante a variantes). */
-function campo(c, ...nombres) {
+/**
+ * Lee un campo personalizado del contacto POR ID.
+ *
+ * [FIX 28/10 — DEFECTO CRÍTICO] Antes se leía por `f.name`, pero el endpoint
+ * `GET /contacts` de GHL devuelve los custom fields SOLO con `{ id, value }`
+ * (sin `name`). Resultado: las 4 dimensiones que dependen de custom fields
+ * (Ad ID, campaña, UTM, interacción) daban SIEMPRE 0% y el veredicto era un
+ * falso "🔴 CRITICO". Ahora se lee por el ID resuelto (igual que lead_provenance).
+ */
+function valorCampo(c, ...ids) {
   const lista = c.customFields || [];
-  for (const n of nombres) {
-    const f = lista.find(x => String(x.name || '').toLowerCase() === n.toLowerCase());
+  for (const id of ids) {
+    if (!id) continue;
+    const f = lista.find(x => x.id === id);
     if (f) {
       const v = f.value ?? f.field_value;
       if (Array.isArray(v)) return v.join(', ');
@@ -93,6 +106,15 @@ export async function auditarPrimerNivel({ sede = 'PALACIOS', paginas = 10, solo
   const desde = inicioDiaLima();
   const porSlug = construirReglas();
 
+  // [FIX 28/10] Resolver los IDs de campo ANTES del barrido:
+  //  (a) IDs fijos por sede (Ad ID, UTMs, interacción) desde SEDE_CUSTOM_FIELDS.
+  const sedeFields = await resolverCamposSedeOperativos(locId, headers);
+  //  (b) IDs de atribución visible (Campaña Meta / Nombre del Anuncio) resueltos POR NOMBRE.
+  let camposVisibles = {};
+  try {
+    camposVisibles = await resolveCustomFieldIds(locId, headers);
+  } catch { /* si no se resuelven, la cobertura de campaña/anuncio queda en 0 sin romper el flujo */ }
+
   const totales = { conPropietario: 0, reglaOk: 0, conAdId: 0, conCampana: 0, conUtm: 0, conInteraccion: 0, deHoy: 0 };
   const huecos = { sinPropietario: [], reglaViolada: [], sinAdId: [], sinCampana: [], sinUtm: [], sinInteraccion: [], noEsDeHoy: [] };
   let auditados = 0;
@@ -123,13 +145,18 @@ export async function auditarPrimerNivel({ sede = 'PALACIOS', paginas = 10, solo
       if (tienePropietario) totales.conPropietario++;
       else huecos.sinPropietario.push({ id: c.id, nombre, motivo: 'lead sin dueño asignado' });
 
-      // 2. REGLA DE PÁGINA
+      // 2. REGLA DE PÁGINA (dueño esperado según PAGE_MATRIX)
       let slugFanpage = null;
       for (const slug of porSlug.keys()) if (tags.includes(slug)) { slugFanpage = slug; break; }
       if (slugFanpage) {
         const esperado = porSlug.get(slugFanpage);
-        if (tienePropietario && c.assignedTo === esperado.id) totales.reglaOk++;
-        else if (tienePropietario) {
+        if (esperado.sinDueno) {
+          // La página es sin dueño (Cola Forms): tener dueño ES la violación.
+          if (!tienePropietario) totales.reglaOk++;
+          else huecos.reglaViolada.push({ id: c.id, nombre, fanpage: slugFanpage, esperado: esperado.name, real: c.assignedTo, motivo: 'la fanpage es sin dueño (Cola Forms), pero tiene dueño asignado' });
+        } else if (tienePropietario && c.assignedTo === esperado.id) {
+          totales.reglaOk++;
+        } else if (tienePropietario) {
           huecos.reglaViolada.push({ id: c.id, nombre, fanpage: slugFanpage, esperado: esperado.name, real: c.assignedTo, motivo: 'la fanpage exige otro propietario' });
         } else {
           huecos.reglaViolada.push({ id: c.id, nombre, fanpage: slugFanpage, esperado: esperado.name, real: null, motivo: 'sin dueño: la regla exige uno' });
@@ -139,24 +166,24 @@ export async function auditarPrimerNivel({ sede = 'PALACIOS', paginas = 10, solo
         totales.reglaOk++;
       }
 
-      // 3. AD ID
-      const adId = campo(c, 'ID de Anuncio', 'Ad ID');
+      // 3. AD ID (por ID fijo: idAnuncio o adIdAlt)
+      const adId = valorCampo(c, sedeFields.idAnuncio, sedeFields.adIdAlt);
       if (adId) totales.conAdId++;
       else huecos.sinAdId.push({ id: c.id, nombre, fuenteAtribucion: c.attributionSource?.sessionSource || null, motivo: 'sin ID de Anuncio capturado' });
 
       // 4. CAMPAÑA / ANUNCIO
-      const campana = campo(c, 'Campaña Meta', 'UTM Campaign');
-      const anuncio = campo(c, 'Nombre del Anuncio', 'UTM Content');
+      const campana = valorCampo(c, camposVisibles.campanaMeta, sedeFields.utmCampaign);
+      const anuncio = valorCampo(c, camposVisibles.nombreAnuncio, sedeFields.utmContent);
       if (campana || anuncio) totales.conCampana++;
       else huecos.sinCampana.push({ id: c.id, nombre, motivo: 'sin campaña ni nombre de anuncio' });
 
       // 5. UTM
-      const utm = campo(c, 'UTM Medium', 'UTM Source');
+      const utm = valorCampo(c, sedeFields.utmMedium, sedeFields.utmSource);
       if (utm) totales.conUtm++;
       else huecos.sinUtm.push({ id: c.id, nombre, motivo: 'sin UTM' });
 
       // 6. INTERACCIÓN
-      const interaccion = campo(c, 'Ultima Interaccion');
+      const interaccion = valorCampo(c, sedeFields.ultimaInteraccion);
       if (interaccion) totales.conInteraccion++;
       else huecos.sinInteraccion.push({ id: c.id, nombre, motivo: 'sin Ultima Interaccion' });
 

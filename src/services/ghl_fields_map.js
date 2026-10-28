@@ -21,6 +21,7 @@
  */
 
 import { ghlFetch } from '../utils/ghl_http_client.js';
+import { resolveSedeContext, resolveSedeCustomFields } from '../config/sedes_gateway.js';
 
 const cache = new Map();
 const TTL_MS = 10 * 60 * 1000;
@@ -96,4 +97,89 @@ export function leerCampoPorNombre(contacto, porId, nombres = []) {
     }
   }
   return '';
+}
+
+/**
+ * ==============================================================================
+ * [ACTIVACIÓN SUBCUENTAS STANDBY — 28/10]
+ * ==============================================================================
+ * Roosevelt y Piura no tienen `SEDE_CUSTOM_FIELDS` estático en routing_tables.js
+ * (es `null`). Antes el router caía al fallback de PALACIOS y escribía en campos
+ * equivocados de esas subcuentas. Aquí se resuelven los 29 campos de la tarjeta
+ * dinámicamente: nombre GHL -> ID real contra `/customFields`.
+ * ==============================================================================
+ */
+
+/** Nombres GHL (con alias) de los campos que el ROUTER escribe por ID. */
+export const NOMBRES_CAMPOS_ROUTER = {
+  idAnuncio: ['id de anuncio', 'id anuncio', 'ad id'],
+  adIdAlt: ['ad id'],
+  tratamientoComprado: ['tratamiento comprado', 'tratamiento', 'v tiger tratamiento comprado'],
+  utmCampaign: ['utm campaign', 'campana origen'],
+  utmSource: ['utm source'],
+  utmMedium: ['utm medium'],
+  utmContent: ['utm content'],
+  utmTerm: ['utm term'],
+  adsetId: ['conjunto de anuncios', 'ad set meta', 'conjunto meta'],
+  sedeAsignada: ['sede asignada', 'sede origen', 'oficina origen'],
+  origenLead: ['origen lead', 'origen del lead'],
+  tieneTelefono: ['tiene telefono', 'tiene teléfono'],
+  ultimaInteraccion: ['ultima interaccion'],
+  estadoComercial: ['estado comercial', 'v tiger estado comercial'],
+  statusContacto: ['status del contacto', 'estado del contacto'],
+  fechaAsignacion: ['fecha ultima asignacion', 'fecha asignacion'],
+  fechaCompra: ['fecha de compra'],
+  fechaPrimeraCompra: ['fecha primera compra', 'v tiger fecha primera compra'],
+  fechaUltimaCompra: ['fecha ultima compra', 'ultima compra', 'v tiger fecha ultima compra'],
+  fechaUltimaFactura: ['fecha ultima factura'],
+  precioVenta: ['precio venta', 'monto invertido', 'v tiger precio venta'],
+  numCompras: ['total compras', 'numero de compras', 'num compras', 'v tiger total compras'],
+  estadoCompraLista: ['estado de compra'],
+  sedeTiendaCompra: ['sede tienda compra', 'v tiger sede tienda compra'],
+  anotacionesRedes: ['anotaciones redes', 'v tiger anotaciones redes'],
+  canalCaptacion: ['canal captacion', 'canal', 'v tiger canal captacion'],
+  contactNo: ['contact no', 'numero de contacto', 'v tiger contact no'],
+  idCliente: ['id cliente', 'id de cliente', 'v tiger id cliente'],
+  historialCompleto: ['historial completo', 'v tiger historial completo']
+};
+
+/**
+ * Resuelve dinámicamente los IDs de los campos del router para una subcuenta,
+ * mapeando NOMBRE GHL -> ID real. Devuelve un mapa con la MISMA forma que
+ * `SEDE_CUSTOM_FIELDS` (29 llaves).
+ *
+ * @param {string} locationId
+ * @param {object} headers
+ * @returns {Promise<object>} { idAnuncio, adIdAlt, ..., historialCompleto }
+ */
+export async function resolverSedeCamposDinamicos(locationId, headers) {
+  const mapa = await obtenerMapaCamposGhl(locationId, headers);
+  const out = {};
+  for (const [key, alias] of Object.entries(NOMBRES_CAMPOS_ROUTER)) {
+    for (const nombre of alias) {
+      const id = mapa.porNombre.get(normalizarNombreCampo(nombre));
+      if (id) { out[key] = id; break; }
+    }
+  }
+  return out;
+}
+
+/**
+ * Resuelve el mapa de campos OPERATIVOS de una subcuenta (la MISMA forma que
+ * `SEDE_CUSTOM_FIELDS`, 29 llaves):
+ *  - Si tiene mapa estático (PALACIOS/BENAVIDES), lo usa tal cual.
+ *  - Si está en standby (Roosevelt/Piura, customFields = null), resuelve por NOMBRE
+ *    contra /customFields (y solo como último recurso cae al fallback estático).
+ *
+ * @param {string} locationId
+ * @param {object} headers
+ * @returns {Promise<object>}
+ */
+export async function resolverCamposSedeOperativos(locationId, headers) {
+  const ctx = resolveSedeContext({ locationId });
+  if (ctx && ctx.customFields) return ctx.customFields;
+  const dinamicos = await resolverSedeCamposDinamicos(locationId, headers);
+  return (dinamicos && Object.keys(dinamicos).length > 0)
+    ? dinamicos
+    : resolveSedeCustomFields({ locationId });
 }

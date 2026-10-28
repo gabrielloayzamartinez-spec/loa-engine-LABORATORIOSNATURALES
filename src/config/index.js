@@ -165,7 +165,7 @@ export const PAGE_TAG_MAP = {
 export const FB_PAGE_ID_MAP = {
   // PALACIOS ERNESTO (REDES 1)
   "566501466542620": "Naturales BioNatural",
-  "718150351371765": "Laboratorios Naturales BIO", // formularios -> ERNESTO (cambio de designacion)
+  "718150351371765": "Laboratorios Naturales BIO", // formularios -> SIN DUEÑO (Cola Forms)
   // PALACIOS CLICK2RING (REDES 2)
   "111906554968800": "BioNatural - Ultra",
   // BENAVIDES 1
@@ -189,10 +189,11 @@ export const PALACIOS_USERS = {
     id: "8LuTk9jzt5BeaKLxdVru",
     name: "REDES 1 ERNESTO",
     email: "fb.palacios.1@gmail.com",
-    // [CAMBIO DE DESIGNACION — PALACIOS] "Laboratorios Naturales BIO" pasa a REDES 1
-    // ERNESTO por decision del negocio (antes estaba en CLICK2RING).
-    pages: ["Naturales BioNatural", "Laboratorios Naturales BIO"],
-    fbPageIds: ["566501466542620", "718150351371765"]
+    // [FIX 28/10] "Laboratorios Naturales BIO" (718150351371765) es SIN DUEÑO (Cola
+    // Forms) según PAGE_MATRIX: NO pertenece a ERNESTO ni a REDES. Se quita de aquí
+    // para que Guardián / Curator / Auditor no reasignen sus formularios a ERNESTO.
+    pages: ["Naturales BioNatural"],
+    fbPageIds: ["566501466542620"]
   },
   "bionatural ultra": {
     id: "RrzgEyi2VOKIJ7Tf54SR",

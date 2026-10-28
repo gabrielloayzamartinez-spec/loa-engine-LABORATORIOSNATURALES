@@ -4,6 +4,7 @@ import { normalizeTreatment, toProductTag, isProductTag, PRODUCT_TAGS } from '..
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { acquireContactLock, releaseContactLock } from './chat_router_agent.js';
 import { buildSanitizedCommercialFields, evaluateCommercialTruth } from '../domain/commercial_engine.js';
+import { resolverCamposSedeOperativos } from '../services/ghl_fields_map.js';
 import { syncUnifiedPipelineOpportunity } from '../services/ghl_opportunity_service.js';
 import { learningBrain } from '../services/learning_brain.js';
 import { sedeClause, VTIGER_SEDES_VALIDAS } from '../services/vtigerClient.js';
@@ -412,12 +413,14 @@ async function aplicarCambioEnGhl(vContact, phoneDigits) {
       // usar exactamente la misma puerta de aislamiento que el saneado de campos.
       const sedeActivaSync = String(SEDES_GATEWAY[vSede]?.vtigerSedeName || vSede || '').toUpperCase();
       const truth = evaluateCommercialTruth(ghlContact, vContact, sedeActivaSync);
-      const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact, targetLocId);
+      // [FIX 28/10] Campos operativos: estáticos si existen, dinámicos si la subcuenta
+      // está en standby (Roosevelt/Piura) para no escribir en campos de Palacios.
+      const camposSede = await resolverCamposSedeOperativos(targetLocId, getGhlHeaders({ locationId: targetLocId }));
+      const customFieldsToUpdate = buildSanitizedCommercialFields(ghlContact, vContact, targetLocId, camposSede);
       // [GEO] Estado y ciudad saneados (el estado no debe viajar como ciudad).
       customFieldsToUpdate.push(...buildSanitizedGeoFields(vContact, targetLocId, ghlContact));
 
-      const sedeContext = resolveSedeContext({ locationId: targetLocId });
-      const customFieldsIds = sedeContext.customFields || {};
+      const customFieldsIds = camposSede;
 
       const idAnuncioField = customFieldsIds.idAnuncio;
       const adIdAltField = customFieldsIds.adIdAlt;

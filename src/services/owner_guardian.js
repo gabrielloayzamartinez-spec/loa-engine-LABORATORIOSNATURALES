@@ -6,7 +6,7 @@
  * La regla del dealer es estricta y ya está codificada en el router:
  *
  *   PALACIOS   · Naturales BioNatural        (566501466542620) -> REDES 1 ERNESTO
- *              · Laboratorios Naturales BIO  (718150351371765) -> REDES 1 ERNESTO
+ *              · Laboratorios Naturales BIO  (718150351371765) -> SIN DUEÑO (Cola Forms)
  *              · BioNatural - Ultra          (111906554968800) -> REDES 2 CLICK2RING
  *
  *   BENAVIDES  · Naturales Bio Corp          (510617778807469) -> REDES 1 BENAVIDES

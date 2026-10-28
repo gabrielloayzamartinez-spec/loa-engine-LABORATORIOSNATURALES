@@ -4,6 +4,7 @@ import { resolveChannelFromEvent, detectSystemMessage, esCanalPermitido } from '
 import { getOwnerKeyByPageId, getPageMatrixEntry, getQueueTagByPageId, getSmartViewTagsByPageId } from '../config/page_matrix.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
+import { resolverSedeCamposDinamicos } from '../services/ghl_fields_map.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { analyzeSymptoms, extractShippingData, buildVtigerSource, buildOrigenDeContacto, resolveLeadProvider, resolveLeadSede, resolveLeadChannel, inferTreatmentFromCampaignOrUtm, isValidMetaAdId, isAdsetCandidate } from './nlp_symptom_engine.js';
 import { extraerAdIdDeMensaje, extraerAdIdDeMensajes, extraerPageIdDeMensaje, extraerPsidDeMensajes, resolverAdId } from '../services/ad_id_resolver.js';
@@ -752,7 +753,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // Custom Field IDs Oficiales Dinámicos por Subcuenta
-    const sedeFields = resolveSedeCustomFields({ locationId: activeLocationId });
+    let sedeFields = resolveSedeCustomFields({ locationId: activeLocationId });
+    // [FIX 28/10] Subcuenta standby (Roosevelt/Piura sin SEDE_CUSTOM_FIELDS estático):
+    // resolver los IDs dinámicamente por nombre contra /customFields, en vez de caer
+    // al fallback de Palacios (que escribía en campos equivocados de esas subcuentas).
+    if (activeContext && !activeContext.customFields) {
+      try {
+        const dinamicos = await resolverSedeCamposDinamicos(activeLocationId, activeHeaders);
+        if (dinamicos && Object.keys(dinamicos).length > 0) sedeFields = dinamicos;
+      } catch { /* si falla el descubrimiento, se mantiene el fallback estático */ }
+    }
     const ID_ANUNCIO_FIELD = sedeFields.idAnuncio;
     const AD_ID_ALT_FIELD = sedeFields.adIdAlt;
     const TRATAMIENTO_FIELD = sedeFields.tratamientoComprado;
@@ -884,6 +894,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
  // B. ANÁLISIS INTELIGENTE DE SÍNTOMAS (NLP + LEARNING BRAIN) Y DATOS DE ENVÍO
     const combinedText = allMessages.map(m => m.body || '').join(' \n ');
+    // [FIX 28/10] Para inferir el PADECIMIENTO usamos SOLO los mensajes recientes
+    // (últimos 5, ya ordenados del más nuevo al más viejo): así "lo más reciente gana"
+    // y un padecimiento viejo no empata/gana al actual. El texto COMPLETO se conserva
+    // para extraer teléfono/dirección y detectar formularios (más abajo).
+    const textoRecienteNLP = allMessages.slice(0, 5).map(m => m.body || '').join(' \n ');
 
     // [DETECCIÓN DE MENSAJE AUTOMÁTICO DE FORMULARIO DE META LEAD ADS]
     // "Hello! I filled out your form and would like to know more about your business."
@@ -991,18 +1006,17 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    const nlpAnalysis = analyzeSymptoms(combinedText, latestCampaign, latestMedium);
+    const nlpAnalysis = analyzeSymptoms(textoRecienteNLP, latestCampaign, latestMedium);
 
  // REGLA DE ORO CON OJOS Y CRÍTICA OPERATIVA:
     // 1. Prioridad Máxima: Dolencia explícita en el Nombre de Conjunto de Anuncios (AdSet / UTM Term)
-    //    (ej: "TESTOSTERONA - ERNESTO - 2pm a 9pm - 1175" -> Potencia). ¡Es el anuncio exacto que cliquió hoy!
-    // 2. Prioridad Fanpage Ultra: "BioNatural - Ultra" es la marca exclusiva de Potencia de Click2Ring.
-    // 3. Prioridad Chat / NLP: Síntomas o palabras clave en el chat de hoy (ej: "MUESTRA GRATIS POTENCIA", "pajarito").
-    // 4. Prioridad Otros UTMs: Creativo, medium, campaña.
-    // 5. Fallback CRM vTiger: La dolencia histórica de vTiger (ej: Artritis en 2021) SOLO se usa como último recurso
-    //    si NO hay AdSet, NO es página Ultra, NO hay síntomas de hoy y NO hay pauta activa.
+    //    (ej: "TESTOSTERONA - ..." -> Potencia; "DIABETES - ..." -> Diabetes). Es el anuncio exacto que clicó hoy.
+    // 2. Prioridad Chat / NLP: Síntomas o palabras clave en el chat de hoy (ej: "MUESTRA GRATIS POTENCIA", "pajarito").
+    // 3. Prioridad Otros UTMs: Creativo, medium, campaña.
+    // 4. Fallback CRM vTiger: la dolencia histórica SOLO como último recurso (sin pauta/chat activo).
+    // [FIX 28/10] Click2Ring maneja DOS tratamientos (Diabetes y Testosterona->Potencia):
+    // NO se fuerza 'Potencia' por fanpage; el padecimiento sale del adset/campaña.
     const adsetInferredTreatment = inferTreatmentFromCampaignOrUtm(latestAdSetName);
-    const isUltraPage = targetPageId === '111906554968800' || (targetPageName || '').toLowerCase().includes('ultra');
 
     const utmInferredTreatment = inferTreatmentFromCampaignOrUtm(targetAdName) ||
                                   inferTreatmentFromCampaignOrUtm(latestMedium) ||
@@ -1011,9 +1025,6 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
                                   inferTreatmentFromCampaignOrUtm(attrReciente?.utmContent);
 
     let targetTratamiento = adsetInferredTreatment;
-    if (!targetTratamiento && isUltraPage) {
-      targetTratamiento = 'Potencia';
-    }
     if (!targetTratamiento) {
       targetTratamiento = nlpAnalysis.primaryTreatment;
     }
@@ -1167,7 +1178,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       adsetName: latestAdSetName,
       adName: targetAdName,
       channel: targetChannel,
-      treatment: targetTratamiento || 'General'
+      treatment: targetTratamiento || 'General',
+      // [FIX 28/10] SEDE y PROVEEDOR ya resueltos por el router con la fuente
+      // AUTORITATIVA: la sede hermética de la subcuenta y el proveedor de PAGE_MATRIX
+      // (el MISMO que decide el dueño). Así el ORIGEN coincide con la asignación y no
+      // se recalcula con prioridad por nombre de campaña/adset (orígenes contradictorios).
+      sede: currentSedeName,
+      proveedor: getPageMatrixEntry(targetPageId)?.proveedor || targetProvider
     });
     const vtigerSource = origenContacto.origen;
     if (!origenContacto.completo) {
@@ -1436,12 +1453,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       customFieldsToUpdate.push({ id: FORM_ID_FIELD_ID, key: 'contact.id_form_clipo', field_value: String(targetFormId) });
     }
 
-    // Si vTiger tiene origen específico de FORM (cf_3472), prevalece sobre el calculado
-    if (vContact?.cf_3472 && ORIGEN_LEAD_FIELD) {
-      const origIdx = customFieldsToUpdate.findIndex(cf => cf.id === ORIGEN_LEAD_FIELD);
-      if (origIdx >= 0) customFieldsToUpdate[origIdx].field_value = vContact.cf_3472;
-      else customFieldsToUpdate.push({ id: ORIGEN_LEAD_FIELD, key: 'contact.origen_lead', field_value: vContact.cf_3472 });
-    }
+    // [FIX 28/10] El "Origen Lead" se mantiene con el ORIGEN MÁS RECIENTE calculado:
+    // NO se pisa con cf_3472 de vTiger (eso revivía orígenes históricos). El cruce con
+    // vTiger ya aporta el PADECIMIENTO (cf_2610 -> vtigerTreatment) dentro de la
+    // resolución de tratamiento, y SOLO cuando hay teléfono (findVTigerContact).
 
  // G. SINCRONIZACIÓN COMERCIAL CON VTIGER Y PURGA DE COMPRAS FALSAS (EN VIVO - DOMINIO AISLADO)
     let finalCustomerWon = isCustomerWon;
@@ -1452,7 +1467,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const truth = evaluateCommercialTruth(contact, vContact, activeContext?.sedeId || '');
       finalCustomerWon = truth.isWon;
       finalMonetaryValue = truth.totalSpent;
-      const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact, activeLocationId);
+      const sanitizedCommercialFields = buildSanitizedCommercialFields(contact, vContact, activeLocationId, sedeFields);
       customFieldsToUpdate.push(...sanitizedCommercialFields);
     } catch (commErr) {
       console.warn(`[Agente 3] [WARN] No se pudo evaluar estado comercial en vivo para ${contactId}:`, commErr.message);

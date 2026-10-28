@@ -7,6 +7,11 @@ import { ghlFetch } from '../utils/ghl_http_client.js';
 
 const { apiKey, locationId } = GHL_CONFIG;
 
+// [FIX 28/10] El embudo de Oportunidades no se usa en la operación actual: se desactiva
+// por defecto para no gastar cuota en GET/PUT/POST de oportunidades. Reversible con
+// OPPORTUNITY_SYNC_ENABLED=true si algún día se requiere.
+const OPPORTUNITY_SYNC_ENABLED = String(process.env.OPPORTUNITY_SYNC_ENABLED || '').toLowerCase() === 'true';
+
 const HEADERS = {
   'Authorization': `Bearer ${apiKey}`,
   'Version': '2021-07-28',
@@ -69,6 +74,8 @@ export async function findContactOpportunities(contactId, options = {}) {
  * Si isWon = false y es nuevo, lo mete a Prospecto Inicial.
  */
 export async function syncUnifiedPipelineOpportunity(contactId, contactName, isWon, createIfMissing = true, monetaryValue = 0, assignedTo = null, options = {}) {
+  if (!OPPORTUNITY_SYNC_ENABLED) return; // desactivado: no se crean ni mueven oportunidades
+
   const targetLocId = options.locationId || locationId;
 
   // [CONFIG GUARD]: sin credenciales de sede no se crea ni altera ninguna oportunidad.

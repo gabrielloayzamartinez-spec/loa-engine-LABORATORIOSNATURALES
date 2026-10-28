@@ -10,8 +10,8 @@ function resolveSedeIdFromLocation(locationId = '') {
   return ctx && !ctx.isUnresolved ? ctx.sedeId : null;
 }
 
-export function getCommercialFieldIdsForSede({ locationId = '', sede = '' } = {}) {
-  const cf = resolveSedeCustomFields({ locationId, sede });
+export function getCommercialFieldIdsForSede({ locationId = '', sede = '', cfOverride = null } = {}) {
+  const cf = cfOverride || resolveSedeCustomFields({ locationId, sede });
   const sedeId = sede ? String(sede).toUpperCase() : resolveSedeIdFromLocation(locationId);
   return {
     ESTADO_COMERCIAL: cf.estadoComercial,
@@ -124,7 +124,7 @@ export function evaluateCommercialTruth(ghlContact = {}, vContact = null, sedeAc
  * @param {string|null} locationId
  * @returns {Array<Object>} Lista de campos con { id, key, field_value }
  */
-export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null, locationId = null) {
+export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null, locationId = null, cfOverride = null) {
   const targetLoc = locationId || ghlContact?.locationId || '';
   const sedeActiva = resolveSedeIdFromLocation(targetLoc)
     || resolveSedeIdFromLocation(ghlContact?.locationId || '')
@@ -146,7 +146,7 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
   // La verdad comercial hereda la MISMA sede validada (una sola puerta de decisión).
   const truth = evaluateCommercialTruth(ghlContact, validVContact, sedeActiva || '');
   const fields = [];
-  const fieldIds = getCommercialFieldIdsForSede({ locationId: targetLoc, sede: sedeActiva || '' });
+  const fieldIds = getCommercialFieldIdsForSede({ locationId: targetLoc, sede: sedeActiva || '', cfOverride });
 
   // Si la sede no se pudo resolver, se devuelven los campos de estado en modo
   // SIN VENTA y sin datos financieros (nunca se omiten silenciosamente).

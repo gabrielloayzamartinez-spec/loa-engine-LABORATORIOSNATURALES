@@ -221,9 +221,7 @@ export async function processMasterContact(contactInput, options = {}) {
     let targetAdvisorId = contact.assignedTo || null;
     let targetAdvisorName = null;
 
-    if (detectedPageName === 'Naturales BioNatural' || detectedPageName === 'BIO Naturales Laboratorio'
-        || detectedPageName === 'Laboratorios Naturales BIO') {
-      // [CAMBIO DE DESIGNACION] "Laboratorios Naturales BIO" paso de CLICK2RING a ERNESTO.
+    if (detectedPageName === 'Naturales BioNatural' || detectedPageName === 'BIO Naturales Laboratorio') {
       targetAdvisorId = PALACIOS_USERS['naturales bionatural'].id;
       targetAdvisorName = PALACIOS_USERS['naturales bionatural'].name;
     } else if (detectedPageName === 'BioNatural - Ultra') {

@@ -21,7 +21,8 @@
  */
 
 import { ghlFetch } from '../utils/ghl_http_client.js';
-import { PALACIOS_USERS, SEDES_GATEWAY } from '../config/index.js';
+import { SEDES_GATEWAY } from '../config/index.js';
+import { PAGE_MATRIX } from '../config/page_matrix.js';
 
 /**
  * El router etiqueta la fanpage con un slug normalizado a guiones:
@@ -32,13 +33,15 @@ import { PALACIOS_USERS, SEDES_GATEWAY } from '../config/index.js';
  */
 const slugificar = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-/** Construye el indice: slug de fanpage (normalizado) -> asesor esperado. */
+/** Construye el indice: slug de fanpage (normalizado) -> asesor esperado (FUENTE ÚNICA: page_matrix.js). */
 function construirReglas() {
   const porSlug = new Map();
-  for (const usuario of Object.values(PALACIOS_USERS)) {
-    if (!usuario?.id) continue;
-    for (const nombrePagina of (usuario.pages || [])) {
-      porSlug.set(slugificar(nombrePagina), usuario);
+  for (const [, entry] of Object.entries(PAGE_MATRIX)) {
+    if (entry.sinDueno) continue; // sin dueño (Cola Forms): fuera de la regla de propietario
+    const sede = SEDES_GATEWAY[entry.sede];
+    const usuario = entry.ownerKey && sede?.users ? sede.users[entry.ownerKey] : null;
+    if (usuario?.id) {
+      porSlug.set(slugificar(entry.pageName), usuario);
     }
   }
   return { porSlug };
@@ -65,10 +68,13 @@ export async function auditarRuteo({ sede = 'PALACIOS', paginas = 20 } = {}) {
   const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28', Accept: 'application/json' };
   const limitePaginas = Math.min(Math.max(parseInt(paginas, 10) || 20, 1), 500);
 
-  // Indice inverso: id de usuario -> nombre
-  const nombrePorId = new Map(
-    Object.values(PALACIOS_USERS).filter(u => u?.id).map(u => [u.id, u.name])
-  );
+  // Indice inverso: id de usuario -> nombre (cubre las 4 subcuentas desde SEDES_GATEWAY).
+  const nombrePorId = new Map();
+  for (const sede of Object.values(SEDES_GATEWAY)) {
+    for (const u of Object.values(sede?.users || {})) {
+      if (u?.id) nombrePorId.set(u.id, u.name);
+    }
+  }
 
   let escaneados = 0;
   let conFanpage = 0;

@@ -108,6 +108,51 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
       }
     },
     {
+      name: 'Regla 4A3: Origen page-first — el origen coincide con el dueño asignado (no se recalcula por adset/campaña)',
+      run: () => {
+        // [FIX 28/10] Con sede/proveedor ya resueltos por el router (PAGE_MATRIX + hermetismo),
+        // el origen NO debe recalcularse con prioridad por nombre de campaña/adset.
+        const conOverride = buildOrigenDeContacto({
+          pageId: '566501466542620',
+          pageName: 'Naturales BioNatural',
+          adsetName: 'TETOSTERONA - IN HOUSE - CBO V1',
+          channel: 'FB-MSGR',
+          treatment: 'Potencia',
+          sede: 'PALACIOS',
+          proveedor: 'ERNESTO'
+        });
+        if (conOverride.origen !== 'PALACIOS-ERNESTO-FB-MSGR-Potencia') {
+          throw new Error(`El origen page-first debe ser PALACIOS-ERNESTO-FB-MSGR-Potencia, recibido: ${conOverride.origen}`);
+        }
+
+        // Una página sin mapear NO debe producir "null-SEDE" en el origen.
+        const sinMapear = buildOrigenDeContacto({
+          pageId: '',
+          pageName: 'BIO Vida Natural',
+          channel: 'FB-MSGR',
+          treatment: 'General',
+          sede: 'PALACIOS',
+          proveedor: 'CLICK2RING'
+        });
+        if (sinMapear.origen.includes('null')) {
+          throw new Error(`El origen no debe contener "null": ${sinMapear.origen}`);
+        }
+        if (sinMapear.origen !== 'PALACIOS-CLICK2RING-FB-MSGR-General') {
+          throw new Error(`Origen de página sin mapear inesperado: ${sinMapear.origen}`);
+        }
+      }
+    },
+    {
+      name: 'Regla 4A4: Click2Ring distingue Diabetes y Testosterona (no se fuerza Potencia por fanpage)',
+      run: () => {
+        // [FIX 28/10] Click2Ring tiene DOS tratamientos: Diabetes y Testosterona->Potencia.
+        const diabetes = inferTreatmentFromCampaignOrUtm('DIABETES - CESAR - 250 diario');
+        if (diabetes !== 'Diabetes') throw new Error(`Esperado Diabetes, recibido: ${diabetes}`);
+        const potencia = inferTreatmentFromCampaignOrUtm('TESTOSTERONA - CESAR - 250 diario');
+        if (potencia !== 'Potencia') throw new Error(`Esperado Potencia (testosterona), recibido: ${potencia}`);
+      }
+    },
+    {
       name: 'Regla 4B: Pauta de Naturales BioNatural con IN HOUSE debe resolver PALACIOS-IN_HOUSE',
       run: () => {
         const prov = resolveLeadProvider({

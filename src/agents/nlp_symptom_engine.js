@@ -475,10 +475,16 @@ export function buildOrigenDeContacto({
   adsetName = '',
   adName = '',
   channel = '',
-  treatment = ''
+  treatment = '',
+  sede = '',
+  proveedor = ''
 }) {
-  const sede = resolveLeadSede({ pageId, pageName, campaignName });
-  const proveedor = resolveLeadProvider({ pageId, pageName, campaignName, adsetName, adName });
+  // [FIX 28/10] El llamador (chat_router_agent) ya resolvió SEDE y PROVEEDOR con la
+  // fuente AUTORITATIVA (PAGE_MATRIX page-first + hermetismo de subcuenta). Antes se
+  // RECALCULABAN aquí con prioridad por nombre de campaña/adset: el origen podía
+  // contradecir al dueño asignado (o quedar "null-SEDE" en páginas sin mapear).
+  const sedeFinal = sede || resolveLeadSede({ pageId, pageName, campaignName });
+  const proveedorFinal = proveedor || resolveLeadProvider({ pageId, pageName, campaignName, adsetName, adName });
   const canal = (channel || '').toUpperCase() || 'DESCONOCIDO';
 
   const adsetTreatment = inferTreatmentFromCampaignOrUtm(adsetName);
@@ -486,23 +492,21 @@ export function buildOrigenDeContacto({
     || (treatment && String(treatment).length > 2 ? String(treatment) : null)
     || 'General';
 
-  const origen = `${sede}-${proveedor}-${canal}-${padecimiento}`;
+  const origen = `${sedeFinal}-${proveedorFinal}-${canal}-${padecimiento}`;
 
   return {
     origen,
-    sede,
-    proveedor,
+    sede: sedeFinal,
+    proveedor: proveedorFinal,
     canal,
     padecimiento,
     fuentes: {
-      sede: pageId ? 'page-id' : (campaignName ? 'campana' : 'default'),
-      proveedor: (adsetName || adName) ? 'adset-anuncio' : (pageId ? 'page-id' : 'default'),
+      sede: sede ? 'resuelta-por-llamador' : (pageId ? 'page-id' : (campaignName ? 'campana' : 'default')),
+      proveedor: proveedor ? 'resuelto-por-llamador' : ((adsetName || adName) ? 'adset-anuncio' : (pageId ? 'page-id' : 'default')),
       canal: canal === 'DESCONOCIDO' ? 'sin-evidencias' : 'transporte-evento',
       padecimiento: adsetTreatment ? 'adset' : (treatment ? 'tratamiento' : 'general')
     },
-    completo: Boolean(
-      sede !== 'PALACIOS' || true, // la sede siempre resuelve (con fallback)
-    ) && canal !== 'DESCONOCIDO' && padecimiento !== 'General'
+    completo: canal !== 'DESCONOCIDO' && padecimiento !== 'General'
   };
 }
 

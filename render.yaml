@@ -22,6 +22,12 @@ services:
         value: "5000"
       - key: PAUSE_BENAVIDES
         value: "false"
+      # Cuenta Empresa desactivada: el motor opera 100% en las 4 subcuentas de sedes.
+      - key: PAUSE_CUENTA_EMPRESA
+        value: "true"
+      # Embudo de Oportunidades desactivado (no se usa en la operación actual).
+      - key: OPPORTUNITY_SYNC_ENABLED
+        value: "false"
 
       # GHL Multi-Sede (arquitectura descentralizada point-to-point)
       # IMPORTANTE: la Cuenta Empresa NO es el "GHL Central" hub deprecado.
