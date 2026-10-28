@@ -206,6 +206,16 @@ function enCooldownDeRuteo(contactId) {
   return false;
 }
 
+// [FIX 28/10 — COOLDOWN ANTI-BUCLE PARA PROCESOS DE FONDO]
+// El curador/guardián/limpiador/trabajo-del-día re-seleccionan los mismos contactos
+// porque NUESTRA propia escritura mueve `date_updated`. Se reutiliza `enCooldownDeRuteo`
+// (clave `fondo:`) para que un proceso de fondo SIN mensaje nuevo no re-rutee el mismo
+// contacto cada 25-60s. No afecta al N1 (webhook/radar con mensaje real).
+const ORIGENES_FONDO = new Set([
+  'curador-bidireccional', 'guardian-bandejas', 'limpiador-bandejas',
+  'trabajo-del-dia', 'curador-estandar', 'day-sync'
+]);
+
 function contarRuteoDeContacto(contactId, origen = 'desconocido') {
   const ahora = Date.now();
   const reg = ruteosPorContacto.get(contactId);
@@ -365,6 +375,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // UNA sola vez.
     // ========================================================================
     const mensajeMsEntrante = Number(options.mensajeMs) || 0;
+    // [FIX 28/10] Proceso de fondo SIN mensaje nuevo y ya ruteado hace < 5 min -> se
+    // salta (corta el bucle de reproceso). El N1 (webhook/radar con mensaje) no entra aquí.
+    if (!isDryRun && mensajeMsEntrante === 0 && ORIGENES_FONDO.has(origenRuteoActual) && enCooldownDeRuteo(`fondo:${contactId}`)) {
+      return 'UNCHANGED';
+    }
     if (!isDryRun && mensajeMsEntrante > 0 && yaAtendido(contactId, mensajeMsEntrante)) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
       return 'UNCHANGED';
