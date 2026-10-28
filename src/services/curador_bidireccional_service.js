@@ -170,17 +170,13 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
     // curador re-ruteaba justo lo que el fondo acababa de tocar.
     const mensajePorContacto = new Map();
 
-    // 1. Obtener los contactos modificados más recientemente
-    const contactsUrl = `https://services.leadconnectorhq.com/contacts/?locationId=${locId}&limit=${limit}&sortBy=date_updated&order=desc`;
-    const cRes = await ghlFetch(contactsUrl, { headers }, 1, `Curador-${sedeUpper}`);
-    if (cRes.status === 200) {
-      const cData = await cRes.json();
-      for (const c of (cData.contacts || [])) {
-        if (c.id) contactIdsToProcess.add(c.id);
-      }
-    }
+    // [FIX 28/10 — BUCLE PERMANENTE] Se ELIMINA la selección por `date_updated`:
+    // NUESTRA propia escritura actualiza ese campo, así que el curador re-seleccionaba
+    // SIEMPRE los mismos contactos (bucle). El forward ahora SOLO cura contactos con
+    // CONVERSACIÓN reciente (actividad REAL del lead). El re-curado de contactos tocados
+    // por Nivel 2 lo hace el propio Nivel 2, no el forward.
 
-    // 2. Obtener las conversaciones más recientes (DMs / Chats frescos)
+    // 1. Obtener las conversaciones más recientes (DMs / Chats frescos)
     try {
       const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${locId}&limit=${limit}`;
       const convRes = await ghlFetch(convUrl, { headers: { ...headers, 'Version': '2021-04-15' } }, 1, `Curador-${sedeUpper}`);

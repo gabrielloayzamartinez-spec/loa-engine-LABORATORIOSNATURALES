@@ -710,6 +710,11 @@ async function runExpressAssignment() {
 // [GUARDIAN] GUARDIÁN CONTINUO DE BANDEJAS SIN ASIGNAR (MULTI-SEDE EN SIMULTÁNEO: PALACIOS & BENAVIDES)
 // Barre cada 60 segundos en paralelo para garantizar que ningún lead quede "Sin asignar"
 let isUnassignedGuardianRunning = false;
+// [FIX 28/10 — BUCLE PERMANENTE] El guardián re-seleccionaba la MISMA conversación sin
+// asignar cada 60s (cuando la asignación no propaga a la conversación). Este registro
+// evita re-intentar el mismo contacto hasta pasados 30 min.
+const guardianIntentados = new Map();         // contactId -> timestamp del último intento
+const GUARDIAN_INTENTO_TTL = 30 * 60 * 1000;  // 30 min
 export async function runUnassignedConversationsGuardian() {
   if (isUnassignedGuardianRunning) return;
   isUnassignedGuardianRunning = true;
@@ -729,6 +734,15 @@ export async function runUnassignedConversationsGuardian() {
       const data = await res.json();
       const unassigned = (data.conversations || []).filter(c => !c.assignedTo && c.contactId);
       for (const conv of unassigned) {
+        // [FIX 28/10] Si ya se intentó asignar este contacto hace < 30 min, se salta
+        // (corta el bucle de re-selección de la conversación sin asignar).
+        const intentoTs = guardianIntentados.get(conv.contactId) || 0;
+        if (Date.now() - intentoTs < GUARDIAN_INTENTO_TTL) continue;
+        guardianIntentados.set(conv.contactId, Date.now());
+        if (guardianIntentados.size > 5000) {
+          const corte = Date.now() - GUARDIAN_INTENTO_TTL;
+          for (const [id, t] of guardianIntentados) if (t < corte) guardianIntentados.delete(id);
+        }
         console.log(`[Unassigned Guardian] [LEAD-UNASSIGNED] Lead sin asignar detectado en ${loc.name}: ${conv.contactName || 'Lead'} (${conv.contactId}). Enrutando...`);
         await routeChatByContact(conv.contactId, true, false, { locationId: loc.id, headers: loc.headers, origen: 'guardian-bandejas', mensajeMs: new Date(conv.lastMessageDate || 0).getTime() });
         await sleep(600);
