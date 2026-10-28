@@ -22,9 +22,6 @@ services:
         value: "5000"
       - key: PAUSE_BENAVIDES
         value: "false"
-      # Cuenta Empresa desactivada: el motor opera 100% en las 4 subcuentas de sedes.
-      - key: PAUSE_CUENTA_EMPRESA
-        value: "true"
       # Embudo de Oportunidades desactivado (no se usa en la operación actual).
       - key: OPPORTUNITY_SYNC_ENABLED
         value: "false"
@@ -52,12 +49,6 @@ services:
       - key: GHL_API_KEY_PIURA
         sync: false
       - key: GHL_LOCATION_ID_PIURA
-        sync: false
-      # Cuenta Empresa (analitica macro). Si faltan, el motor opera solo por sede
-      # sin romperse: la carga macro queda desactivada con un aviso en logs.
-      - key: GHL_API_KEY_CENTRAL
-        sync: false
-      - key: GHL_LOCATION_ID_CENTRAL
         sync: false
 
       # Colas durables y estado distribuido (feature flag)

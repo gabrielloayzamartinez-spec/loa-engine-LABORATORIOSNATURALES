@@ -869,14 +869,12 @@ app.get('/api/health', (req, res) => {
     // token sirva (un PIT revocado esta presente y falla igual), por eso se
     // incluye `credencial`: el resultado de una PRUEBA REAL contra GHL.
     cuentaEmpresa: {
-      configurada: isCentralConfigured(),
-      pausada: String(process.env.PAUSE_CUENTA_EMPRESA || readSecret('PAUSE_CUENTA_EMPRESA') || '').toLowerCase() === 'true',
-      locationIdPresente: Boolean(readSecret('GHL_LOCATION_ID_CENTRAL')),
-      apiKeyPresente: Boolean(readSecret('GHL_API_KEY_CENTRAL')),
-      rol: 'analitica macro (pausada: foco 100% en subcuentas de sedes)',
-      credencial: isCentralConfigured()
-        ? centralCredentialStatus
-        : { configurada: false, valida: null, status: null, detalle: 'Cuenta Empresa pausada para concentrar el motor en subcuentas de sedes' }
+      configurada: false,
+      pausada: true,
+      locationIdPresente: false,
+      apiKeyPresente: false,
+      rol: 'eliminada: el motor opera 100% en las 4 subcuentas de sedes',
+      credencial: { configurada: false, valida: null, status: null, detalle: 'Cuenta Empresa eliminada por decision de negocio' }
     },
     meta: {
       // Presencia de la variable (comprobacion barata, no implica validez).

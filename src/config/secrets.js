@@ -138,10 +138,7 @@ export const SECRET_SPECS = [
   { key: 'QUEUE_DRIVER', required: false, fallback: 'memory', description: 'memory | bullmq' },
   { key: 'REDIS_URL', required: false, fallback: '', description: 'URL de Redis (Upstash/Render KV)' },
   { key: 'DATABASE_URL', required: false, fallback: '', description: 'PostgreSQL persistente (estado/cursores)' },
-  { key: 'PERSISTENCE_DRIVER', required: false, fallback: 'file', description: 'file | postgres' },
-
-  // --- Cuenta Empresa (Macro / BI) - Conmutador de pausa ---
-  { key: 'PAUSE_CUENTA_EMPRESA', required: false, fallback: 'false', description: 'Pausa toda acción en la Cuenta Empresa para concentrar el motor 100% en las subcuentas de sedes' }
+  { key: 'PERSISTENCE_DRIVER', required: false, fallback: 'file', description: 'file | postgres' }
 ];
 
 const SPEC_BY_KEY = new Map(SECRET_SPECS.map(s => [s.key, s]));

@@ -48,15 +48,11 @@ import { deberiaSaltar, deberiaSaltarVtiger } from './payload_hash_gate.js';
 const CENTRAL_LOCATION_ID = readSecret('GHL_LOCATION_ID_CENTRAL');
 const CENTRAL_API_KEY = readSecret('GHL_API_KEY_CENTRAL');
 
-/** ¿Está configurada y activa la Cuenta Empresa? Si está pausada o faltan llaves, el motor opera 100% solo por sede. */
+// [FIX 28/10] La Cuenta Empresa (Central) fue ELIMINADA de la operación. El motor
+// trabaja 100% en las 4 subcuentas de sedes. Se conserva la función para no romper a
+// los llamadores, pero SIEMPRE devuelve false: no hay sync hacia Central.
 export function isCentralConfigured() {
-  if (
-    String(process.env.PAUSE_CUENTA_EMPRESA || readSecret('PAUSE_CUENTA_EMPRESA') || '').toLowerCase() === 'true' ||
-    String(process.env.DISABLE_CUENTA_EMPRESA || readSecret('DISABLE_CUENTA_EMPRESA') || '').toLowerCase() === 'true'
-  ) {
-    return false;
-  }
-  return Boolean(CENTRAL_LOCATION_ID && CENTRAL_API_KEY);
+  return false;
 }
 
 /**
