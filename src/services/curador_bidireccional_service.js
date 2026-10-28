@@ -110,6 +110,31 @@ let globalMetrics = {
   }
 };
 
+// [FIX 28/10 — ANTI-BUCLE DEL CURADOR]
+// El curador forward ordenaba por `date_updated`, y NUESTRA propia escritura actualizaba
+// ese campo: el mismo contacto se re-curaba cada 25 s (bucle → ~23k llamadas/hora).
+// Este cooldown por contacto corta el re-procesamiento: un contacto ya curado no se
+// vuelve a tocar hasta pasados CURATOR_COOLDOWN_MS. NO afecta al Nivel 1 (radar/webhook),
+// que sigue en tiempo real, porque este guard vive solo en el curador de fondo.
+const lastCuratedAt = new Map();                 // contactId -> timestamp del último curado
+const CURATOR_COOLDOWN_MS = 15 * 60 * 1000;      // 15 minutos
+
+function estaEnCooldownCurador(contactId) {
+  const ts = lastCuratedAt.get(contactId) || 0;
+  return Date.now() - ts < CURATOR_COOLDOWN_MS;
+}
+
+function marcarCurado(contactId) {
+  lastCuratedAt.set(contactId, Date.now());
+  // Poda oportunista: si el mapa crece demasiado, se limpian las entradas expiradas.
+  if (lastCuratedAt.size > 5000) {
+    const corte = Date.now() - CURATOR_COOLDOWN_MS;
+    for (const [id, ts] of lastCuratedAt) {
+      if (ts < corte) lastCuratedAt.delete(id);
+    }
+  }
+}
+
 /**
  * MODO 1: "DEL AHORA EN ADELANTE" (Forward / En Vivo)
  * Escanea y cura los contactos y chats más recientes en tiempo real para la sede especificada.
@@ -135,6 +160,7 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
   let scanned = 0;
   let healed = 0;
   let errors = 0;
+  let skipped = 0;
 
   try {
     const contactIdsToProcess = new Set();
@@ -174,6 +200,11 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
 
     // 3. Procesar y curar cada contacto fresco con Sede-Lock
     for (const contactId of contactIdsToProcess) {
+      // [FIX 28/10] Si ya se curó hace < 15 min, se salta (corta el bucle de reproceso).
+      if (estaEnCooldownCurador(contactId)) {
+        skipped++;
+        continue;
+      }
       try {
         const result = await routeChatByContact(contactId, true, false, { origen: 'curador-bidireccional',
           locationId: locId,
@@ -183,8 +214,9 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
           // `date_updated` se envía 0 y el router lo descarta tras leer la evidencia.
           mensajeMs: mensajePorContacto.get(contactId) || 0
         });
-        if (result === 'SUCCESS' || result === 'UNCHANGED' || result === 'RETRY') {
+        if (result === 'SUCCESS' || result === 'UNCHANGED') {
           healed++;
+          marcarCurado(contactId); // solo marca si procesó bien; RETRY/error reintentan
         }
       } catch (err) {
         errors++;
@@ -205,6 +237,7 @@ export async function runForwardCure(sedeName = 'BENAVIDES', options = {}) {
       scanned,
       healed,
       errors,
+      skipped,
       durationMs: Date.now() - startTime
     };
   } finally {
