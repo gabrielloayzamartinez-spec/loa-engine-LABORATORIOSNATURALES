@@ -206,15 +206,30 @@ function enCooldownDeRuteo(contactId) {
   return false;
 }
 
-// [FIX 28/10 — COOLDOWN ANTI-BUCLE PARA PROCESOS DE FONDO]
+// [FIX 29/10 — COOLDOWN ANTI-BUCLE PARA PROCESOS DE FONDO (30 min)]
 // El curador/guardián/limpiador/trabajo-del-día re-seleccionan los mismos contactos
-// porque NUESTRA propia escritura mueve `date_updated`. Se reutiliza `enCooldownDeRuteo`
-// (clave `fondo:`) para que un proceso de fondo SIN mensaje nuevo no re-rutee el mismo
-// contacto cada 25-60s. No afecta al N1 (webhook/radar con mensaje real).
+// porque NUESTRA propia escritura mueve `date_updated` (y el barrido histórico re-sweep).
+// Un cooldown de 5 min solo frenaba la velocidad, no la re-selección: el bucle "lento"
+// volvía (1 ruteo cada 5 min = 12/hora). Con 30 min se corta el bucle lento: un proceso
+// de fondo solo puede re-tocar un contacto 2 veces por hora. El N1 (webhook/radar) NO
+// entra aquí y sigue en tiempo real.
 const ORIGENES_FONDO = new Set([
   'curador-bidireccional', 'guardian-bandejas', 'limpiador-bandejas',
   'trabajo-del-dia', 'curador-estandar', 'day-sync'
 ]);
+const ultimoRuteoFondo = new Map();            // contactId -> timestamp
+const COOLDOWN_FONDO_MS = 30 * 60 * 1000;       // 30 min
+
+function estaEnCooldownFondo(contactId) {
+  const ts = ultimoRuteoFondo.get(contactId) || 0;
+  if (Date.now() - ts < COOLDOWN_FONDO_MS) return true;
+  ultimoRuteoFondo.set(contactId, Date.now());
+  if (ultimoRuteoFondo.size > 8000) {
+    const corte = Date.now() - COOLDOWN_FONDO_MS;
+    for (const [id, t] of ultimoRuteoFondo) if (t < corte) ultimoRuteoFondo.delete(id);
+  }
+  return false;
+}
 
 function contarRuteoDeContacto(contactId, origen = 'desconocido') {
   const ahora = Date.now();
@@ -375,10 +390,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // UNA sola vez.
     // ========================================================================
     const mensajeMsEntrante = Number(options.mensajeMs) || 0;
-    // [FIX 28/10] Cooldown anti-bucle para TODO proceso de fondo: si ya se ruteó hace
-    // < 5 min, se salta. El N1 (webhook/radar, que NO está en ORIGENES_FONDO) sigue
-    // en tiempo real, así que un mensaje nuevo lo atiende el radar y no depende del fondo.
-    if (!isDryRun && ORIGENES_FONDO.has(origenRuteoActual) && enCooldownDeRuteo(`fondo:${contactId}`)) {
+    // [FIX 29/10] Cooldown anti-bucle de 30 min para TODO proceso de fondo: si ya se
+    // ruteó hace < 30 min, se salta (corta el bucle lento). El N1 (webhook/radar) NO
+    // está en ORIGENES_FONDO y sigue en tiempo real.
+    if (!isDryRun && ORIGENES_FONDO.has(origenRuteoActual) && estaEnCooldownFondo(contactId)) {
       return 'UNCHANGED';
     }
     if (!isDryRun && mensajeMsEntrante > 0 && yaAtendido(contactId, mensajeMsEntrante)) {
