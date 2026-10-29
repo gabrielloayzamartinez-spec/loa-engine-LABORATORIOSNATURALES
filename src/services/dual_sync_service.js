@@ -87,6 +87,9 @@ export const CAMPOS_REQUERIDOS = {
   // SEDE-PROVEEDOR-CANAL-PADECIMIENTO (verificado identico en 20/20 contactos
   // de Palacios y en todos los de Benavides). Se lee directo, no se compone.
   origenLead: ['origen lead', 'origen del lead'],
+  // [FIX 29/10] Origen de COMPRA (vTiger): campo separado del origen de chat.
+  // cf_3472 va aquí; "Origen Lead" queda exclusivo del router (origen de CHAT/Meta).
+  origenCompra: ['origen compra', 'origen compra vtiger', 'v tiger origen compra'],
   // SEXO: vTiger lo guarda en cf_2821 con valores "Mujer" / "Hombre" / "TERCER".
   // Se publica TAL CUAL viene para no alterar el dato. Cuando no exista el campo
   // en GHL, el descubrimiento no lo resuelve y simplemente no se envía.
@@ -748,10 +751,9 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   // Identificación y origen (siempre, para que el contacto quede completo)
   push(fieldIdsCentral, 'oficinaOrigen', sedeId || vContact.cf_3451 || '');
   push(fieldIdsCentral, 'campanaOrigen', vContact.cf_3472 || '');
-  // RELACION DE ORIGEN en el campo "Origen Lead": se publica EXACTAMENTE el valor
-  // de vTiger (`cf_3472`), sin recomponerlo ni reformatearlo. Verificado identico
-  // a la construccion SEDE-PROVEEDOR-CANAL-PADECIMIENTO en el 100% de la muestra.
-  push(fieldIdsCentral, 'origenLead', vContact.cf_3472 || '');
+  // [FIX 29/10 — SEPARACIÓN DE ORÍGENES] El origen de COMPRA de vTiger (cf_3472) va a
+  // su PROPIO campo "Origen Compra". "Origen Lead" queda EXCLUSIVO del router (chat).
+  push(fieldIdsCentral, 'origenCompra', vContact.cf_3472 || '');
   push(fieldIdsCentral, 'canalCaptacion', vContact.cf_3507 || '');
   push(fieldIdsCentral, 'tratamientoComprado', tratamiento || vContact.cf_2610 || '');
   push(fieldIdsCentral, 'contactoNo', vContact.contact_no || '');
@@ -814,8 +816,8 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
 
   pushSede('oficinaOrigen', sedeId || '');
   pushSede('campanaOrigen', vContact.cf_3472 || '');
-  // En la sede "Origen Lead" tambien recibe la relacion completa (es TEXT ahi).
-  pushSede('origenLead', vContact.cf_3472 || '');
+  // [FIX 29/10] La sede recibe el origen de COMPRA en "Origen Compra" (separado del chat).
+  pushSede('origenCompra', vContact.cf_3472 || '');
   pushSede('canalCaptacion', vContact.cf_3507 || '');
   pushSede('tratamientoComprado', tratamiento || vContact.cf_2610 || '');
   pushSede('contactoNo', vContact.contact_no || '');
