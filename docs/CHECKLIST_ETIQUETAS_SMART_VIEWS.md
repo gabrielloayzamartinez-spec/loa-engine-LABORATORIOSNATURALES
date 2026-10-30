@@ -13,6 +13,11 @@
 - `sede-palacios` · `sede-benavides` · `sede-roosevelt` · `sede-piura`
 - `cola-redes-1` · `cola-redes-2` · `cola-inhouse` · `cola-forms`
 
+### De proveedor (factor de vista — nuevo 30/10)
+- `prov-ernesto` · `prov-in-house` · `prov-click2ring` · `prov-redes-2-benavides`
+- Sirve para **separar formularios por proveedor** cuando comparten canal `cola-forms`
+  (formularios de ERNESTO vs formularios IN-HOUSE). Se deriva de `PAGE_MATRIX.proveedor`.
+
 ### De producto / padecimiento (canónico)
 - `producto-potencia` (testosterona) · `producto-diabetes` · `producto-artritis`
 - `producto-prostata` · `producto-colageno` · `producto-vision`
@@ -64,6 +69,15 @@
 | 10 | Revisar Ruteo | `revisar-ruteo` | Delegaciones no confirmadas (auditar) |
 | 11 | Diabetes | `producto-diabetes` | Producto (opcional) |
 | 12 | Potencia | `producto-potencia` | Producto (opcional) |
+| 13 | Formularios Ernesto | `cola-forms` + `prov-ernesto` | Lead Ads de la página Naturales BioNatural (sin dueño) |
+| 14 | Formularios In-House | `cola-forms` + `prov-in-house` | Lead Ads de Laboratorios Naturales BIO (sin dueño) |
+
+> **Formularios (Lead Ads) — regla vigente desde 30/10:** todo lead que llega por
+> formulario (`Hello! I filled out your form...` o tag `form-id-*`) queda **sin dueño**
+> (`assignedTo` vacío) y en `cola-forms`, **aunque** la fanpage sea de ERNESTO. Lleva las
+> etiquetas que amarran su vista separada: `cola-forms` (canal), `producto-*`
+> (padecimiento) y `prov-*` (proveedor). Así se crean vistas por padecimiento
+> (GASTRO/DIABETES/TESTOSTERONA) y por proveedor sin mezclar con Messenger.
 
 > **Importante:** la Smart View por sede (`sede-palacios`, `sede-benavides`, …) suele ser
 > **redundante** porque cada subcuenta ya es soberana (los contactos ya están separados

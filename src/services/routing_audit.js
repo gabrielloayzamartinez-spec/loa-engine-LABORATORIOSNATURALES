@@ -98,6 +98,10 @@ export async function auditarRuteo({ sede = 'PALACIOS', paginas = 20 } = {}) {
       escaneados++;
       const tags = (c.tags || []).map(t => String(t).toLowerCase().trim());
 
+      // [30/10] Formulario Lead Ads: sin dueño POR DISEÑO (cola-forms), incluso si la
+      // fanpage es de ERNESTO. No aplica la regla de propietario de REDES.
+      if (tags.includes('cola-forms')) { sinFanpage++; continue; }
+
       // 1) Fanpage detectada por la etiqueta que dejo el router.
       let slugFanpage = null;
       for (const slug of porSlug.keys()) {

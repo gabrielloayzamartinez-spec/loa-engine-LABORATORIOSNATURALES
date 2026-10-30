@@ -148,7 +148,11 @@ export async function auditarPrimerNivel({ sede = 'PALACIOS', paginas = 10, solo
       // 2. REGLA DE PÁGINA (dueño esperado según PAGE_MATRIX)
       let slugFanpage = null;
       for (const slug of porSlug.keys()) if (tags.includes(slug)) { slugFanpage = slug; break; }
-      if (slugFanpage) {
+      if (tags.includes('cola-forms')) {
+        // [30/10] Formulario Lead Ads: sin dueño POR DISEÑO (aunque la fanpage sea de
+        // ERNESTO). No se juzga con la regla de página de REDES; sin dueño ES lo correcto.
+        totales.reglaOk++;
+      } else if (slugFanpage) {
         const esperado = porSlug.get(slugFanpage);
         if (esperado.sinDueno) {
           // La página es sin dueño (Cola Forms): tener dueño ES la violación.
