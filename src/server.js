@@ -17,7 +17,7 @@
 // ------------------------------------------------------------------------------
 // IMPORTS DEL RUNTIME (la malla HTTP vive en app.js; los side effects, aquí)
 // ------------------------------------------------------------------------------
-import { app, stats, runExpressAssignment, registerQueueProcessors, registerBackgroundSchedulers, startCentralCredentialCheck, startMetaCredentialCheck } from './app.js';
+import { app, stats, runExpressAssignment, registerQueueProcessors, registerBackgroundSchedulers, startCentralCredentialCheck, startMetaCredentialCheck, setVtigerConnectionStatus } from './app.js';
 import { learningBrain } from './services/learning_brain.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes, getOperationalSedes, getActiveSedes } from './config/sedes_gateway.js';
@@ -32,7 +32,6 @@ import { runPreFlightSanityCheck } from './tests/test_audit_engine.js';
 import { envInt } from './config/secrets.js';
 
 const PORT = process.env.PORT || 3000;
-let vtigerConnectionStatus = { status: 'PENDING', message: 'Checking...' };
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
   // ==========================================
@@ -96,14 +95,17 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
 
   try {
     const vtigerStatus = await checkVTigerHealth();
-    vtigerConnectionStatus = vtigerStatus;
+    // [FIX 30/10] Publicar el resultado REAL hacia la variable que leen /api/health,
+    // /api/stats y el dashboard /health. Antes quedaba en PENDING y el dashboard
+    // mostraba "Desconectado" aunque vTiger estuviera conectado.
+    setVtigerConnectionStatus(vtigerStatus);
     if (vtigerStatus.status === 'OK') {
       console.log('[VTIGER] [SUCCESS] Conexión con vTiger CRM verificada correctamente.');
     } else {
       console.warn('[VTIGER] [WARN] vTiger no disponible:', vtigerStatus.message, '- El motor opera con datos locales y reintentará.');
     }
   } catch (err) {
-    vtigerConnectionStatus = { status: 'ERROR', message: err.message };
+    setVtigerConnectionStatus({ status: 'ERROR', message: err.message });
     console.warn('[VTIGER] [WARN] Verificación de vTiger fallida:', err.message, '- Arranque continúa (fail-safe).');
   }
 
@@ -182,6 +184,18 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   setInterval(() => {
     syncVtigerGroundTruthToBrain(25).catch(err => console.error('[Periodic vTiger Sync Error]:', err.message));
   }, 30 * 60 * 1000);
+
+  // [FIX 30/10] Re-verificación del estado de conexión vTiger para el dashboard.
+  // Actualiza el indicador "Conectado/Desconectado" sin esperar al próximo deploy:
+  // si vTiger se cae o vuelve, /health lo refleja en minutos, no en horas.
+  setInterval(async () => {
+    try {
+      const s = await checkVTigerHealth();
+      setVtigerConnectionStatus(s);
+    } catch (e) {
+      setVtigerConnectionStatus({ status: 'ERROR', message: e.message });
+    }
+  }, 5 * 60 * 1000);
 
   runExpressAssignment();
 

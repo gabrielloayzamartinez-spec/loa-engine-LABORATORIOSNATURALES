@@ -311,6 +311,18 @@ let metaConnectionStatus = {
 };
 let vtigerConnectionStatus = { status: 'PENDING', message: 'Checking...' };
 
+/**
+ * [FIX 30/10 — BUG "DESCONECTADO" FALSO]
+ * Esta variable es la que leen /api/health y /api/stats (y el dashboard /health).
+ * Antes NADIE la actualizaba: quedaba en PENDING/Checking para siempre y el
+ * dashboard pintaba "Desconectado" en rojo aunque vTiger estuviera conectado.
+ * El runtime (server.js) llama a este setter con el resultado real de
+ * checkVTigerHealth(). Pasa lo mismo que la variable local homónima de server.js.
+ */
+export function setVtigerConnectionStatus(status) {
+  vtigerConnectionStatus = status || { status: 'ERROR', message: 'Sin respuesta de vTiger' };
+}
+
 let stats = {
   totalRuns: 0,
   contactsProcessed: 0,
@@ -953,7 +965,6 @@ app.get('/api/audit/log', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  const healData = getHealMetrics();
   res.send(`
     <!DOCTYPE html>
     <html lang="es">
@@ -1143,113 +1154,7 @@ app.get('/health', (req, res) => {
           </div>
 
           <div class="grid">
-            <!-- TABLERO 1: COMERCIAL / VENTAS -->
-            <div class="card">
-              <div class="card-title">Pipeline Comercial</div>
-              <div class="metric-row">
-                <span class="metric-label">Precalificado (Sin Teléfono)</span>
-                <span class="metric-value val-yellow" id="val-oppsPrecalificado">${stats.oppsPrecalificado}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">Para Contactar (Con Teléfono)</span>
-                <span class="metric-value val-blue" id="val-oppsCalificado">${stats.oppsCalificado}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">Remarketing</span>
-                <span class="metric-value val-purple" id="val-oppsRemarketing">${stats.oppsRemarketing}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">Venta Cerrada (Ganado)</span>
-                <span class="metric-value val-green" id="val-oppsGanado">${stats.oppsGanado}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">Total en Pipeline Comercial</span>
-                <span class="metric-value" id="val-opportunitiesCreated">${stats.opportunitiesCreated}</span>
-              </div>
-              
-              <div class="metric-row" style="margin-top: 10px; border-bottom: none; padding-bottom: 0;">
-                <span class="metric-label">Total Asignaciones</span>
-                <span class="metric-value">${stats.palaciosAssigned + stats.benavidesAssigned + stats.rooseveltAssigned + stats.piuraAssigned}</span>
-              </div>
-              <div class="metric-row sub-metric">
-                <span class="metric-label">Palacios</span>
-                <span class="metric-value" id="val-palaciosAssigned">${stats.palaciosAssigned}</span>
-              </div>
-              <div class="metric-row sub-metric">
-                <span class="metric-label">Benavides</span>
-                <span class="metric-value" id="val-benavidesAssigned">${stats.benavidesAssigned}</span>
-              </div>
-              <div class="metric-row sub-metric">
-                <span class="metric-label">Roosevelt</span>
-                <span class="metric-value" id="val-rooseveltAssigned">${stats.rooseveltAssigned}</span>
-              </div>
-              <div class="metric-row sub-metric">
-                <span class="metric-label">Piura</span>
-                <span class="metric-value" id="val-piuraAssigned">${stats.piuraAssigned}</span>
-              </div>
-            </div>
-
-            <!-- TABLERO 2: AUDITORÍA MULTI-TOUCH -->
-            <div class="card">
-              <div class="card-title">Radar de Auditoría</div>
-              <div class="metric-row">
-                <span class="metric-label">1er Clic (Lead Nuevo / X1)</span>
-                <span class="metric-value val-green" id="val-leadsX1">${stats.leadsX1}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">2do Clic (Reingreso / X2)</span>
-                <span class="metric-value val-yellow" id="val-leadsX2">${stats.leadsX2}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">3er Clic (Reingreso / X3)</span>
-                <span class="metric-value val-yellow" id="val-leadsX3">${stats.leadsX3}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">4to Clic+ (Saturación)</span>
-                <span class="metric-value val-red" id="val-leadsX4Plus">${stats.leadsX4Plus}</span>
-              </div>
-
-              <div class="highlight-box">
-                <span class="highlight-label">Total a Descontar a Agencia</span>
-                <span class="highlight-number" id="val-leadsDiscountTotal">${stats.leadsDiscountTotal}</span>
-              </div>
-            </div>
-
-            <!-- TABLERO 3: GUARDIÁN DE AUTO-CORRECCIÓN -->
-            <div class="card">
-              <div class="card-title">Self-Healer & Meta API</div>
-              <div class="metric-row">
-                <span class="metric-label">Estado del Guardián</span>
-                <span class="metric-value val-green">Autónomo 24/7</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">Contactos Auto-Auditados</span>
-                <span class="metric-value" id="val-healTotal">${healData.totalAudited}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">Discrepancias Subsanadas</span>
-                <span class="metric-value val-blue" id="val-healFixed">${healData.discrepanciesFixed}</span>
-              </div>
-              <div class="metric-row" style="margin-top: 15px; border-bottom: none; padding-bottom: 0;">
-                <span class="metric-label">Meta Developer API (MAPI)</span>
-                <span class="metric-value val-green">Enlace Activo</span>
-              </div>
-              <div class="metric-row sub-metric">
-                <span class="metric-label">Eventos de Conversión Enviados</span>
-                <span class="metric-value" id="val-metaCapiEventsSent">${stats.metaCapiEventsSent}</span>
-              </div>
-              <div class="metric-row sub-metric">
-                <span class="metric-label">Leads Excluidos de Pauta</span>
-                <span class="metric-value" id="val-metaExclusionsSent">${stats.metaExclusionsSent}</span>
-              </div>
-
-              <div class="actions-row">
-                <a href="/api/report/csv" class="btn" target="_blank">Reporte CSV</a>
-                <button class="btn btn-primary" onclick="triggerFastSync()">Forzar Auditoría</button>
-              </div>
-            </div>
-
-            <!-- TABLERO 4: CONEXIÓN VTIGER CRM -->
+            <!-- TABLERO 1: CONEXIÓN VTIGER CRM -->
             <div class="card">
               <div class="card-title">Conexión vTiger CRM</div>
               <div class="metric-row">
@@ -1269,7 +1174,7 @@ app.get('/health', (req, res) => {
               </div>
             </div>
 
-            <!-- TABLERO 5: SALUD DEL SISTEMA & CONSUMO API -->
+            <!-- TABLERO 2: SALUD DEL SISTEMA & CONSUMO API -->
             <div class="card">
               <div class="card-title">Salud del Sistema & Consumo API</div>
               <div class="metric-row">
@@ -1281,7 +1186,7 @@ app.get('/health', (req, res) => {
                 <span class="metric-value val-blue" id="val-metaApiCalls">0</span>
               </div>
               <div class="metric-row">
-                <span class="metric-label">Ciclos Completados (Poller)</span>
+                <span class="metric-label">Ciclos Completados (Radar)</span>
                 <span class="metric-value val-purple" id="val-totalRuns">${stats.totalRuns}</span>
               </div>
               <div class="metric-row">
@@ -1294,9 +1199,9 @@ app.get('/health', (req, res) => {
               </div>
             </div>
 
-            <!-- TABLERO 6: MICROTAREAS EN VIVO -->
+            <!-- TABLERO 3: MICROTAREAS EN VIVO -->
             <div class="card">
-              <div class="card-title">Microtareas en Ejecución en Vivo</div>
+              <div class="card-title">Procesos y Microprocesos en Vivo</div>
               <div class="terminal-box" id="val-liveLogs">
                 <div class="terminal-line">Iniciando monitor de tareas...</div>
               </div>
@@ -1315,11 +1220,7 @@ app.get('/health', (req, res) => {
               const res = await fetch('/api/stats');
               const data = await res.json();
               const fields = [
-                'oppsPrecalificado', 'oppsCalificado', 'oppsRemarketing', 'oppsGanado', 'opportunitiesCreated', 
-                'leadsX1', 'leadsX2', 'leadsX3', 'leadsX4Plus', 'leadsDiscountTotal', 
-                'vtigerSynced', 'vtigerQueue', 'vtigerStatus',
-                'palaciosAssigned', 'benavidesAssigned', 'rooseveltAssigned', 'piuraAssigned',
-                'metaCapiEventsSent', 'metaExclusionsSent', 'totalRuns'
+                'vtigerSynced', 'vtigerQueue', 'totalRuns'
               ];
               fields.forEach(f => {
                 const el = document.getElementById('val-' + f);
@@ -1368,20 +1269,9 @@ app.get('/health', (req, res) => {
                   }
                 }
               }
-              if (data.healMetrics) {
-                const hT = document.getElementById('val-healTotal');
-                if (hT) hT.innerText = data.healMetrics.totalAudited;
-                const hF = document.getElementById('val-healFixed');
-                if (hF) hF.innerText = data.healMetrics.discrepanciesFixed;
-              }
             } catch (err) {}
           }
           setInterval(fetchLiveStats, 2500);
-
-          async function triggerFastSync() {
-            alert('Ejecutando ciclo forzado de auto-auditoría y corrección...');
-            await fetch('/api/audit/heal', { method: 'POST' });
-          }
         </script>
       </body>
     </html>
