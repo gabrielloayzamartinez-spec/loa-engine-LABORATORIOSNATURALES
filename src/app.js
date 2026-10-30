@@ -964,6 +964,21 @@ app.get('/api/audit/log', (req, res) => {
   });
 });
 
+// ==========================================
+// LOGO DE EMPRESA (servido como archivo estático para el dashboard)
+// ==========================================
+const LOGO_PATH = path.join(process.cwd(), 'src', 'assets', 'logo.png');
+app.get('/logo.png', (req, res) => {
+  try {
+    if (!fs.existsSync(LOGO_PATH)) return res.status(404).send('logo no encontrado');
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(fs.readFileSync(LOGO_PATH));
+  } catch (err) {
+    res.status(500).send('error sirviendo el logo');
+  }
+});
+
 app.get('/health', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -971,197 +986,186 @@ app.get('/health', (req, res) => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>GHL Master Engine & Radar</title>
-        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+        <title>LOA ENGINE · Monitor</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
         <style>
           :root {
-            --bg-base: #0f172a;
-            --bg-card: #1e293b;
-            --border-subtle: #334155;
-            --text-primary: #f8fafc;
-            --text-muted: #94a3b8;
-            --accent-primary: #3b82f6;
-            --accent-success: #10b981;
-            --accent-warning: #f59e0b;
-            --accent-danger: #ef4444;
-            --accent-purple: #8b5cf6;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --border: #e2e8f0;
+            --text: #0f172a;
+            --muted: #64748b;
+            --primary: #2563eb;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --violet: #7c3aed;
+            --term-bg: #0b1220;
+            --term-green: #34d399;
+            --shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06);
           }
           * { box-sizing: border-box; }
           body {
-            font-family: 'Outfit', sans-serif;
-            background-color: var(--bg-base);
-            color: var(--text-primary);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
             margin: 0;
-            padding: 40px 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
             min-height: 100vh;
+            padding: 32px 20px 48px;
           }
-          .container { max-width: 1280px; width: 100%; }
-          .header {
-            text-align: center;
-            margin-bottom: 40px;
-            padding-bottom: 20px;
-          }
-          .header h1 {
-            font-size: 32px;
-            font-weight: 700;
-            margin: 0 0 12px 0;
-            background: linear-gradient(135deg, #e2e8f0, #94a3b8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -0.5px;
-          }
-          .status-badge {
-            display: inline-flex;
+          .shell { max-width: 1120px; margin: 0 auto; }
+
+          /* ── Header ─────────────────────────────── */
+          .topbar {
+            display: flex;
             align-items: center;
-            gap: 8px;
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--accent-success);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            gap: 16px;
+            margin-bottom: 28px;
           }
-          .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background-color: var(--accent-success);
-            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+          .logo {
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
+            object-fit: cover;
+            box-shadow: var(--shadow);
+            background: #fff;
+            border: 1px solid var(--border);
+            flex: 0 0 auto;
           }
+          .brand { display: flex; flex-direction: column; }
+          .brand-name {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: -0.4px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          .brand-name .pulse {
+            width: 9px; height: 9px; border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 0 0 rgba(22,163,74,.5);
+            animation: pulse 2s infinite;
+          }
+          @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); }
+            70% { box-shadow: 0 0 0 8px rgba(22,163,74,0); }
+            100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+          }
+          .brand-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+          /* ── Grid ──────────────────────────────── */
           .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-            gap: 24px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 18px;
           }
           .card {
-            background-color: var(--bg-card);
-            border: 1px solid var(--border-subtle);
+            background: var(--surface);
+            border: 1px solid var(--border);
             border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-            transition: transform 0.2s, box-shadow 0.2s;
-          }
-          .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+            padding: 20px 22px;
+            box-shadow: var(--shadow);
           }
           .card-title {
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 12px;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-muted);
-            margin-bottom: 20px;
+            letter-spacing: 1.1px;
+            color: var(--muted);
+            margin-bottom: 16px;
             padding-bottom: 12px;
-            border-bottom: 1px solid var(--border-subtle);
+            border-bottom: 1px solid var(--border);
           }
           .metric-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+            padding: 10px 0;
+            border-bottom: 1px solid #f1f5f9;
             font-size: 14px;
           }
           .metric-row:last-child { border-bottom: none; }
-          .metric-label { color: var(--text-muted); font-weight: 400; }
-          .metric-value { font-weight: 600; font-size: 16px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
-          .sub-metric { padding-left: 16px; font-size: 13px; }
-          .sub-metric .metric-label { color: #64748b; }
-          .sub-metric .metric-value { font-size: 14px; }
-          
-          .val-green { color: var(--accent-success) !important; }
-          .val-yellow { color: var(--accent-warning) !important; }
-          .val-red { color: var(--accent-danger) !important; }
-          .val-blue { color: var(--accent-primary) !important; }
-          .val-purple { color: var(--accent-purple) !important; }
-          
-          .highlight-box {
-            background: rgba(239, 68, 68, 0.05);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            border-radius: 12px;
-            padding: 16px;
-            margin-top: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .highlight-label { font-weight: 600; color: var(--accent-danger); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
-          .highlight-number { font-size: 24px; font-weight: 700; color: var(--accent-danger); font-variant-numeric: tabular-nums; }
-          
-          /* Consola Terminal */
-          .terminal-box {
-            background-color: #000;
-            border: 1px solid var(--border-subtle);
-            border-radius: 8px;
-            padding: 12px;
-            margin-top: 10px;
-            height: 160px;
-            overflow: hidden;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 12px;
-            color: #10b981;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-          }
-          .terminal-line { margin: 2px 0; animation: fadeIn 0.3s ease-in; }
-          @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+          .metric-label { color: var(--muted); font-weight: 500; }
+          .metric-value { font-weight: 700; font-size: 16px; color: var(--text); font-variant-numeric: tabular-nums; }
+          .val-green { color: var(--success) !important; }
+          .val-yellow { color: var(--warning) !important; }
+          .val-red { color: var(--danger) !important; }
+          .val-blue { color: var(--primary) !important; }
+          .val-purple { color: var(--violet) !important; }
 
-          .actions-row { display: flex; gap: 12px; margin-top: 20px; }
-          .btn {
-            flex: 1;
-            background: transparent;
-            border: 1px solid var(--border-subtle);
-            color: var(--text-primary);
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            text-align: center;
-            text-decoration: none;
-            cursor: pointer;
-            transition: all 0.2s;
+          /* ── Terminal ──────────────────────────── */
+          .terminal {
+            background: var(--term-bg);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            border: 1px solid #0f172a;
           }
-          .btn:hover { background: var(--border-subtle); border-color: var(--text-muted); }
-          .btn-primary { background: var(--accent-primary); border-color: var(--accent-primary); color: white; }
-          .btn-primary:hover { background: #2563eb; border-color: #2563eb; }
-          
+          .terminal-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: #0f172a;
+            border-bottom: 1px solid #1e293b;
+          }
+          .dot { width: 11px; height: 11px; border-radius: 50%; }
+          .dot-r { background: #ff5f57; }
+          .dot-y { background: #febc2e; }
+          .dot-g { background: #28c840; }
+          .terminal-title {
+            margin-left: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #94a3b8;
+            letter-spacing: 0.4px;
+          }
+          .terminal-body {
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 12.5px;
+            color: var(--term-green);
+            padding: 16px;
+            min-height: 180px;
+            max-height: 340px;
+            overflow-y: auto;
+            line-height: 1.7;
+          }
+          .terminal-line { white-space: pre-wrap; word-break: break-word; animation: fadeIn .25s ease-in; }
+          .terminal-line::before { content: '› '; color: #475569; }
+          @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
           .footer {
             text-align: center;
-            color: var(--text-muted);
-            font-size: 13px;
-            margin-top: 20px;
-            padding-top: 20px;
+            color: var(--muted);
+            font-size: 12.5px;
+            margin-top: 28px;
+            line-height: 1.7;
           }
+          .footer strong { color: var(--text); font-weight: 600; }
         </style>
       </head>
       <body>
-        <div class="container">
-          <div class="header">
-            <h1>GHL Master Engine & Radar Multi-Touch</h1>
-            <div class="status-badge">
-              <div class="status-dot"></div>
-              <span>Sistema Autónomo en Línea</span>
+        <div class="shell">
+          <div class="topbar">
+            <img class="logo" src="/logo.png" alt="LOA Agency">
+            <div class="brand">
+              <div class="brand-name">
+                LOA ENGINE <span class="pulse"></span>
+              </div>
+              <div class="brand-sub">Monitor de operaciones · Laboratorios Naturales</div>
             </div>
           </div>
 
           <div class="grid">
-            <!-- TABLERO 1: CONEXIÓN VTIGER CRM -->
+            <!-- Conexión vTiger -->
             <div class="card">
               <div class="card-title">Conexión vTiger CRM</div>
               <div class="metric-row">
                 <span class="metric-label">Estado de Conexión</span>
                 <span class="metric-value" id="val-vtigerConnectionStatus">Verificando...</span>
               </div>
-              <div class="metric-row" style="font-size: 0.85em; color: var(--text-muted); border-bottom: none; padding-top: 5px;">
+              <div class="metric-row" style="font-size: 0.85em; color: var(--muted); border-bottom: none; padding-top: 5px;">
                 <span id="val-vtigerConnectionMessage"></span>
               </div>
               <div class="metric-row">
@@ -1174,9 +1178,9 @@ app.get('/health', (req, res) => {
               </div>
             </div>
 
-            <!-- TABLERO 2: SALUD DEL SISTEMA & CONSUMO API -->
+            <!-- Salud del sistema -->
             <div class="card">
-              <div class="card-title">Salud del Sistema & Consumo API</div>
+              <div class="card-title">Salud del Sistema</div>
               <div class="metric-row">
                 <span class="metric-label">Llamadas a API GHL</span>
                 <span class="metric-value val-blue" id="val-ghlApiCalls">0</span>
@@ -1186,7 +1190,7 @@ app.get('/health', (req, res) => {
                 <span class="metric-value val-blue" id="val-metaApiCalls">0</span>
               </div>
               <div class="metric-row">
-                <span class="metric-label">Ciclos Completados (Radar)</span>
+                <span class="metric-label">Ciclos del Radar</span>
                 <span class="metric-value val-purple" id="val-totalRuns">${stats.totalRuns}</span>
               </div>
               <div class="metric-row">
@@ -1194,23 +1198,28 @@ app.get('/health', (req, res) => {
                 <span class="metric-value" id="val-memoryRss">0 MB</span>
               </div>
               <div class="metric-row">
-                <span class="metric-label">Tiempo Activo (Uptime)</span>
+                <span class="metric-label">Tiempo Activo</span>
                 <span class="metric-value" id="val-uptime">0m</span>
               </div>
             </div>
+          </div>
 
-            <!-- TABLERO 3: MICROTAREAS EN VIVO -->
-            <div class="card">
-              <div class="card-title">Procesos y Microprocesos en Vivo</div>
-              <div class="terminal-box" id="val-liveLogs">
-                <div class="terminal-line">Iniciando monitor de tareas...</div>
-              </div>
+          <!-- Terminal en vivo -->
+          <div class="terminal" style="margin-top: 18px;">
+            <div class="terminal-head">
+              <span class="dot dot-r"></span>
+              <span class="dot dot-y"></span>
+              <span class="dot dot-g"></span>
+              <span class="terminal-title">loa-engine — procesos y microprocesos en vivo</span>
             </div>
-
+            <div class="terminal-body" id="val-liveLogs">
+              <div class="terminal-line">Iniciando monitor de tareas...</div>
+            </div>
           </div>
 
           <div class="footer">
-            Operando 24/7 | Sincronización Automática
+            <strong>LOA ENGINE</strong> · Encargado del proyecto: <strong>Gabriel Loayza</strong><br>
+            LOA AGENCY · Laboratorios Naturales BioNatural
           </div>
         </div>
 
@@ -1219,9 +1228,7 @@ app.get('/health', (req, res) => {
             try {
               const res = await fetch('/api/stats');
               const data = await res.json();
-              const fields = [
-                'vtigerSynced', 'vtigerQueue', 'totalRuns'
-              ];
+              const fields = ['vtigerSynced', 'vtigerQueue', 'totalRuns'];
               fields.forEach(f => {
                 const el = document.getElementById('val-' + f);
                 if (el && el.innerText !== String(data.stats[f])) {
@@ -1233,27 +1240,22 @@ app.get('/health', (req, res) => {
                 const isOk = data.vtigerConnectionStatus.status === 'OK';
                 vtigerConnEl.innerText = isOk ? 'Conectado' : 'Desconectado';
                 vtigerConnEl.className = 'metric-value ' + (isOk ? 'val-green' : 'val-red');
-                
                 const msgEl = document.getElementById('val-vtigerConnectionMessage');
                 if (msgEl) {
                   msgEl.innerText = isOk ? 'Sincronización bidireccional activa' : data.vtigerConnectionStatus.message;
                 }
               }
-
               if (data.systemHealth) {
                 const memEl = document.getElementById('val-memoryRss');
                 if (memEl) memEl.innerText = (data.systemHealth.memoryRss / 1024 / 1024).toFixed(1) + ' MB';
-                
                 const upEl = document.getElementById('val-uptime');
                 if (upEl) {
                   const m = Math.floor(data.systemHealth.uptime / 60);
                   const h = Math.floor(m / 60);
                   upEl.innerText = h > 0 ? h + 'h ' + (m % 60) + 'm' : m + 'm';
                 }
-
                 const ghlApiEl = document.getElementById('val-ghlApiCalls');
                 if (ghlApiEl) ghlApiEl.innerText = data.systemHealth.ghlApiCalls;
-                
                 const metaApiEl = document.getElementById('val-metaApiCalls');
                 if (metaApiEl) metaApiEl.innerText = data.systemHealth.metaApiCalls;
               }
