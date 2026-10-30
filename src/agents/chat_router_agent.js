@@ -2,6 +2,7 @@ import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY
 import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
 import { resolveChannelFromEvent, detectSystemMessage, esCanalPermitido } from '../utils/system_message_filter.js';
 import { getOwnerKeyByPageId, getPageMatrixEntry, getQueueTagByPageId, getSmartViewTagsByPageId, getProveedorTagByPageId } from '../config/page_matrix.js';
+import { resolveDefaultFormIdByPageId, resolveFormIdFieldId } from '../config/meta_forms.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { resolverSedeCamposDinamicos } from '../services/ghl_fields_map.js';
@@ -1215,9 +1216,24 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // [REGLA DEFINITIVA — 15/10] El motor SOLO opera canales META: FACEBOOK (Messenger
     // y formulario de Lead Ads) e INSTAGRAM (IG-DM). SMS, WhatsApp y Email los gestiona
     // GHL nativamente (MONITOR SMS / workflows). Si el canal resuelto NO es META, se
-    // corta AQUÍ: no se asigna dueño ni etiquetas.
+    // corta AQUÍ: no se asigna dueño.
     if (!esCanalPermitido(targetChannel)) {
-      console.log(`[Agente 3] [CANAL-NO-META] ${contactId} es ${targetChannel}: lo gestiona GHL (workflow nativo). Ruteo omitido (no se asigna dueño ni etiquetas).`);
+      // [30/10 — REFUERZO WSP] WhatsApp sigue SIN DUEÑO (gobernanza), pero se le
+      // inyecta la etiqueta de canal 'cola-wsp' para que las Smart Views puedan
+      // segmentarlo y el equipo reforzarlo, sin que el motor asigne asesor ni
+      // interfiera con el workflow nativo de GHL.
+      if (targetChannel === 'WHATSAPP') {
+        try {
+          await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+            method: 'POST',
+            headers: activeHeaders,
+            body: JSON.stringify({ tags: ['cola-wsp'] })
+          }, 1, isLive);
+        } catch (err) {
+          console.warn(`[Agente 3] [WSP-TAG] No se pudo etiquetar WSP en ${contactId}: ${err.message}`);
+        }
+      }
+      console.log(`[Agente 3] [CANAL-NO-META] ${contactId} es ${targetChannel}: lo gestiona GHL (workflow nativo). Ruteo omitido (no se asigna dueño).`);
       return 'UNCHANGED';
     }
 
@@ -1491,17 +1507,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       if (msgFormMatch) {
         targetFormId = msgFormMatch[1];
       } else {
-        const pageEntry = getPageMatrixEntry(targetPageId);
-        if (pageEntry?.defaultFormId) {
-          targetFormId = pageEntry.defaultFormId;
-        } else if (targetPageId === '718150351371765' || (targetPageName || '').toLowerCase().includes('laboratorios naturales bio') || activeLocationId === '5NqOaPYqWyIw2FPBfoRg') {
-          targetFormId = '4385767568340402';
-        }
+        // Fuente única: src/config/meta_forms.js (PAGE_DEFAULT_FORM_ID).
+        targetFormId = resolveDefaultFormIdByPageId(targetPageId);
       }
     }
-    const FORM_ID_FIELD_ID = (activeLocationId === '5NqOaPYqWyIw2FPBfoRg' || currentSedeName === 'PALACIOS')
-      ? (process.env.GHL_FORM_ID_FIELD || 'ZGcmoMyhX0pHvat8ipHo')
-      : process.env.GHL_FORM_ID_FIELD;
+    const FORM_ID_FIELD_ID = resolveFormIdFieldId({ sede: currentSedeName, locationId: activeLocationId });
     if (FORM_ID_FIELD_ID && targetFormId) {
       customFieldsToUpdate.push({ id: FORM_ID_FIELD_ID, key: 'contact.id_form_clipo', field_value: String(targetFormId) });
     }
@@ -1740,7 +1750,6 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const CRITICAL_CF_IDS = [
       ...Object.values(sedeFields),
       FORM_ID_FIELD_ID,
-      'ZGcmoMyhX0pHvat8ipHo',
       // Palacios (Legacy Fallback)
       '8EQtKkiW7Z022bcN0vhS', '5TY5AIOpu1c8f6WosyF2', 'RLxFOTXkICXLWShjaLaB',
       'GZKRu2z1Z156lRUfyrpo', '5js0Lfbh5XDLq87SDgdT', 'jfaxRCXTLZQCuzsTl49v',

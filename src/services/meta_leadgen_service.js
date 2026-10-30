@@ -18,6 +18,7 @@
 import { META_CONFIG, SEDES_GATEWAY, getMetaConfigBySede } from '../config/index.js';
 import { getMetaCandidateTokens } from '../services/meta_api_service.js';
 import { getSedeByPageId } from '../config/page_matrix.js';
+import { resolveFormIdFieldId, NOMBRE_FIELD_FORM_ID } from '../config/meta_forms.js';
 import { normalizeToE164 } from '../utils/geo_phone_sanitizer.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { recordAuditEvent } from './audit_logger.js';
@@ -121,16 +122,10 @@ export function extraerNombre(fieldData = []) {
 // 3. VINCULACIÓN DEL form_id AL CONTACTO EN GHL (no destructiva)
 // ──────────────────────────────────────────────────────────────────────────────
 const FIELD_META_AD_ID = process.env.GHL_META_AD_ID_FIELD || ''; // opcional
-const FIELD_FORM_ID = process.env.GHL_FORM_ID_FIELD || '';        // opcional (lo crea el operador)
 
-// Nombre del custom field "id_form_clipo" creado por el operador en GHL (Palacios).
-const NOMBRE_FIELD_FORM_ID = process.env.GHL_FORM_ID_FIELD_NAME || 'id_form_clipo';
-
-// Mapa determinista de Custom Field IDs para "id form clipo" / Form ID por sede
-const CONOCIDOS_FORM_ID_FIELDS = {
-  PALACIOS: 'ZGcmoMyhX0pHvat8ipHo',
-  '5NqOaPYqWyIw2FPBfoRg': 'ZGcmoMyhX0pHvat8ipHo'
-};
+// El nombre del custom field "id_form_clipo" y el mapa determinista de IDs por
+// sede viven en la FUENTE ÚNICA: src/config/meta_forms.js. Aquí solo se consulta
+// a través de resolveFormIdFieldId() / NOMBRE_FIELD_FORM_ID.
 
 // Cache del id del campo resuelto por nombre (locationId -> id), con TTL de 30 min.
 const campoIdCache = new Map();
@@ -168,14 +163,15 @@ async function resolverCampoPorNombre(locationId, headers, nombre) {
 
 /**
  * Resuelve el Custom Field ID del formulario para una sede dada, con prioridad:
- * 1. Mapeo determinista conocido (cero latencia)
- * 2. Variable de entorno explícita GHL_FORM_ID_FIELD
+ * 1. Variable de entorno explícita GHL_FORM_ID_FIELD (override del operador)
+ * 2. Mapa determinista por sede/locationId (cero latencia)  [meta_forms.js]
  * 3. Descubrimiento dinámico por nombre vía API de GHL
  */
 async function resolverCampoFormId(locationId, headers, sedeName) {
-  if (sedeName && CONOCIDOS_FORM_ID_FIELDS[sedeName]) return CONOCIDOS_FORM_ID_FIELDS[sedeName];
-  if (locationId && CONOCIDOS_FORM_ID_FIELDS[locationId]) return CONOCIDOS_FORM_ID_FIELDS[locationId];
-  if (FIELD_FORM_ID) return FIELD_FORM_ID;
+  // 1. Fuente única: env explícito o mapa determinista por sede/locationId (0 latencia).
+  const conocido = resolveFormIdFieldId({ sede: sedeName, locationId });
+  if (conocido) return conocido;
+  // 2. Descubrimiento dinámico por nombre vía API de GHL (sedes sin ID registrado).
   return await resolverCampoPorNombre(locationId, headers, NOMBRE_FIELD_FORM_ID);
 }
 

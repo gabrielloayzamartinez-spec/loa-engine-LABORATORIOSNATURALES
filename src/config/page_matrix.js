@@ -29,7 +29,7 @@ export const PAGE_MATRIX = {
   // 19/10: SOLO acciones IN-HOUSE. Esta página gestiona WSP ADS (WhatsApp, sin dueño)
   // y FORMS ADS (formularios, sin dueño). El número se sincroniza con vTiger pero
   // NUNCA se asigna dueño de REDES (trabajo ordenado, sin mezclarse con ERNESTO).
-  '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'Laboratorios Naturales BIO', defaultFormId: '4385767568340402' },
+  '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'Laboratorios Naturales BIO' },
   '111906554968800': { sede: 'PALACIOS', proveedor: 'CLICK2RING', ownerKey: 'ultra', pageName: 'BioNatural - Ultra' },
   // ── BENAVIDES ─────────────────────────────────────────────
   '510617778807469': { sede: 'BENAVIDES', proveedor: 'ERNESTO', ownerKey: 'redes1', pageName: 'Naturales Bio Corp' },
