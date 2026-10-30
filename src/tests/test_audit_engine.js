@@ -16,6 +16,8 @@ import { getQueue, getQueueStatus } from '../services/queue/durable_queue.js';
 import { getBreakersStatus, safeCall } from '../utils/circuit_breaker.js';
 import { getStateStore } from '../services/state/state_store.js';
 import { normalizeTreatment, CANONICAL_TREATMENTS } from '../domain/clinical_vocabulary.js';
+import { getProveedorTagByPageId } from '../config/page_matrix.js';
+import { resolveChannelFromEvent } from '../utils/system_message_filter.js';
 
 export function runPreFlightSanityCheck({ silent = false } = {}) {
   const tests = [
@@ -219,6 +221,48 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
         });
         if (source !== 'PALACIOS-IN_HOUSE-FB-MSGR-General') {
           throw new Error(`Fuente incorrecta para Labs Bio: ${source}`);
+        }
+      }
+    },
+    {
+      name: 'Regla 4D2: Etiqueta de PROVEEDOR (prov-*) para separar formularios Ernesto vs InHouse',
+      run: () => {
+        const casos = [
+          { pageId: '566501466542620', esperado: 'prov-ernesto' },   // Naturales BioNatural (Ernesto)
+          { pageId: '718150351371765', esperado: 'prov-in-house' }, // Laboratorios Naturales BIO (InHouse)
+          { pageId: '111906554968800', esperado: 'prov-click2ring' } // BioNatural Ultra
+        ];
+        for (const c of casos) {
+          const tag = getProveedorTagByPageId(c.pageId);
+          if (tag !== c.esperado) {
+            throw new Error(`Proveedor tag en ${c.pageId} debe ser ${c.esperado}, recibido: ${tag}`);
+          }
+        }
+        if (getProveedorTagByPageId('999999999999999') !== null) {
+          throw new Error('Página no mapeada debe devolver prov-* nulo');
+        }
+      }
+    },
+    {
+      name: 'Regla 4D3: Un formulario Lead Ads debe resolver canal FORM (no FB-MSGR)',
+      run: () => {
+        const chanForm = resolveChannelFromEvent({
+          type: 'TYPE_FACEBOOK',
+          source: 'Facebook',
+          campaignName: 'GASTRO - ERNESTO - FORMULARIO',
+          isForm: true,
+          hasMetaPage: true
+        });
+        if (chanForm !== 'FORM') {
+          throw new Error(`Formulario debe resolver FORM, recibido: ${chanForm}`);
+        }
+        const chanMsg = resolveChannelFromEvent({
+          type: 'TYPE_FACEBOOK',
+          source: 'Facebook',
+          hasMetaPage: true
+        });
+        if (chanMsg !== 'FB-MSGR') {
+          throw new Error(`Messenger debe resolver FB-MSGR, recibido: ${chanMsg}`);
         }
       }
     },

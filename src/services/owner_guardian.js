@@ -112,6 +112,10 @@ export async function guardianDePropietario({ sede = 'PALACIOS', paginas = 10, e
     for (const c of contactos) {
       escaneados++;
       const tags = (c.tags || []).map(t => String(t).toLowerCase().trim());
+      // [30/10 — BLINDAJE FORMULARIOS] Un lead con 'cola-forms' es un FORMULARIO
+      // Lead Ads: va SIN DUEÑO por diseño (incluso si la fanpage es de ERNESTO).
+      // El Guardián NO debe reasignarlo a REDES. Se omite antes de evaluar slug.
+      if (tags.includes('cola-forms')) continue;
       let esperado = null;
       let slugEncontrado = null;
       for (const [slug, asesor] of porSlug.entries()) {

@@ -58,6 +58,24 @@ export function getProveedorByPageId(pageId) {
   return getPageMatrixEntry(pageId)?.proveedor || null;
 }
 
+/**
+ * Etiqueta de PROVEEDOR (factor de Smart View) para una fanpage.
+ * Formato `prov-<slug>`: 'prov-ernesto', 'prov-in-house', 'prov-click2ring', etc.
+ * Necesaria para separar vistas por proveedor cuando varias iniciativas comparten
+ * canal (p. ej. formularios de ERNESTO vs formularios IN_HOUSE, ambos 'cola-forms').
+ */
+export function getProveedorTagByPageId(pageId) {
+  const prov = getProveedorByPageId(pageId);
+  if (!prov) return null;
+  const slug = String(prov)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')   // quita tildes
+    .replace(/[^a-z0-9]+/g, '-')       // separadores -> guiones
+    .replace(/^-+|-+$/g, '');          // recorta guiones en bordes
+  return slug ? `prov-${slug}` : null;
+}
+
 /** ownerKey (clave en SEDES_GATEWAY.users) de un page id. */
 export function getOwnerKeyByPageId(pageId) {
   return getPageMatrixEntry(pageId)?.ownerKey || null;

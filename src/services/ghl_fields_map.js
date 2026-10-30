@@ -123,6 +123,7 @@ export const NOMBRES_CAMPOS_ROUTER = {
   adsetId: ['conjunto de anuncios', 'ad set meta', 'conjunto meta'],
   sedeAsignada: ['sede asignada', 'sede origen', 'oficina origen'],
   origenLead: ['origen lead', 'origen del lead'],
+  origenCompra: ['origen compra', 'origen compra vtiger', 'v tiger origen compra'],
   tieneTelefono: ['tiene telefono', 'tiene teléfono'],
   ultimaInteraccion: ['ultima interaccion'],
   estadoComercial: ['estado comercial', 'v tiger estado comercial'],

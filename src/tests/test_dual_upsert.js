@@ -395,11 +395,11 @@ assert(!pEstadoSinDatos.macro.city, 'Sin ciudad en vTiger NO se inventa una');
 // vTiger ya la trae armada en cf_3472 (verificado idéntico en 20/20 contactos).
 const pOrigen = buildUpsertPayloads(
   { ...baseAnti, cf_3451: 'PALACIOS', cf_2572: 'CLICK2RING', cf_3507: 'FB-MSGR', cf_2610: 'Artritis', cf_3472: 'PALACIOS-CLICK2RING-FB-MSGR-Artritis' },
-  { incluirHistorial: true, fieldIdsCentral: { origenLead: 'O1', campanaOrigen: 'O2' }, fieldIdsSede: { origenLead: 'O3', campanaOrigen: 'O4' } }
+  { incluirHistorial: true, fieldIdsCentral: { origenCompra: 'O1', campanaOrigen: 'O2' }, fieldIdsSede: { origenCompra: 'O3', campanaOrigen: 'O4' } }
 );
-assert(valor(pOrigen.macro.customFields, 'origenLead') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'La relación SEDE-PROVEEDOR-CANAL-PADECIMIENTO se publica textual');
-assert(valor(pOrigen.operativa.customFields, 'origenLead') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'La sede también recibe la relación');
-assert(valor(pOrigen.macro.customFields, 'origenLead') === valor(pOrigen.macro.customFields, 'campanaOrigen'), 'Se publica el MISMO valor de vTiger, sin recomponerlo ni reformatearlo');
+assert(valor(pOrigen.macro.customFields, 'origenCompra') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'El origen de COMPRA se publica en "Origen Compra" (separado del chat)');
+assert(valor(pOrigen.operativa.customFields, 'origenCompra') === 'PALACIOS-CLICK2RING-FB-MSGR-Artritis', 'La sede también recibe el origen de compra');
+assert(valor(pOrigen.macro.customFields, 'origenCompra') === valor(pOrigen.macro.customFields, 'campanaOrigen'), 'Se publica el MISMO valor de vTiger, sin recomponerlo ni reformatearlo');
 
 // --- d) El sexo NO se inventa (se toma de cf_2821, ver TEST 11) ---
 // vTiger guarda el sexo en cf_2821 ("Mujer"/"Hombre"/"TERCER"). Lo que NUNCA debe

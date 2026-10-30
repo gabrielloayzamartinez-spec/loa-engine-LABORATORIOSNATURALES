@@ -1,7 +1,7 @@
 import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY, resolveSedeContext, getGhlHeaders, resolveSedeCustomFields } from '../config/index.js';
 import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
 import { resolveChannelFromEvent, detectSystemMessage, esCanalPermitido } from '../utils/system_message_filter.js';
-import { getOwnerKeyByPageId, getPageMatrixEntry, getQueueTagByPageId, getSmartViewTagsByPageId } from '../config/page_matrix.js';
+import { getOwnerKeyByPageId, getPageMatrixEntry, getQueueTagByPageId, getSmartViewTagsByPageId, getProveedorTagByPageId } from '../config/page_matrix.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { resolverSedeCamposDinamicos } from '../services/ghl_fields_map.js';
@@ -654,6 +654,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] [PROCEDENCIA] Sin evidencia de fanpage de Meta (transporte: ${latestMessageTransport || 'desconocido'}). Sede operativa: ${currentSedeName}. No se atribuye proveedor de pauta.`);
     }
 
+    // [FORMULARIO META — DETECCIÓN TEMPRANA (antes de resolver dueño)]
+    // Un lead de Lead Ads ("Hello! I filled out your form...") o que ya porta el tag
+    // form-id-* es un FORMULARIO. Debe quedar SIN DUEÑO y en cola-forms, aunque llegue
+    // por la página de ERNESTO (566501466542620). Se detecta AQUÍ, antes de la
+    // asignación de dueño, para no delegarlo a REDES por error (antes la detección
+    // ocurría después de asignar y el formulario terminaba con dueño de Messenger).
+    const isAutoFormLead = /filled\s+out\s+your\s+form|complet[eé]\s+tu\s+formulario|llen[eé]\s+tu\s+formulario/i.test(
+      allMessages.map(m => m.body || '').join(' \n ')
+    ) || Boolean((contact.tags || []).some(t => /^form-id-/i.test(String(t))));
+
     // Determinar a qué asesor le corresponde esta página (por Sede, Page ID o por Nombre de Fanpage)
     let targetAdvisorId = null;
     let targetAdvisorName = null;
@@ -676,7 +686,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
       // [19/10] Página desvinculada de REDES (sinDueno): los leads de esta iniciativa
       // (formularios) NO se asignan a ningún dueño de REDES; se canalizan a Cola Forms y se sincronizan.
-      if (pageEntry?.sinDueno) {
+      // [30/10] Igual para CUALQUIER página cuando el lead es un FORMULARIO Lead Ads
+      // (isAutoFormLead): ERNESTO ahora recibe formularios, y esos NO van a Ernesto,
+      // van a cola-forms sin dueño (trabajo separado y ordenado).
+      if (isAutoFormLead) {
+        console.log(`[Agente 3] [FORM-SIN-DUENO] ${contactId} es formulario Lead Ads en página ${targetPageName || targetPageId}: sin dueño, canalizado a Cola Forms.`);
+        targetAdvisorId = null;
+        targetAdvisorName = 'Cola Forms';
+      } else if (pageEntry?.sinDueno) {
         console.log(`[Agente 3] [PAGINA-SIN-DUENO] ${contactId} página ${targetPageName || targetPageId} está desvinculada de REDES: canalizado a Cola Forms.`);
         targetAdvisorId = null;
         targetAdvisorName = 'Cola Forms';
@@ -933,8 +950,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // [DETECCIÓN DE MENSAJE AUTOMÁTICO DE FORMULARIO DE META LEAD ADS]
     // "Hello! I filled out your form and would like to know more about your business."
-    const isAutoFormLead = /filled\s+out\s+your\s+form|complet[eé]\s+tu\s+formulario|llen[eé]\s+tu\s+formulario/i.test(combinedText)
-      || Boolean((contact.tags || []).some(t => /^form-id-/i.test(String(t))));
+    // [30/10] `isAutoFormLead` ya se resolvió ANTES de asignar dueño (ver arriba).
+    // Aquí solo se conserva la referencia para el resto del flujo (extracción de
+    // teléfono/nombre del formulario, inyección de form_id y etiquetado final).
 
     let autoFormPhone = null;
     let autoFormFullName = null;
@@ -1183,10 +1201,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // [CANAL REAL] Se resuelve desde el transporte del evento, no por defecto.
     // ANTES: resolveLeadChannel() devolvía 'FB-MSGR' siempre, así que un SMS de
     // Twilio se etiquetaba como Messenger y contaminaba la atribución.
+    // [30/10] Un formulario Lead Ads (isAutoFormLead) se marca explícitamente como
+    // canal FORM, para que el origen SEDE-PROVEEDOR-CANAL-PADECIMIENTO no lo confunda
+    // con Messenger.
     const targetChannel = resolveChannelFromEvent({
       type: latestMessageTransport,
       source: attrReciente?.sessionSource || '',
       campaignName: latestCampaign || targetAdName,
+      isForm: isAutoFormLead,
       hasMetaPage: hasRealFanpage
     });
 
@@ -1556,10 +1578,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     // [DIRECTIVA ESTRICTA PARA LEADS DE FORMULARIO META]
     // Cuando el contacto proviene de un formulario automatizado de Meta ("Hello! I filled out your form..."):
-    // Solo debe portar las 3 etiquetas exactas requeridas:
-    // 1. 'cola-forms'
-    // 2. 'form-id-<formId>'
+    // Debe portar las etiquetas que AMARRAN su vista de trabajo separada y ordenada:
+    // 1. 'cola-forms'                     → CANAL (formulario, sin dueño)
+    // 2. 'form-id-<formId>'               → identidad del formulario
     // 3. El slug de la fanpage (ej: 'laboratorios-naturales-bio')
+    // 4. 'producto-<padecimiento>'        → PADECIMIENTO (gastro/diabetes/potencia)
+    // 5. 'prov-<proveedor>'               → PROVEEDOR (ernesto/in-house/click2ring)
+    // 6. 'sede-<sede>'                    → SEDE
     // Cualquier otra etiqueta adicional se purga activamente.
     if (isAutoFormLead) {
       const pageSlug = (targetPageName || 'Laboratorios Naturales BIO')
@@ -1569,10 +1594,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
 
+      const proveedorTag = getProveedorTagByPageId(targetPageId);
+
       const exactFormTags = new Set([
         'cola-forms',
         targetFormId ? `form-id-${targetFormId}` : null,
-        pageSlug
+        pageSlug,
+        activeProductTag,
+        proveedorTag,
+        currentSedeTag
       ].filter(Boolean));
 
       for (const t of Array.from(newTagsSet)) {

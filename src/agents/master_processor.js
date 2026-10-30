@@ -221,6 +221,13 @@ export async function processMasterContact(contactInput, options = {}) {
     let targetAdvisorId = contact.assignedTo || null;
     let targetAdvisorName = null;
 
+    // [30/10 — BLINDAJE FORMULARIOS] Un lead con 'cola-forms' es FORMULARIO Lead Ads:
+    // SIN DUEÑO por diseño (aunque la fanpage sea de ERNESTO). Este agente legado NO
+    // debe reasignarlo a REDES. Se corta antes de resolver dueño por página.
+    if (existingTags.includes('cola-forms')) {
+      return { success: true, skipped: true, reason: 'formulario-sin-dueno' };
+    }
+
     if (detectedPageName === 'Naturales BioNatural' || detectedPageName === 'BIO Naturales Laboratorio') {
       targetAdvisorId = PALACIOS_USERS['naturales bionatural'].id;
       targetAdvisorName = PALACIOS_USERS['naturales bionatural'].name;
