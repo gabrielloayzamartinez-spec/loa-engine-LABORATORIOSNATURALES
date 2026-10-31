@@ -20,6 +20,7 @@ import { getMetaCandidateTokens } from '../services/meta_api_service.js';
 import { getSedeByPageId } from '../config/page_matrix.js';
 import { resolveFormIdFieldId, NOMBRE_FIELD_FORM_ID } from '../config/meta_forms.js';
 import { normalizeToE164 } from '../utils/geo_phone_sanitizer.js';
+import { fetchConTimeout } from '../utils/http_timeout.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { findContactByPhone, isCentralConfigured } from './dual_sync_service.js';
