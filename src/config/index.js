@@ -148,6 +148,7 @@ export const CUSTOM_FIELDS_DEF = [
 export const PAGE_TAG_MAP = {
   "Naturales BioNatural": "naturales bionatural",
   "Laboratorios Naturales BIO": "laboratorios naturales bio",
+  "BIO Vida Natural": "bio vida natural",
   "BioNatural - Ultra": "bionatural ultra",
   "Naturales Bio Corp": "naturales bio corp",
   "Bio Natural": "bio natural",
@@ -166,6 +167,7 @@ export const FB_PAGE_ID_MAP = {
   // PALACIOS ERNESTO (REDES 1)
   "566501466542620": "Naturales BioNatural",
   "718150351371765": "Laboratorios Naturales BIO", // formularios -> SIN DUEÑO (Cola Forms)
+  "1087387677802467": "BIO Vida Natural", // Diabetes Forms -> SIN DUEÑO (Cola Forms)
   // PALACIOS CLICK2RING (REDES 2)
   "111906554968800": "BioNatural - Ultra",
   // BENAVIDES 1

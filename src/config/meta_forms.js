@@ -70,6 +70,14 @@ export const META_FORMS = {
     pageName: 'Naturales BioNatural',
     proveedor: 'ERNESTO',
     padecimiento: 'Potencia'          // Testosterona -> Potencia (canónico)
+  },
+  // [31/10] Formulario Diabetes de IN_HOUSE (Palacios). Página BIO Vida Natural.
+  '2302022633889678': {
+    sede: 'PALACIOS',
+    pageId: '1087387677802467',
+    pageName: 'BIO Vida Natural',
+    proveedor: 'IN_HOUSE',
+    padecimiento: 'Diabetes'
   }
 };
 
@@ -79,7 +87,8 @@ export const META_FORMS = {
  */
 export const PAGE_DEFAULT_FORM_ID = {
   '718150351371765': '4385767568340402',
-  '566501466542620': '2176611659872040'
+  '566501466542620': '2176611659872040',
+  '1087387677802467': '2302022633889678'
 };
 
 /** Devuelve el form_id por defecto de una página, o null si no está mapeada. */

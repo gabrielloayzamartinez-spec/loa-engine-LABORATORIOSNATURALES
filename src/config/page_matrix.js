@@ -31,6 +31,8 @@ export const PAGE_MATRIX = {
   // NUNCA se asigna dueño de REDES (trabajo ordenado, sin mezclarse con ERNESTO).
   '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'Laboratorios Naturales BIO' },
   '111906554968800': { sede: 'PALACIOS', proveedor: 'CLICK2RING', ownerKey: 'ultra', pageName: 'BioNatural - Ultra' },
+  // 31/10: SOLO acciones IN-HOUSE. Página de Diabetes Forms (sin dueño, cola-forms).
+  '1087387677802467': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BIO Vida Natural' },
   // ── BENAVIDES ─────────────────────────────────────────────
   '510617778807469': { sede: 'BENAVIDES', proveedor: 'ERNESTO', ownerKey: 'redes1', pageName: 'Naturales Bio Corp' },
   '126154270581792': { sede: 'BENAVIDES', proveedor: 'CLICK2RING', ownerKey: 'redes2', pageName: 'Bio Natural' },

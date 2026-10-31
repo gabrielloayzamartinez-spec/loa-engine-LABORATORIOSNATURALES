@@ -65,7 +65,8 @@ export const SEDES_GATEWAY = {
     pageIds: [
       '566501466542620', // Naturales BioNatural
       '718150351371765', // Laboratorios Naturales BIO
-      '111906554968800'  // BioNatural - Ultra
+      '111906554968800', // BioNatural - Ultra
+      '1087387677802467'  // BIO Vida Natural (Diabetes Forms)
     ],
     pipeline: SEDE_PIPELINES.PALACIOS,
     customFields: SEDE_CUSTOM_FIELDS.PALACIOS,
