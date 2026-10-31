@@ -2,7 +2,7 @@ import { GHL_CONFIG, FB_PAGE_ID_MAP, PAGE_TAG_MAP, PALACIOS_USERS, SEDES_GATEWAY
 import { toProductTag, PRODUCT_TAGS, normalizeTreatment, normalizeTreatmentOrUnknown, UNKNOWN_TREATMENT } from '../domain/clinical_vocabulary.js';
 import { resolveChannelFromEvent, detectSystemMessage, esCanalPermitido } from '../utils/system_message_filter.js';
 import { getOwnerKeyByPageId, getPageMatrixEntry, getQueueTagByPageId, getSmartViewTagsByPageId, getProveedorTagByPageId } from '../config/page_matrix.js';
-import { resolveDefaultFormIdByPageId, resolveFormIdFieldId } from '../config/meta_forms.js';
+import { resolveDefaultFormIdByPageId, resolveFormIdFieldId, resolveFormMetaById } from '../config/meta_forms.js';
 import { recordAuditEvent } from '../services/audit_logger.js';
 import { resolveCustomFieldIds } from '../services/dual_sync_service.js';
 import { resolverSedeCamposDinamicos } from '../services/ghl_fields_map.js';
@@ -597,6 +597,32 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Ahora se distingue: hasRealFanpage = hay evidencia REAL (mensaje Meta o tag).
     let hasRealFanpage = Boolean(targetPageId || targetPageName);
 
+    // [FORMULARIO META — DETECCIÓN Y RESOLUCIÓN TEMPRANA (antes de los gates)]
+    // GHL nativo entrega el Lead Ads SIN pageId ni transporte Meta (transporte
+    // vacío), así que antes se descartaba en el gate "SIN-EVIDENCIA-META" sin
+    // etiquetar. Se detecta AQUÍ (texto "filled out your form" o tag form-id-*) y
+    // se resuelve su metadata (pageId/proveedor/padecimiento) desde META_FORMS.
+    const isAutoFormLead = /filled\s+out\s+your\s+form|complet[eé]\s+tu\s+formulario|llen[eé]\s+tu\s+formulario/i.test(
+      allMessages.map(m => m.body || '').join(' \n ')
+    ) || Boolean((contact.tags || []).some(t => /^form-id-/i.test(String(t))));
+
+    let formMeta = null;
+    if (isAutoFormLead) {
+      const tagForm = (contact.tags || []).map(String).find(t => /^form-id-(\d+)$/i.test(t));
+      const textoForm = allMessages.map(m => m.body || '').join(' \n ');
+      const msgFormMatch = textoForm.match(/form[_\-\s]*id[:=\s]+(\d{10,20})/i);
+      const formIdRaw = tagForm ? tagForm.replace(/^form-id-/i, '') : (msgFormMatch ? msgFormMatch[1] : '');
+      formMeta = resolveFormMetaById(formIdRaw);
+      if (!formMeta && targetPageId) {
+        formMeta = resolveFormMetaById(resolveDefaultFormIdByPageId(targetPageId));
+      }
+      if (formMeta && !targetPageId) {
+        targetPageId = formMeta.pageId;
+        targetPageName = formMeta.pageName;
+        hasRealFanpage = true;
+      }
+    }
+
     // [DIRECTIVA — 15/10] LOA Engine SOLO opera META (Facebook + Instagram). Los
     // transportes NO-Meta (SMS/Twilio, WhatsApp, Email) los gestiona el WORKFLOW
     // nativo de GHL. Hay que cortar AQUÍ, ANTES de fabricar fanpage y asignar dueño:
@@ -616,7 +642,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // (Antes el `else` de la asignación lo tiraba a REDES 1 por defecto: el incidente
     // recurrente "se reasignó a REDES 1 y 2".)
     const esTransporteMeta = /facebook|messenger|fb[-_ ]?msg|instagram|ig[-_ ]?dm|form|lead[-_ ]?ad/.test(transportLimpio);
-    if (!hasRealFanpage && !esTransporteMeta) {
+    if (!hasRealFanpage && !esTransporteMeta && !isAutoFormLead) {
       console.log(`[Agente 3] [SIN-EVIDENCIA-META] ${contactId} sin fanpage ni transporte Meta ('${latestMessageTransport || 'vacio'}'): NO se asigna dueño ni etiquetas.`);
       recordAuditEvent({
         type: 'ROUTEO_SIN_EVIDENCIA_META',
@@ -655,15 +681,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] [PROCEDENCIA] Sin evidencia de fanpage de Meta (transporte: ${latestMessageTransport || 'desconocido'}). Sede operativa: ${currentSedeName}. No se atribuye proveedor de pauta.`);
     }
 
-    // [FORMULARIO META — DETECCIÓN TEMPRANA (antes de resolver dueño)]
-    // Un lead de Lead Ads ("Hello! I filled out your form...") o que ya porta el tag
-    // form-id-* es un FORMULARIO. Debe quedar SIN DUEÑO y en cola-forms, aunque llegue
-    // por la página de ERNESTO (566501466542620). Se detecta AQUÍ, antes de la
-    // asignación de dueño, para no delegarlo a REDES por error (antes la detección
-    // ocurría después de asignar y el formulario terminaba con dueño de Messenger).
-    const isAutoFormLead = /filled\s+out\s+your\s+form|complet[eé]\s+tu\s+formulario|llen[eé]\s+tu\s+formulario/i.test(
-      allMessages.map(m => m.body || '').join(' \n ')
-    ) || Boolean((contact.tags || []).some(t => /^form-id-/i.test(String(t))));
+    // [FORMULARIO META] `isAutoFormLead` y `formMeta` ya se resolvieron ARRIBA
+    // (antes de los gates). Un formulario queda SIN DUEÑO y en cola-forms.
 
     // Determinar a qué asesor le corresponde esta página (por Sede, Page ID o por Nombre de Fanpage)
     let targetAdvisorId = null;
@@ -1157,7 +1176,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Actualizar estado de pauta tras el fuzzy matching
     isPaidAd = checkIsPaidAd(targetAdId);
 
-    const targetProvider = resolveLeadProvider({
+    let targetProvider = resolveLeadProvider({
       pageId: targetPageId,
       // [ATRIBUCION LIMPIA] Si no hay evidencia real de fanpage, NO se pasa el
       // nombre fabricado: así el proveedor sale por la vía legítima (pauta
@@ -1169,6 +1188,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       isPaidAd,
       existingSource: contact.source
     });
+
+    // [31/10 — FORMULARIO META] La metadata del formulario (proveedor/padecimiento)
+    // es la fuente de verdad para leads de Lead Ads. GHL nativo no trae adset/
+    // campaña, así que sin este override el proveedor quedaría IN_HOUSE y el
+    // padecimiento "Desconocido" por error (ej. formulario Testosterona de ERNESTO).
+    if (isAutoFormLead && formMeta) {
+      if (formMeta.proveedor) targetProvider = formMeta.proveedor;
+      if (formMeta.padecimiento) targetTratamiento = normalizeTreatmentOrUnknown(formMeta.padecimiento);
+    }
 
  // [AFINAMIENTO POR PROVEEDOR — SOLO SI LA PAGINA NO FUE CONFIRMADA]
     // DEFECTO CORREGIDO (confirmado por auditoria de ruteo): esta afinacion

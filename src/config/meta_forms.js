@@ -62,6 +62,14 @@ export const META_FORMS = {
     pageName: 'Laboratorios Naturales BIO',
     proveedor: 'IN_HOUSE',
     padecimiento: 'Potencia'          // Testosterona -> Potencia (canónico)
+  },
+  // [31/10] Formulario Testosterona de ERNESTO (Palacios). Página Naturales BioNatural.
+  '2176611659872040': {
+    sede: 'PALACIOS',
+    pageId: '566501466542620',
+    pageName: 'Naturales BioNatural',
+    proveedor: 'ERNESTO',
+    padecimiento: 'Potencia'          // Testosterona -> Potencia (canónico)
   }
 };
 
@@ -70,10 +78,16 @@ export const META_FORMS = {
  * no trae form_id explícito en el mensaje/texto).
  */
 export const PAGE_DEFAULT_FORM_ID = {
-  '718150351371765': '4385767568340402'
+  '718150351371765': '4385767568340402',
+  '566501466542620': '2176611659872040'
 };
 
 /** Devuelve el form_id por defecto de una página, o null si no está mapeada. */
 export function resolveDefaultFormIdByPageId(pageId) {
   return PAGE_DEFAULT_FORM_ID[String(pageId || '').trim()] || null;
+}
+
+/** Devuelve la metadata completa de un form_id de Meta, o null si no está registrado. */
+export function resolveFormMetaById(formId) {
+  return META_FORMS[String(formId || '').trim()] || null;
 }
