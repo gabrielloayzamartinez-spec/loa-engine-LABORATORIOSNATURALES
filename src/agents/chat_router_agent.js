@@ -655,17 +655,23 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       return 'UNCHANGED';
     }
 
-    if (!targetPageName) {
-      if (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId) {
-        targetPageName = "Naturales Bio Corp";
-      } else {
-        targetPageName = "Naturales BioNatural";
-      }
-    }
-
     // Resolver Sede Actual: la subcuenta física define la soberanía hermética
     const subaccountSede = Object.values(SEDES_GATEWAY).find(s => s?.ghl?.locationId === activeLocationId)?.sedeId
       || (activeLocationId === SEDES_GATEWAY.BENAVIDES.ghl.locationId ? 'BENAVIDES' : 'PALACIOS');
+
+    // [FIX — página por defecto POR SEDE] Antes toda sede sin fanpage caía en
+    // "Naturales BioNatural" (página de Palacios), lo que marcaba leads de Piura y
+    // Roosevelt como "fanpage no mapeada (Naturales BioNatural)" y ensuciaba la
+    // revisión de ruteo. Ahora cada sede usa su propia página por defecto.
+    if (!targetPageName) {
+      const DEFAULT_PAGE_BY_SEDE = {
+        PALACIOS: 'Naturales BioNatural',
+        BENAVIDES: 'Naturales Bio Corp',
+        ROOSEVELT: 'Bio Naturales',
+        PIURA: 'Natural Bio'
+      };
+      targetPageName = DEFAULT_PAGE_BY_SEDE[subaccountSede] || 'Naturales BioNatural';
+    }
 
     let currentSedeName = resolveLeadSede({
       pageId: targetPageId,
