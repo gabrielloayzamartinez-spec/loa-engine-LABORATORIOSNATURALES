@@ -1413,13 +1413,32 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // INYECCIÓN DE VISTAS INTELIGENTES (SMART VIEWS - OPERACIÓN ÁGIL NIVEL 1)
     if (targetPageId) {
       const smartViewTags = getSmartViewTagsByPageId(targetPageId);
-      const ALL_QUEUE_TAGS = ['cola-redes-1', 'cola-redes-2', 'cola-inhouse', 'cola-forms'];
+      const ALL_QUEUE_TAGS = ['cola-redes-1', 'cola-redes-2', 'cola-inhouse', 'cola-forms', 'cola-wsp'];
       const targetQueue = getQueueTagByPageId(targetPageId);
       if (targetQueue) {
         for (const qTag of ALL_QUEUE_TAGS) {
           if (qTag !== targetQueue && newTagsSet.has(qTag)) {
             newTagsSet.delete(qTag);
             tagsToRemove.push(qTag);
+          }
+          if (qTag !== targetQueue && (contact.tags || []).includes(qTag) && !tagsToRemove.includes(qTag)) {
+            tagsToRemove.push(qTag);
+          }
+        }
+      }
+      // [PURGA DE PROVEEDOR] Un lead solo tiene UN proveedor activo: si reingresa
+      // por otro proveedor/canal, se elimina el prov-* anterior para que el mismo
+      // contacto no aparezca en varias vistas de proveedor a la vez (trabajo ordenado).
+      const ALL_PROV_TAGS = ['prov-ernesto', 'prov-click2ring', 'prov-in-house'];
+      const targetProv = getProveedorTagByPageId(targetPageId);
+      if (targetProv) {
+        for (const pTag of ALL_PROV_TAGS) {
+          if (pTag !== targetProv && newTagsSet.has(pTag)) {
+            newTagsSet.delete(pTag);
+            tagsToRemove.push(pTag);
+          }
+          if (pTag !== targetProv && (contact.tags || []).includes(pTag) && !tagsToRemove.includes(pTag)) {
+            tagsToRemove.push(pTag);
           }
         }
       }
