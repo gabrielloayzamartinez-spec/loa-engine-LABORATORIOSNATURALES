@@ -78,7 +78,28 @@ export const META_FORMS = {
     pageName: 'BIO Vida Natural',
     proveedor: 'IN_HOUSE',
     padecimiento: 'Diabetes'
-  }
+  },
+
+  // [02/11] Nomenclatura vTiger (cf_2610): Tetosterona->Potencia, Diabetes, Gastro.
+  // ── IN_HOUSE — Laboratorios Naturales BIO (718150351371765) ──
+  '2342185023288488': { sede: 'PALACIOS', pageId: '718150351371765', pageName: 'Laboratorios Naturales BIO', proveedor: 'IN_HOUSE', padecimiento: 'Potencia' },   // FM-PALACIOS-10SEC TESTO
+  '2296357334545423': { sede: 'PALACIOS', pageId: '718150351371765', pageName: 'Laboratorios Naturales BIO', proveedor: 'IN_HOUSE', padecimiento: 'Potencia' },   // FM-PALACIOS-10SEC-REY
+  '2146251806100987': { sede: 'PALACIOS', pageId: '718150351371765', pageName: 'Laboratorios Naturales BIO', proveedor: 'IN_HOUSE', padecimiento: 'Potencia' },   // FORM TESTO - MOFU BOFU
+  '1111913794867198': { sede: 'PALACIOS', pageId: '718150351371765', pageName: 'Laboratorios Naturales BIO', proveedor: 'IN_HOUSE', padecimiento: 'Diabetes' },   // FORM DIABETES - MOFU BOFU
+  '2154841282126585': { sede: 'PALACIOS', pageId: '718150351371765', pageName: 'Laboratorios Naturales BIO', proveedor: 'IN_HOUSE', padecimiento: 'Diabetes' },   // FORM DIABETES - MOFU BOFU-copy
+  '1810787629946487': { sede: 'PALACIOS', pageId: '718150351371765', pageName: 'Laboratorios Naturales BIO', proveedor: 'IN_HOUSE', padecimiento: 'Diabetes' },   // FORM DIABETES - MOFU BOFU-copy-copy
+
+  // ── ERNESTO — Naturales BioNatural (566501466542620) ──
+  '1566964822138935': { sede: 'PALACIOS', pageId: '566501466542620', pageName: 'Naturales BioNatural', proveedor: 'ERNESTO', padecimiento: 'Potencia' },   // Formulario Testo 2
+  '1433446265371044': { sede: 'PALACIOS', pageId: '566501466542620', pageName: 'Naturales BioNatural', proveedor: 'ERNESTO', padecimiento: 'Potencia' },   // FORM TESTO - MUESTRA GRATIS - FILTRO denso
+  '1810672013700534': { sede: 'PALACIOS', pageId: '566501466542620', pageName: 'Naturales BioNatural', proveedor: 'ERNESTO', padecimiento: 'Potencia' },   // FORM TESTO - MUESTRA GRATIS
+  '4450918055053659': { sede: 'PALACIOS', pageId: '566501466542620', pageName: 'Naturales BioNatural', proveedor: 'ERNESTO', padecimiento: 'Diabetes' },   // Formulario Dia 2
+  '1107994822130413': { sede: 'PALACIOS', pageId: '566501466542620', pageName: 'Naturales BioNatural', proveedor: 'ERNESTO', padecimiento: 'Diabetes' },   // Formulario-DIA
+  '1122032007486836': { sede: 'PALACIOS', pageId: '566501466542620', pageName: 'Naturales BioNatural', proveedor: 'ERNESTO', padecimiento: 'Gastro' },     // Formulario Gastro 2
+  '1148288814307438': { sede: 'PALACIOS', pageId: '566501466542620', pageName: 'Naturales BioNatural', proveedor: 'ERNESTO', padecimiento: 'Gastro' },     // Formulario Gastro
+
+  // ── CLICK2RING — BioNatural - Ultra (111906554968800) ──
+  '1354871859460939': { sede: 'PALACIOS', pageId: '111906554968800', pageName: 'BioNatural - Ultra', proveedor: 'CLICK2RING', padecimiento: 'Potencia' }    // Formulario Testo NSG
 };
 
 /**
