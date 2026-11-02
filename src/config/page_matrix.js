@@ -135,5 +135,12 @@ export function getSmartViewTagsByPageId(pageId) {
   const colaTag = getQueueTagByPageId(pageId);
   tags.push(colaTag);
 
+  // [FIX 02/11] Etiqueta de PROVEEDOR en TODOS los leads (no solo forms).
+  // Antes solo los formularios llevaban prov-*; los de Messenger quedaban sin
+  // proveedor explícito (solo implícito en la cola). Ahora TODOS los leads llevan
+  // su proveedor: etiquetado múltiple completo y uniforme.
+  const provTag = getProveedorTagByPageId(pageId);
+  if (provTag) tags.push(provTag);
+
   return tags;
 }
