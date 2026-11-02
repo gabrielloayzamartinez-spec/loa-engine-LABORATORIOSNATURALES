@@ -440,7 +440,7 @@ async function aplicarCambioEnGhl(vContact, phoneDigits) {
       }
       customFieldsToUpdate.push({ id: utmSourceField, key: 'contact.utm_source', field_value: 'facebook' });
       customFieldsToUpdate.push({ id: utmMediumField, key: 'contact.utm_medium', field_value: 'cpc' });
-      customFieldsToUpdate.push({ id: sedeAsignadaField, key: 'contact.sede_asignada', field_value: sedeContext.sedeId });
+      customFieldsToUpdate.push({ id: sedeAsignadaField, key: 'contact.sede_asignada', field_value: sedeActivaSync });
       const existingOrigenLead = (ghlContact.customFields || []).find(f => f.id === origenLeadField)?.value || ghlContact.source || '';
       const hasStructuredOrigen = /^[A-Z0-9_]+-[A-Z0-9_]+-[A-Z0-9_]+-[A-Za-z0-9_]+$/.test(String(existingOrigenLead).trim());
       if (vContact.cf_3507 && !hasStructuredOrigen) {
