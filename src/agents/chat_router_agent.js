@@ -616,7 +616,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       if (!formMeta && targetPageId) {
         formMeta = resolveFormMetaById(resolveDefaultFormIdByPageId(targetPageId));
       }
-      if (formMeta && !targetPageId) {
+      // [FIX 03/11] El formulario es la entrada MÁS RECIENTE: su página/proveedor
+      // mandan, aunque el lead tenga un mensaje de Messenger anterior de OTRA página.
+      // Antes solo se aplicaba si targetPageId estaba vacío, así que un lead que
+      // pasaba de Messenger (página A) a Forms (página B) conservaba la página A.
+      if (formMeta) {
         targetPageId = formMeta.pageId;
         targetPageName = formMeta.pageName;
         hasRealFanpage = true;
