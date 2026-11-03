@@ -219,7 +219,7 @@ const ORIGENES_FONDO = new Set([
   'trabajo-del-dia', 'curador-estandar', 'day-sync'
 ]);
 const ultimoRuteoFondo = new Map();            // contactId -> timestamp
-const COOLDOWN_FONDO_MS = 30 * 60 * 1000;       // 30 min
+const COOLDOWN_FONDO_MS = 60 * 60 * 1000;       // 60 min (refuerzo anti-bucle)
 
 function estaEnCooldownFondo(contactId) {
   const ts = ultimoRuteoFondo.get(contactId) || 0;

@@ -3157,7 +3157,7 @@ export function registerBackgroundSchedulers() {
             severity: graves.some(a => a.nivel === 'CRITICO') ? 'error' : 'warn',
             salud: r.saludTecnica,
             alertas: graves.map(a => ({ codigo: a.codigo, nivel: a.nivel, mensaje: a.mensaje })),
-            bucles: r.bucles ? { contactosEnBucle: r.bucles.contactosEnBucle, desperdicioPct: r.bucles.desperdicioPct } : null,
+            bucles: r.bucles ? { contactosEnBucle: r.bucles.contactosEnBucle, desperdicioPct: r.bucles.desperdicioPct, porOrigen: (r.bucles.porOrigen || []).slice(0, 5) } : null,
             tasaTotalPorHora: r.resumenConsumo?.tasaTotalPorHora ?? null
           });
         } else {
