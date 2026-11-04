@@ -159,8 +159,11 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     })();
   };
 
-  // 1. MODO 1: "Del Ahora en Adelante" (Forward / En Vivo) - Cada 25s
-  setInterval(() => { dispatchCuration(JOBS.CURATION_FORWARD, 15).catch(() => {}); }, 25 * 1000);
+  // 1. MODO 1: "Del Ahora en Adelante" (Forward / En Vivo) - Cada 60s
+  // [FIX 04/11] Reducido de 25s/15 a 60s/10: el curador forward era el mayor
+  // consumidor (~880 ruteos/h) y redundante con el radar en vivo. Con esto baja
+  // ~60% su ritmo y corta el CONSUMO_EXCESIVO sin tocar el Nivel 1.
+  setInterval(() => { dispatchCuration(JOBS.CURATION_FORWARD, 10).catch(() => {}); }, 60 * 1000);
 
   // 2. MODO 2: "Del Ahora para Atrás" (Backward / Histórico Profundo) - Turnos equitativos entre sedes activas
   let backwardTurn = 0;
