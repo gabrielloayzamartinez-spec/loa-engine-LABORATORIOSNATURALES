@@ -115,6 +115,7 @@ export const NOMBRES_CAMPOS_ROUTER = {
   idAnuncio: ['id de anuncio', 'id anuncio', 'ad id'],
   adIdAlt: ['ad id'],
   tratamientoComprado: ['tratamiento comprado', 'tratamiento', 'v tiger tratamiento comprado'],
+  proveedor: ['proveedor'],
   utmCampaign: ['utm campaign', 'campana origen'],
   utmSource: ['utm source'],
   utmMedium: ['utm medium'],

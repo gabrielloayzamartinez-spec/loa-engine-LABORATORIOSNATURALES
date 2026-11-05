@@ -855,6 +855,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const ORIGEN_LEAD_FIELD = sedeFields.origenLead;
     const TIENE_TELEFONO_FIELD = sedeFields.tieneTelefono;
     const ULTIMA_INTERACCION_FIELD = sedeFields.ultimaInteraccion;
+    const PROVEEDOR_FIELD = sedeFields.proveedor;
 
     // [ATRIBUCION VISIBLE] Campos claros (Nombre del Anuncio / Campaña Meta / Conjunto).
     // Se resuelven POR NOMBRE (no estan en las tablas fijas por sede). Si aun no fueron
@@ -1545,6 +1546,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (CAMPANA_META_FIELD && latestCampaign) customFieldsToUpdate.push({ id: CAMPANA_META_FIELD, key: 'contact.campana_meta', field_value: latestCampaign });
     if (CONJUNTO_ANUNCIOS_FIELD && latestAdSetName) customFieldsToUpdate.push({ id: CONJUNTO_ANUNCIOS_FIELD, key: 'contact.conjunto_anuncios', field_value: latestAdSetName });
     if (SEDE_ASIGNADA_FIELD) customFieldsToUpdate.push({ id: SEDE_ASIGNADA_FIELD, key: 'contact.sede_asignada', field_value: currentSedeName });
+    // [FIX 05/11] El custom field "Proveedor" se llena desde el proveedor RESUELTO
+    // (PAGE_MATRIX / formMeta), no solo desde vTiger cf_2572. Así los leads de
+    // formulario nuevo (que aún no tienen cf_2572) también lo llevan lleno.
+    if (PROVEEDOR_FIELD && targetPageId) customFieldsToUpdate.push({ id: PROVEEDOR_FIELD, key: 'contact.proveedor', field_value: getPageMatrixEntry(targetPageId)?.proveedor || targetProvider || '' });
     if (ORIGEN_LEAD_FIELD && vtigerSource) customFieldsToUpdate.push({ id: ORIGEN_LEAD_FIELD, key: 'contact.origen_lead', field_value: vtigerSource });
     if (TIENE_TELEFONO_FIELD) customFieldsToUpdate.push({ id: TIENE_TELEFONO_FIELD, key: 'contact.tiene_telfono', field_value: (contact.phone || (shippingData && shippingData.hasPhone)) ? 'Sí' : 'No' });
     if (ULTIMA_INTERACCION_FIELD) customFieldsToUpdate.push({ id: ULTIMA_INTERACCION_FIELD, key: 'contact.ultima_interaccion', field_value: new Date().toISOString().split('T')[0] });

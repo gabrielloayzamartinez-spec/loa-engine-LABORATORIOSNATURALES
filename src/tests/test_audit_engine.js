@@ -822,18 +822,18 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
           throw new Error('Stages de Benavides incompletos');
         }
 
-        // 3. Simetría 1:1 de 29 Custom Fields
+        // 3. Simetría 1:1 de 30 Custom Fields (29 originales + "proveedor" añadido 05/11)
         const palFields = resolveSedeCustomFields({ sede: 'PALACIOS' });
         const benFields = resolveSedeCustomFields({ locationId: 'QXcNBK6XCgpQaZ81Z8pv' });
 
         const palKeys = Object.keys(palFields).sort();
         const benKeys = Object.keys(benFields).sort();
 
-        if (palKeys.length !== 29) {
-          throw new Error(`Palacios debe tener exactamente 29 custom fields, tiene: ${palKeys.length}`);
+        if (palKeys.length !== 30) {
+          throw new Error(`Palacios debe tener exactamente 30 custom fields, tiene: ${palKeys.length}`);
         }
-        if (benKeys.length !== 29) {
-          throw new Error(`Benavides debe tener exactamente 29 custom fields, tiene: ${benKeys.length}`);
+        if (benKeys.length !== 30) {
+          throw new Error(`Benavides debe tener exactamente 30 custom fields, tiene: ${benKeys.length}`);
         }
         if (palKeys.join(',') !== benKeys.join(',')) {
           throw new Error('Asimetría detectada en las llaves de custom fields entre Palacios y Benavides');
@@ -846,6 +846,8 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
         if (benFields.tratamientoComprado !== 'xqDD056VzkFTOxHniDkw') throw new Error('Benavides tratamientoComprado mismatch');
         if (palFields.historialCompleto !== 'T3jzpe1j65tDGXLfQNrM') throw new Error('Palacios historialCompleto mismatch');
         if (benFields.historialCompleto !== 'cZZF2iWCedZpfD8kqR16') throw new Error('Benavides historialCompleto mismatch');
+        if (palFields.proveedor !== '8hXm0KtAbl8hwSlubUtU') throw new Error('Palacios proveedor mismatch');
+        if (benFields.proveedor !== '4fsJLpMy1aDikCbNgnbu') throw new Error('Benavides proveedor mismatch');
       }
     },
     {
