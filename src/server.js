@@ -175,12 +175,12 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
 
     if (getQueueStatus().enabled) {
       getQueue(QUEUES.CURATION)
-        .enqueue(JOBS.CURATION_BACKWARD, { sede: targetAgent.sedeId, limit: 20 })
+        .enqueue(JOBS.CURATION_BACKWARD, { sede: targetAgent.sedeId, limit: 10 })
         .catch(err => console.warn(`[Queue] Curación backward no encolada: ${err.message}`));
       return;
     }
 
-    targetAgent.runBackward({ limit: 20 }).catch(() => {});
+    targetAgent.runBackward({ limit: 10 }).catch(() => {});
   }, 60 * 1000);
 
   // Calibración Periódica de vTiger (Cada 30 min)
