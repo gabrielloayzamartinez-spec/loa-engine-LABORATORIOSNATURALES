@@ -214,7 +214,8 @@ export const VTIGER_FIELDS = {
   MODIFIED_TIME: 'modifiedtime',
   CONTACT_ID: 'contact_id',
   // Personalizados operativos
-  SEDE: 'cf_3451',              // Sede del contacto (eje del aislamiento multi-tenant)
+  SEDE: 'cf_3451',              // Sede ORIGINAL del contacto (oficina de registro/compra inicial)
+  SEDE_ACTUAL: 'cf_3590',       // Oficina ACTUAL (fuente de verdad de enrutamiento desde 2026-11-18)
   TRATAMIENTO: 'cf_2610',       // Padecimiento / producto
   CIUDAD: 'cf_1157',            // Ciudad operativa real de la empresa
   PROVEEDOR: 'cf_2572',         // Proveedor de pauta declarado
@@ -282,6 +283,7 @@ export const VTIGER_CONTACT_SELECT = [
   VTIGER_FIELDS.HOME_PHONE,
   VTIGER_FIELDS.OTHER_PHONE,
   VTIGER_FIELDS.SEDE,
+  VTIGER_FIELDS.SEDE_ACTUAL,
   VTIGER_FIELDS.TRATAMIENTO,
   VTIGER_FIELDS.PROVEEDOR,
   VTIGER_FIELDS.SEXO,

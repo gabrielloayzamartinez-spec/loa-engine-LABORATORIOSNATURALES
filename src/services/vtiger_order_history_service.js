@@ -345,13 +345,23 @@ export function buildOrderAddressFields(ultimaOrden = {}) {
  * @param {object} fieldIds     mapa { logico: fieldId } ya resuelto de la location
  * @returns {Array} custom fields listos para el PUT
  */
-export function buildOrderEnrichmentFields(ultimaOrden = {}, fieldIds = {}) {
+export function buildOrderEnrichmentFields(ultimaOrden = {}, fieldIds = {}, numOrdenes = 0) {
   const campos = [];
   const push = (logico, valor) => {
     const id = fieldIds[logico];
     const v = valor === undefined || valor === null ? '' : String(valor).trim();
     if (id && v) campos.push({ id, field_value: v });
   };
+  // [FIX TOTAL COMPRAS — 2026-11-18] vTiger deja `spl_num_compras` en 0 para
+  // compradores recientes aunque exista la orden. El conteo REAL de órdenes
+  // (`numOrdenes`) es la fuente de verdad: aquí se SOBREESCRIBE el contador para
+  // que "Total Compras" nunca quede en 0 cuando hay órdenes reales.
+  push('totalCompras', numOrdenes > 0 ? String(numOrdenes) : '');
+  // [FIX ESTADO COMERCIAL — 2026-11-18] Igual que el contador, `cf_1876` puede
+  // quedar como "SIN VENTA" pese a existir la orden. Si hay órdenes, es comprador:
+  // se SOBREESCRIBE a "CONVERTIDO" para que las Smart Lists no mezclen compradores
+  // con leads.
+  push('estadoComercial', numOrdenes > 0 ? 'CONVERTIDO' : '');
   push('estadoEntrega', ultimaOrden.estadoEntrega);
   push('conformidad', ultimaOrden.conformidad);
   push('formaPago', ultimaOrden.formaPago);
@@ -461,8 +471,11 @@ export async function runOrderHistoryBackfill({
       const offset = estado.porSede[sede]?.offset || 0;
       const limite = Math.min(Math.max(parseInt(tamanoLote, 10) || 50, 1), 150);
 
-      // Sólo clientes con compras y con teléfono (llave de emparejamiento con GHL)
-      const q = `SELECT id, firstname, lastname, phone, mobile, homephone, cf_3451, spl_num_compras, spl_fecha_ultima_compra FROM Contacts WHERE spl_num_compras > 0${sedeClause(sede)} ORDER BY modifiedtime DESC LIMIT ${offset}, ${limite};`;
+      // [RECONCILIACIÓN — 2026-11-18] Se recorre por CONVERTIDO (no por
+      // spl_num_compras>0) para incluir a los compradores cuyo contador vTiger
+      // quedó en 0 pero que SÍ tienen órdenes reales. El destino se resuelve por
+      // cf_3590 dentro de syncContactOrderHistory.
+      const q = `SELECT id, firstname, lastname, phone, mobile, homephone, cf_3451, cf_3590, cf_1876, spl_num_compras, spl_fecha_ultima_compra FROM Contacts WHERE cf_1876 = 'CONVERTIDO'${sedeClause(sede)} ORDER BY modifiedtime DESC LIMIT ${offset}, ${limite};`;
 
       let contactos = [];
       try {
@@ -556,7 +569,10 @@ export async function resetOrderHistoryBackfill() {
  * @returns {Promise<object>} resultado
  */
 export async function syncContactOrderHistory({ vContact, ordenesPorContacto = null, contactIdSede = null, contactIdMacro = null }) {
-  const sedeId = String(vContact.cf_3451 || '').toUpperCase().trim();
+  // [OFICINA ACTUAL — 2026-11-18] El destino en GHL se determina por la Oficina
+  // Actual (cf_3590), no por la oficina original (cf_3451): un contacto reasignado
+  // debe sincronizar su historial en la subcuenta donde está HOY.
+  const sedeId = String(vContact.cf_3590 || vContact.cf_3451 || '').toUpperCase().trim();
   const sedeConf = SEDES_GATEWAY[sedeId];
   if (!sedeConf) return { ok: false, skipped: true, reason: 'sede no reconocida' };
 
@@ -568,7 +584,23 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
   // Órdenes de la sede del contacto
   let ordenes = ordenesPorContacto?.get(String(vContact.id))
     || await fetchOrdersForContact(vContact.id, sedeId);
-  if (ordenes.length === 0) return { ok: true, skipped: true, reason: 'sin órdenes', ordenes: 0 };
+  if (ordenes.length === 0) {
+    // [RECONCILIACIÓN — 2026-11-18] Un contacto marcado CONVERTIDO sin órdenes
+    // reales es en verdad un lead. Se corrige en GHL a SIN VENTA / 0 compras para
+    // que las Smart Lists no lo cuenten como comprador.
+    if (sedeConf?.ghl?.locationId) {
+      const headers = getGhlHeaders({ locationId: sedeConf.ghl.locationId });
+      const cid = contactIdSede || await findContactIdByPhone(sedeConf.ghl.locationId, phone, headers);
+      if (cid) {
+        const fields = await resolveCustomFieldIds(sedeConf.ghl.locationId, headers);
+        const correccion = [];
+        if (fields.estadoComercial) correccion.push({ id: fields.estadoComercial, field_value: 'SIN VENTA' });
+        if (fields.totalCompras) correccion.push({ id: fields.totalCompras, field_value: '0' });
+        if (correccion.length) await writeContactFields(cid, correccion, headers);
+      }
+    }
+    return { ok: true, skipped: true, reason: 'sin órdenes (corregido a SIN VENTA)', ordenes: 0 };
+  }
 
   const normalizadas = sortOrdersDesc(ordenes.map(normalizeOrder));
   const resultado = { ok: true, sede: sedeId, ordenes: normalizadas.length, operativa: null, macro: null };
@@ -595,7 +627,7 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
 
     // [FASE 3 + 4] Enriquecimiento con los datos de la ULTIMA orden como campos
     // filtrables + sexo rescatado de la orden. Una sola escritura multi-campo.
-    const enrichment = buildOrderEnrichmentFields(normalizadas[0], fields);
+    const enrichment = buildOrderEnrichmentFields(normalizadas[0], fields, normalizadas.length);
     const addressNative = buildOrderAddressFields(normalizadas[0]);
     const enrique = (enrichment.length || Object.keys(addressNative).length)
       ? await writeContactFields(contactoId, enrichment, sedeHeaders, addressNative)
@@ -646,7 +678,7 @@ export async function syncContactOrderHistory({ vContact, ordenesPorContacto = n
       // dicta el estado de entrega, forma de pago, producto y sexo en la Empresa.
       // Asi la Empresa refleja la sede MAS RECIENTE de forma natural.
       const fieldsCentral = await resolveCustomFieldIds(CENTRAL_LOCATION_ID, centralHeaders);
-      const enrichmentGlobal = buildOrderEnrichmentFields(normGlobal[0], fieldsCentral);
+      const enrichmentGlobal = buildOrderEnrichmentFields(normGlobal[0], fieldsCentral, normGlobal.length);
       const addressGlobal = buildOrderAddressFields(normGlobal[0]);
       const enriqueMacro = (enrichmentGlobal.length || Object.keys(addressGlobal).length)
         ? await writeContactFields(centralContactId, enrichmentGlobal, centralHeaders, addressGlobal)

@@ -91,6 +91,10 @@ assert(resolveSedeFromVtiger({ cf_3451: 'PALACIOS' }) === 'PALACIOS', 'cf_3451=P
 assert(resolveSedeFromVtiger({ cf_3451: 'benavides' }) === 'BENAVIDES', 'Resuelve sin importar mayúsculas');
 assert(resolveSedeFromVtiger({ cf_3451: 'SEDE_INVENTADA' }) === null, 'Una sede desconocida no resuelve (se descarta)');
 assert(resolveSedeFromVtiger({}) === null, 'Sin cf_3451 no hay destino (se descarta)');
+// [OFICINA ACTUAL — 2026-11-18] La Oficina Actual (cf_3590) manda sobre OFICINA (cf_3451).
+assert(resolveSedeFromVtiger({ cf_3451: 'PALACIOS', cf_3590: 'BENAVIDES' }) === 'BENAVIDES', 'La Oficina Actual (cf_3590) gana sobre OFICINA (cf_3451)');
+assert(resolveSedeFromVtiger({ cf_3451: 'BENAVIDES', cf_3590: 'palacios' }) === 'PALACIOS', 'cf_3590 gana sin importar mayúsculas');
+assert(resolveSedeFromVtiger({ cf_3451: 'ROOSEVELT', cf_3590: 'PIURA' }) === 'PIURA', 'Un reasignado a Piura enruta a Piura, no a su oficina original');
 assert(SEDES_GATEWAY.PALACIOS.ghl.locationId !== SEDES_GATEWAY.BENAVIDES.ghl.locationId, 'Cada sede tiene su propia subcuenta (hermetismo)');
 
 // ------------------------------------------------------------------------------

@@ -127,7 +127,25 @@ export const CAMPOS_REQUERIDOS = {
   // el dealer vea "Nombre del Anuncio / Campaña / Conjunto" en lugar de UTM técnicos.
   nombreAnuncio: ['nombre del anuncio', 'anuncio meta', 'anuncio origen'],
   campanaMeta: ['campana meta', 'campana del anuncio', 'campana de origen'],
-  conjuntoAnuncios: ['conjunto de anuncios', 'conjunto meta', 'ad set meta']
+  conjuntoAnuncios: ['conjunto de anuncios', 'conjunto meta', 'ad set meta'],
+  // --- [FILL ATRIBUCIÓN — 2026-11-18] Campos que antes solo escribía el router
+  // (Meta) o el reverse-sync (vtiger_sync_agent), dejando VACÍOS a los compradores
+  // del backfill/sales-bridge. Ahora el dual sync los resuelve y escribe también,
+  // para que TODAS las vías llenen el mismo juego de campos.
+  idAnuncio: ['id de anuncio', 'id anuncio'],
+  adIdAlt: ['ad id'],
+  utmCampaign: ['utm campaign', 'campana origen'],
+  utmSource: ['utm source'],
+  utmMedium: ['utm medium'],
+  utmContent: ['utm content'],
+  utmTerm: ['utm term'],
+  adsetId: ['conjunto de anuncios', 'ad set meta'],
+  tieneTelefono: ['tiene telefono', 'tiene teléfono'],
+  statusContacto: ['status del contacto', 'estado del contacto'],
+  fechaAsignacion: ['fecha ultima asignacion', 'fecha asignacion'],
+  fechaCompra: ['fecha de compra'],
+  fechaUltimaFactura: ['fecha ultima factura'],
+  sedeTiendaCompra: ['sede tienda compra', 'v tiger sede tienda compra']
 };
 
 // ------------------------------------------------------------------------------
@@ -645,7 +663,11 @@ export function pickPhone(vContact = {}) {
  * @returns {string|null}
  */
 export function resolveSedeFromVtiger(vContact = {}) {
-  const raw = String(vContact.cf_3451 || vContact.sede || '').toUpperCase().replace(/[^A-Z]/g, '');
+  // [OFICINA ACTUAL — 2026-11-18] La sede de DESTINO en GHL se determina por la
+  // Oficina Actual (`cf_3590` = ACTUAL_OFICINA), que refleja a dónde fue reasignado
+  // el contacto. `cf_3451` (OFICINA) queda SOLO como fallback para registros
+  // históricos que aún no tengan cf_3590 poblado.
+  const raw = String(vContact.cf_3590 || vContact.cf_3451 || vContact.sede || '').toUpperCase().replace(/[^A-Z]/g, '');
   const conf = SEDES_GATEWAY[raw];
   if (!conf) return null;
   return conf.sedeId;
@@ -831,6 +853,21 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     pushSede('proveedor', prov);
   }
   pushSede('ultimaInteraccion', new Date().toISOString());
+  // [FILL SEDE — 2026-11-18] Antes estos 3 campos SOLO iban a la Cuenta Empresa,
+  // dejando vacías en las subcuentas de sede las Smart Lists de SMS: monto total
+  // (cf_3392), asesor asignado (wcf_acf_atf_3390) y fecha de creación.
+  pushSede('totalHistorico', vContact.cf_3392 || '');
+  pushSede('asesorAsignado', vContact.wcf_acf_atf_3390 || '');
+  pushSede('fechaCreacion', String(vContact.createdtime || '').slice(0, 10));
+  // [FILL ATRIBUCIÓN — 2026-11-18] Campos que antes solo escribía el router (Meta)
+  // o el reverse-sync, dejando VACÍOS a los compradores del backfill/sales-bridge.
+  pushSede('idAnuncio', vContact.cf_2850 || '');
+  pushSede('adIdAlt', vContact.cf_2850 || '');
+  pushSede('utmCampaign', vContact.cf_3472 || '');
+  // Todo contacto sincronizado tiene teléfono (es la llave única): se marca "Sí".
+  pushSede('tieneTelefono', 'Sí');
+  pushSede('sedeTiendaCompra', sedeId || '');
+  pushSede('fechaCompra', vContact.spl_fecha_ultima_compra || '');
 
   if (incluirHistorial) {
     pushSede('totalCompras', String(compras));
@@ -943,7 +980,7 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   // identificadores de una sede no viajen a la subcuenta de otra: se prefiere
   // dejar el campo vacío antes que escribir un id que no corresponde.
   // ---------------------------------------------------------------------------
-  const sedeOrigenRegistro = String(vContact.cf_3451 || '').toUpperCase().trim();
+  const sedeOrigenRegistro = String(vContact.cf_3590 || vContact.cf_3451 || '').toUpperCase().trim();
   const origenCoincide = Boolean(sedeDestino) && sedeOrigenRegistro === sedeDestino;
   if (!origenCoincide) {
     recordAuditEvent({
