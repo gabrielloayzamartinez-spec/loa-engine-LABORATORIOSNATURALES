@@ -1017,7 +1017,7 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   if (sedeId) tagsNuevas.push(`sede-${sedeId.toLowerCase()}`);
   const provEtiqueta = String(vContact.cf_2572 || '').trim().toUpperCase();
   if (provEtiqueta) {
-    const provMap = { ERNESTO: 'prov-ernesto', CLICK2RING: 'prov-click2ring', IN_HOUSE: 'prov-in-house', 'REDES 2 BENAVIDES': 'prov-redes-2-benavides', ENZO: 'prov-enzo', UP_IDEAS: 'prov-up-ideas' };
+    const provMap = { ERNESTO: 'prov-ernesto', CLICK2RING: 'prov-click2ring', IN_HOUSE: 'prov-in-house', 'REDES 2 BENAVIDES': 'prov-redes-2-benavides', 'EN CASA G': 'prov-en-casa-g', ENZO: 'prov-enzo', UP_IDEAS: 'prov-up-ideas' };
     tagsNuevas.push(provMap[provEtiqueta] || `prov-${provEtiqueta.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
   }
   const canalEtiqueta = String(vContact.cf_3507 || '').trim().toUpperCase();
