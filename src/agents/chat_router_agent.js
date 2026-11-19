@@ -1253,7 +1253,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
             method: 'POST',
             headers: activeHeaders,
-            body: JSON.stringify({ tags: ['cola-wsp'] })
+            body: JSON.stringify({ tags: ['canal-whatsapp'] })
           }, 1, isLive);
         } catch (err) {
           console.warn(`[Agente 3] [WSP-TAG] No se pudo etiquetar WSP en ${contactId}: ${err.message}`);
@@ -1405,19 +1405,28 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // INYECCIÓN DE VISTAS INTELIGENTES (SMART VIEWS - OPERACIÓN ÁGIL NIVEL 1)
     if (targetPageId) {
       const smartViewTags = getSmartViewTagsByPageId(targetPageId);
-      const ALL_QUEUE_TAGS = ['cola-redes-1', 'cola-redes-2', 'cola-inhouse', 'cola-forms', 'cola-wsp'];
-      const targetQueue = getQueueTagByPageId(targetPageId);
-      if (targetQueue) {
-        for (const qTag of ALL_QUEUE_TAGS) {
-          if (qTag !== targetQueue && newTagsSet.has(qTag)) {
-            newTagsSet.delete(qTag);
-            tagsToRemove.push(qTag);
-          }
-          if (qTag !== targetQueue && (contact.tags || []).includes(qTag) && !tagsToRemove.includes(qTag)) {
-            tagsToRemove.push(qTag);
-          }
+      // [CANAL — 2026-11-19] Etiqueta LIMPIA de canal (Messenger/Forms/WhatsApp/SMS),
+      // derivada del transporte real del lead, NO de una "cola" mezclada con proveedor.
+      const canalTag = (() => {
+        if (isAutoFormLead) return 'canal-forms';
+        const t = String(latestMessageTransport || '').toLowerCase();
+        if (t.includes('whatsapp') || t === 'wsp') return 'canal-whatsapp';
+        if (t === 'sms') return 'canal-sms';
+        if (t === 'instagram') return 'canal-instagram';
+        return 'canal-messenger';
+      })();
+      for (const t of Array.from(newTagsSet)) {
+        if (t.startsWith('canal-') && t !== canalTag) {
+          newTagsSet.delete(t);
+          if (!tagsToRemove.includes(t)) tagsToRemove.push(t);
         }
       }
+      for (const t of (contact.tags || [])) {
+        if (typeof t === 'string' && t.startsWith('canal-') && t !== canalTag && !tagsToRemove.includes(t)) {
+          tagsToRemove.push(t);
+        }
+      }
+      newTagsSet.add(canalTag);
       // [PURGA DE PROVEEDOR] Un lead solo tiene UN proveedor activo: si reingresa
       // por otro proveedor/canal, se elimina el prov-* anterior para que el mismo
       // contacto no aparezca en varias vistas de proveedor a la vez (trabajo ordenado).
@@ -1680,7 +1689,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const proveedorTag = getProveedorTagByPageId(targetPageId);
 
       const exactFormTags = new Set([
-        'cola-forms',
+        'canal-forms',
         targetFormId ? `form-id-${targetFormId}` : null,
         pageSlug,
         activeProductTag,

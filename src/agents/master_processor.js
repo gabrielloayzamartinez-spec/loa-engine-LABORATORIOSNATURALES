@@ -224,7 +224,7 @@ export async function processMasterContact(contactInput, options = {}) {
     // [30/10 — BLINDAJE FORMULARIOS] Un lead con 'cola-forms' es FORMULARIO Lead Ads:
     // SIN DUEÑO por diseño (aunque la fanpage sea de ERNESTO). Este agente legado NO
     // debe reasignarlo a REDES. Se corta antes de resolver dueño por página.
-    if (existingTags.includes('cola-forms')) {
+    if (existingTags.includes('canal-forms')) {
       return { success: true, skipped: true, reason: 'formulario-sin-dueno' };
     }
 

@@ -134,14 +134,7 @@ export function getSmartViewTagsByPageId(pageId) {
   const sedeSlug = `sede-${String(entry.sede).toLowerCase()}`;
   tags.push(sedeSlug);
 
-  // Etiqueta de Cola Operativa (Smart View)
-  const colaTag = getQueueTagByPageId(pageId);
-  tags.push(colaTag);
-
-  // [FIX 02/11] Etiqueta de PROVEEDOR en TODOS los leads (no solo forms).
-  // Antes solo los formularios llevaban prov-*; los de Messenger quedaban sin
-  // proveedor explícito (solo implícito en la cola). Ahora TODOS los leads llevan
-  // su proveedor: etiquetado múltiple completo y uniforme.
+  // Etiqueta de PROVEEDOR (separada del canal: dimensión limpia e independiente).
   const provTag = getProveedorTagByPageId(pageId);
   if (provTag) tags.push(provTag);
 
