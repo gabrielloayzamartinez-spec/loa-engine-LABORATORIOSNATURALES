@@ -143,6 +143,7 @@ import { syncVtigerContactDual, resolveCustomFieldIds, CAMPOS_REQUERIDOS, clearF
 import { runVtigerSalesBridge } from './services/vtiger_sales_bridge.js';
 import { runOrderHistoryBackfill, getBackfillStatus } from './services/vtiger_order_history_service.js';
 import { runBuyersBackfill, getBuyersBackfillStatus, resetBuyersBackfill, resetBuyersBackfillSede, desatascarBackfill, contarContactosGhl, COMPRADORES_POR_SEDE, TOTAL_COMPRADORES } from './services/vtiger_buyers_backfill.js';
+import { runLeadsBackfill } from './services/vtiger_leads_backfill.js';
 import { getActiveSedeAgents, getSedeAgent } from './agents/sede_agent.js';
 import { reportSecrets } from './config/secrets.js';
 import { getOperationalSedeIds, getDegradedSedes } from './config/sedes_gateway.js';
@@ -3329,6 +3330,19 @@ export function registerBackgroundSchedulers() {
       })
       .catch(err => console.error('[Order Backfill] Error en ciclo programado:', err.message))
       .finally(() => { guardaOrderHistory.liberar(); liberarTurno('order-history'); });
+  }, 15 * 60 * 1000));
+
+  // [BACKFILL DE LEADS] Sincroniza los contactos NO COMPRADORES de vTiger a GHL
+  // con todos los custom fields de Contactos (Fecha Creación, Sexo, Etapa, etc.).
+  // Nivel 2 secuencial, con guarda, lotes controlados (por año para evitar el
+  // cuello de OFFSET de vTiger). Completa la base al 100% en las 4 subcuentas.
+  const guardaLeadsBackfill = crearGuardaConWatchdog('Leads Backfill', 60 * 60 * 1000);
+  timers.push(setInterval(() => {
+    if (!tomarTurno('leads-backfill')) return; // nivel 2 secuencial
+    if (!guardaLeadsBackfill.tomar()) { liberarTurno('leads-backfill'); return; }
+    runLeadsBackfill({ tamanoLote: 30, maxLotes: 1, pausaMs: 250 })
+      .catch(err => console.error('[Leads Backfill] Error en ciclo programado:', err.message))
+      .finally(() => { guardaLeadsBackfill.liberar(); liberarTurno('leads-backfill'); });
   }, 15 * 60 * 1000));
 
   // [BACKFILL DE COMPRADORES] Cierra la brecha historica de la cartera.
