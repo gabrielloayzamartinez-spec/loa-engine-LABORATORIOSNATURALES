@@ -1421,28 +1421,45 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       // [PURGA DE PROVEEDOR] Un lead solo tiene UN proveedor activo: si reingresa
       // por otro proveedor/canal, se elimina el prov-* anterior para que el mismo
       // contacto no aparezca en varias vistas de proveedor a la vez (trabajo ordenado).
-      const ALL_PROV_TAGS = ['prov-ernesto', 'prov-click2ring', 'prov-in-house'];
       const targetProv = getProveedorTagByPageId(targetPageId);
       if (targetProv) {
-        for (const pTag of ALL_PROV_TAGS) {
-          if (pTag !== targetProv && newTagsSet.has(pTag)) {
-            newTagsSet.delete(pTag);
-            tagsToRemove.push(pTag);
+        for (const t of Array.from(newTagsSet)) {
+          if (t.startsWith('prov-') && t !== targetProv) {
+            newTagsSet.delete(t);
+            if (!tagsToRemove.includes(t)) tagsToRemove.push(t);
           }
-          if (pTag !== targetProv && (contact.tags || []).includes(pTag) && !tagsToRemove.includes(pTag)) {
-            tagsToRemove.push(pTag);
+        }
+        for (const t of (contact.tags || [])) {
+          if (typeof t === 'string' && t.startsWith('prov-') && t !== targetProv && !tagsToRemove.includes(t)) {
+            tagsToRemove.push(t);
           }
         }
       }
       for (const svTag of smartViewTags) {
         newTagsSet.add(svTag);
       }
-      // [ETIQUETA POR NOMBRE DE PÁGINA — 2026-11-19] Para crear vistas por fanpage.
+      // [ETIQUETA POR NOMBRE DE PÁGINA — 2026-11-19] El lead puede saltar de una
+      // página a otra: se conserva SOLO el último nombre de página (se purgan las
+      // anteriores) para que la vista de chat refleje el ÚLTIMO canal/página activo.
       const pageEntry = getPageMatrixEntry(targetPageId);
       if (pageEntry?.pageName) {
         const pageSlug = String(pageEntry.pageName).toLowerCase().normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        if (pageSlug) newTagsSet.add(`pagina-${pageSlug}`);
+        if (pageSlug) {
+          const targetPaginaTag = `pagina-${pageSlug}`;
+          for (const t of Array.from(newTagsSet)) {
+            if (t.startsWith('pagina-') && t !== targetPaginaTag) {
+              newTagsSet.delete(t);
+              if (!tagsToRemove.includes(t)) tagsToRemove.push(t);
+            }
+          }
+          for (const t of (contact.tags || [])) {
+            if (typeof t === 'string' && t.startsWith('pagina-') && t !== targetPaginaTag && !tagsToRemove.includes(t)) {
+              tagsToRemove.push(t);
+            }
+          }
+          newTagsSet.add(targetPaginaTag);
+        }
       }
     } else if (currentSedeName) {
       newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
