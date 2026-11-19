@@ -728,28 +728,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         targetAdvisorId = null;
         targetAdvisorName = 'Cola Forms';
       } else {
-        const ownerKey = getOwnerKeyByPageId(targetPageId);
-        const ownerUser = ownerKey ? resolvedSede.users[ownerKey] : null;
-
-        if (ownerUser) {
-          targetAdvisorId = ownerUser.id;
-          targetAdvisorName = ownerUser.name;
-        } else {
-          // Fallback por continuidad operativa: dueño por defecto de la sede, PERO se
-          // marca "revisar-ruteo" para no asignar en silencio a un contacto sin fanpage.
-          const defaultKey = resolvedSede.sedeId === 'PALACIOS' ? 'ernesto'
-            : resolvedSede.sedeId === 'BENAVIDES' ? 'redes2'
-            : 'redes';
-          const defUser = resolvedSede.users[defaultKey];
-          if (defUser) {
-            targetAdvisorId = defUser.id;
-            targetAdvisorName = defUser.name;
-          }
-          if (!hasRealFanpage) {
-            routingReviewReason = 'sin evidencia de fanpage de Meta';
-          } else {
-            routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
-          }
+        // [DISUELTO — 2026-11-19] Sistema de dueños desvanecido: el Nivel 1 trabaja
+        // por ETIQUETAS (sede-*/prov-*/canal-*/cola-*/pagina-*), NO por dueño (assignedTo).
+        // Ahorra llamadas a GHL y elimina la dependencia de IDs de usuario obsoletos.
+        targetAdvisorId = null;
+        targetAdvisorName = 'Sin dueño (etiquetas)';
+        if (!hasRealFanpage) {
+          routingReviewReason = 'sin evidencia de fanpage de Meta';
+        } else if (!getPageMatrixEntry(targetPageId)) {
+          routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
         }
       }
     }

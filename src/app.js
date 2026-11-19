@@ -3116,25 +3116,11 @@ export function registerBackgroundSchedulers() {
   // Guardián de bandejas sin asignar (multi-sede)
   timers.push(setInterval(runUnassignedConversationsGuardian, 60000));
 
-  // [GUARDIÁN DE PROPIETARIO — CORRIGE LOS HUÉRFANOS]
-  // El router solo asigna cuando el lead escribe. Un contacto migrado o sin chat
-  // reciente podia quedar SIN dueño aunque su etiqueta de fanpage fuera correcta
-  // (defecto reportado: 71 contactos de "Naturales BioNatural" sin propietario).
-  // Este guardián recorre las sedes y asigna el dueño que dicta la REGLA ESTRICTA,
-  // tocando únicamente contactos con fanpage CONOCIDA y sin propietario: nunca
-  // reasigna a alguien que ya tiene dueño (cero robos de cartera).
-  timers.push(setInterval(() => {
-    const guardianSede = (sedeId) => guardianDePropietario({ sede: sedeId, paginas: 5, ejecutar: true })
-      .then(r => {
-        if (r.corregidos > 0) {
-          console.log(`[Guardián Propietario] ${sedeId}: ${r.corregidos} contactos huerfanos asignados a su dueño (revisados ${r.escaneados}).`);
-        }
-      })
-      .catch(err => console.warn(`[Guardián Propietario] ${sedeId}: ${err.message}`));
-    // Una sede por disparo, rotando, para no concentrar la carga en una sola.
-    const activas = getActiveSedes().filter(s => !s.isPaused).map(s => s.sedeId);
-    activas.forEach((s, i) => setTimeout(() => guardianSede(s), i * 8000));
-  }, 30 * 60 * 1000));
+  // [GUARDIÁN DE PROPIETARIO — DISUELTO 2026-11-19]
+  // El sistema de dueños (assignedTo) se desvaneció: el Nivel 1 trabaja por
+  // ETIQUETAS (sede-*/prov-*/canal-*/cola-*/pagina-*), no por dueño. Este guardián
+  // asignaba contactos huérfanos a un dueño; ya no aplica y queda desactivado.
+  // (Si en el futuro se reactiva el sistema de dueños, restaurar este bloque.)
 
   // Demonio inverso: sincroniza cambios de vTiger -> GHL cada 3 minutos
   timers.push(setInterval(() => {
