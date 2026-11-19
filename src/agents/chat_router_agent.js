@@ -1450,6 +1450,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       for (const svTag of smartViewTags) {
         newTagsSet.add(svTag);
       }
+      // [ETIQUETA POR NOMBRE DE PÁGINA — 2026-11-19] Para crear vistas por fanpage.
+      const pageEntry = getPageMatrixEntry(targetPageId);
+      if (pageEntry?.pageName) {
+        const pageSlug = String(pageEntry.pageName).toLowerCase().normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        if (pageSlug) newTagsSet.add(`pagina-${pageSlug}`);
+      }
     } else if (currentSedeName) {
       newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
     }

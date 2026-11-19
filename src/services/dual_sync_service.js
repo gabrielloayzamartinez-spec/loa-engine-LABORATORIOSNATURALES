@@ -1009,7 +1009,22 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   // redundante: cliente-vtiger/convertido/compro ya resumen el estado comercial.
   const tagsNuevas = [];
   if (esComprador) tagsNuevas.push('compro', 'convertido', 'cliente-vtiger');
+  else tagsNuevas.push('prospecto-vtiger');
   if (tratamiento) tagsNuevas.push(`producto-${tratamiento.toLowerCase()}`);
+  // [ETIQUETAS DE VISTA — 2026-11-19] Separar las vistas de chats por sede, proveedor
+  // y canal. Así los contactos de vTiger (compradores y leads) quedan en las mismas
+  // vistas que los leads de Meta (por proveedor/canal), listas para Smart Views.
+  if (sedeId) tagsNuevas.push(`sede-${sedeId.toLowerCase()}`);
+  const provEtiqueta = String(vContact.cf_2572 || '').trim().toUpperCase();
+  if (provEtiqueta) {
+    const provMap = { ERNESTO: 'prov-ernesto', CLICK2RING: 'prov-click2ring', IN_HOUSE: 'prov-in-house', 'REDES 2 BENAVIDES': 'prov-redes-2-benavides', ENZO: 'prov-enzo', UP_IDEAS: 'prov-up-ideas' };
+    tagsNuevas.push(provMap[provEtiqueta] || `prov-${provEtiqueta.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
+  }
+  const canalEtiqueta = String(vContact.cf_3507 || '').trim().toUpperCase();
+  if (canalEtiqueta) {
+    const canalMap = { 'FB-MSGR': 'canal-fb-msgr', 'FB-MESSENGER': 'canal-fb-msgr', FORM: 'canal-form', WHATSAPP: 'canal-whatsapp', TIKTOK: 'canal-tiktok', SMS: 'canal-sms' };
+    tagsNuevas.push(canalMap[canalEtiqueta] || `canal-${canalEtiqueta.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
+  }
 
   return {
     phone,
