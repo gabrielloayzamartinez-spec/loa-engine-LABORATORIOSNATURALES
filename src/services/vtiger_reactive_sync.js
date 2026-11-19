@@ -146,7 +146,7 @@ export function normalizarEventoVtiger(raw = {}) {
       lastname: limpiarTexto(c.lastname || c.last_name, 60),
       phone,
       email: limpiarTexto(c.email, 120),
-      sede: limpiarTexto(c.sede || c.cf_3451, 40).toUpperCase(),
+      sede: limpiarTexto(c.sede || c.cf_3590 || c.cf_3451, 40).toUpperCase(),
       etapa: limpiarTexto(c.etapa || c.stage || c.pipeline_stage, 40),
       tratamiento: limpiarTexto(c.tratamiento || c.cf_2610 || c.treatment, 60),
       numCompras: parseInt(c.num_compras || c.spl_num_compras || '0', 10) || 0,
