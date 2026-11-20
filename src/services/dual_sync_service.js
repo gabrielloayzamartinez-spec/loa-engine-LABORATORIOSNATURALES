@@ -1022,7 +1022,7 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   }
   const canalEtiqueta = String(vContact.cf_3507 || '').trim().toUpperCase();
   if (canalEtiqueta) {
-    const canalMap = { 'FB-MSGR': 'canal-fb-msgr', 'FB-MESSENGER': 'canal-fb-msgr', FORM: 'canal-form', WHATSAPP: 'canal-whatsapp', TIKTOK: 'canal-tiktok', SMS: 'canal-sms' };
+    const canalMap = { 'FB-MSGR': 'canal-messenger', 'FB-MESSENGER': 'canal-messenger', FORM: 'canal-forms', WHATSAPP: 'canal-whatsapp', TIKTOK: 'canal-tiktok', SMS: 'canal-sms' };
     tagsNuevas.push(canalMap[canalEtiqueta] || `canal-${canalEtiqueta.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
   }
 
