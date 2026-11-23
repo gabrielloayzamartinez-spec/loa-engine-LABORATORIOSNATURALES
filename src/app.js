@@ -3100,7 +3100,7 @@ export function registerBackgroundSchedulers() {
   // Radar de asignación en vivo (Worker 1)
   timers.push(setInterval(runExpressAssignment, 5000));
 
-  // [TRABAJO DEL DÍA] Cada 10 min reprocesa las conversaciones desde medianoche (Lima)
+  // [TRABAJO DEL DÍA] Cada 3 min reprocesa las conversaciones desde medianoche (Lima)
   // hasta ahora, para que los UTMs/IDs/orígenes del día estén SIEMPRE actualizados.
   // Cubre de 12 AM a la próxima 12 AM (hora Lima), sin tocar la base histórica.
   timers.push(setInterval(() => {
@@ -3111,7 +3111,7 @@ export function registerBackgroundSchedulers() {
         }
       })
       .catch(err => console.error("Error en reprocesar-dia:", err));
-  }, 10 * 60 * 1000));
+  }, 3 * 60 * 1000));
 
   // Guardián de bandejas sin asignar (multi-sede)
   timers.push(setInterval(runUnassignedConversationsGuardian, 60000));
