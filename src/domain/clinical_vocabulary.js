@@ -87,7 +87,7 @@ export const TREATMENT_ALIASES = {
   'rodilla': 'Artritis', 'rodillas': 'Artritis', 'cartilago': 'Artritis',
   'hueso': 'Artritis', 'huesos': 'Artritis', 'crujido': 'Artritis', 'crujidos': 'Artritis', 'crujen': 'Artritis',
   // Diabetes
-  'diabetes': 'Diabetes', 'diabet': 'Diabetes', 'glucosa': 'Diabetes', 'azucar': 'Diabetes',
+  'diabetes': 'Diabetes', 'diabet': 'Diabetes', 'dia': 'Diabetes', 'glucosa': 'Diabetes', 'azucar': 'Diabetes',
   'nopal': 'Diabetes', 'nopal plus': 'Diabetes', 'insulina': 'Diabetes',
   // Prostata
   'prostata': 'Prostata', 'prostatico': 'Prostata',
@@ -165,7 +165,7 @@ export function normalizeTreatment(raw) {
   //    subcadena que causó el incidente del OTP. El match ahora exige límites de
   //    palabra y un mínimo de longitud para no capturar ruido.
   for (const [alias, canonical] of Object.entries(TREATMENT_ALIASES)) {
-    if (alias.length < 4) continue;
+    if (alias.length < 3) continue;
     const esc = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // Se admite el plural regular (-s / -es): "cataratas" debe resolver a Vision.
     const rx = new RegExp(`(^|[^a-z0-9])${esc}(s|es)?([^a-z0-9]|$)`);
