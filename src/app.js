@@ -2632,6 +2632,27 @@ app.get('/api/nivel2/vtiger-backfill/estado', async (req, res) => {
   }
 });
 
+// [NIVEL 2 — ONE-SHOT] Leads Roosevelt/Piura (CF completos + tags).
+app.post('/api/nivel2/leads-roosevelt-piura', async (req, res) => {
+  try {
+    const { rate, lotes } = req.body || {};
+    const { runLeadsRp } = await import('./services/nivel2_leads_rp.js');
+    const r = await runLeadsRp({ rate, lotes });
+    res.json({ success: true, ...r });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/nivel2/leads-rp/estado', async (req, res) => {
+  try {
+    const { getLeadsRpState } = await import('./services/nivel2_leads_rp.js');
+    res.json({ success: true, ...getLeadsRpState() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 /**
  * [CORRECTOR DE ORIGENES — ULTRA] Re-resuelve el origen de los contactos de la
  * fanpage "BioNatural - Ultra" con los accesos nuevos de Meta.
