@@ -2599,6 +2599,39 @@ app.get('/api/nivel2/retag/estado', async (req, res) => {
   }
 });
 
+// [NIVEL 2 — ONE-SHOT] DATE 'Fecha Creacion (Fecha)' 2019-2025.
+app.post('/api/nivel2/fecha-2019-2025', async (req, res) => {
+  try {
+    const { rate, lotes } = req.body || {};
+    const { runVtigerBackfill } = await import('./services/nivel2_vtiger_backfill.js');
+    const r = await runVtigerBackfill({ modo: 'fecha', anoDesde: 2019, anoHasta: 2025, rate, lotes });
+    res.json({ success: true, ...r });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// [NIVEL 2 — ONE-SHOT] 'Ultima Interaccion (Fecha)'.
+app.post('/api/nivel2/ultima-interaccion', async (req, res) => {
+  try {
+    const { rate, lotes } = req.body || {};
+    const { runVtigerBackfill } = await import('./services/nivel2_vtiger_backfill.js');
+    const r = await runVtigerBackfill({ modo: 'ultima_interaccion', rate, lotes });
+    res.json({ success: true, ...r });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/nivel2/vtiger-backfill/estado', async (req, res) => {
+  try {
+    const { getVtigerBackfillState } = await import('./services/nivel2_vtiger_backfill.js');
+    res.json({ success: true, ...getVtigerBackfillState() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 /**
  * [CORRECTOR DE ORIGENES — ULTRA] Re-resuelve el origen de los contactos de la
  * fanpage "BioNatural - Ultra" con los accesos nuevos de Meta.
