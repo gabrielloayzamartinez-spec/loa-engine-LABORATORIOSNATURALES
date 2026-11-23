@@ -99,7 +99,19 @@ export const META_FORMS = {
   '1148288814307438': { sede: 'PALACIOS', pageId: '566501466542620', pageName: 'Naturales BioNatural', proveedor: 'ERNESTO', padecimiento: 'Gastro' },     // Formulario Gastro
 
   // ── CLICK2RING — BioNatural - Ultra (111906554968800) ──
-  '1354871859460939': { sede: 'PALACIOS', pageId: '111906554968800', pageName: 'BioNatural - Ultra', proveedor: 'CLICK2RING', padecimiento: 'Potencia' }    // Formulario Testo NSG
+  '1354871859460939': { sede: 'PALACIOS', pageId: '111906554968800', pageName: 'BioNatural - Ultra', proveedor: 'CLICK2RING', padecimiento: 'Potencia' },    // Formulario Testo NSG
+  '1903817814330377': { sede: 'PALACIOS', pageId: '111906554968800', pageName: 'BioNatural - Ultra', proveedor: 'CLICK2RING', padecimiento: 'Potencia' },    // TESTO - FORM nuevo 1 - Muestra gratis
+  '1239901822161257': { sede: 'PALACIOS', pageId: '111906554968800', pageName: 'BioNatural - Ultra', proveedor: 'CLICK2RING', padecimiento: 'Potencia' },    // FORM nuevo 1 - Muestra gratis
+  '1957427481485253': { sede: 'PALACIOS', pageId: '111906554968800', pageName: 'BioNatural - Ultra', proveedor: 'CLICK2RING', padecimiento: 'Potencia' },    // 3. Formulario Mayor intención SMS NSG
+  '1752097801950619': { sede: 'PALACIOS', pageId: '111906554968800', pageName: 'BioNatural - Ultra', proveedor: 'CLICK2RING', padecimiento: 'Potencia' },    // Formulario Máyor intención NSG
+  '1778420702797949': { sede: 'PALACIOS', pageId: '111906554968800', pageName: 'BioNatural - Ultra', proveedor: 'CLICK2RING', padecimiento: 'Potencia' },    // Formulario Simple Más volumen NSG
+
+  // ── EN CASA G — BioHealth Natural (1422379957628845) ──
+  '1834476534550252': { sede: 'PALACIOS', pageId: '1422379957628845', pageName: 'BioHealth Natural', proveedor: 'EN CASA G', padecimiento: 'Gastro' },   // FORMULARIO - Gastro Regalo
+  '1453487086750635': { sede: 'PALACIOS', pageId: '1422379957628845', pageName: 'BioHealth Natural', proveedor: 'EN CASA G', padecimiento: 'Gastro' },   // FORM - Gastro Regalo
+
+  // ── IN_HOUSE — BioNatural Salud (1438600545996758) ──
+  '39583386124639356': { sede: 'PALACIOS', pageId: '1438600545996758', pageName: 'BioNatural Salud', proveedor: 'IN_HOUSE', padecimiento: 'Diabetes' }   // PALACIOS DIABETES PR
 };
 
 /**
