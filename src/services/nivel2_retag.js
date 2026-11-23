@@ -55,7 +55,7 @@ export async function runRetagOneShot({ maxPaginasPorSede = 300 } = {}) {
   const counters = { total: 0, ok: 0, skip: 0, fail: 0 };
   let progreso = [];
 
-  for (const sede of sedes) {
+  await Promise.all(sedes.map(async (sede) => {
     const locId = sede.ghl.locationId;
     const headers = getGhlHeaders({ locationId: locId });
     let url = cursorPorSede.get(locId) || `${GHL_BASE}/contacts/?locationId=${locId}&limit=100`;
@@ -77,7 +77,8 @@ export async function runRetagOneShot({ maxPaginasPorSede = 300 } = {}) {
       cursorPorSede.delete(locId); // sede terminada
       progreso.push({ sede: sede.name, locId, terminada: true, paginas, procesadosSede });
     }
-  }
+  }));
+
 
   terminado = sedes.length > 0 && sedes.every(s => !cursorPorSede.has(s.ghl.locationId));
   if (terminado) cursorPorSede.clear();

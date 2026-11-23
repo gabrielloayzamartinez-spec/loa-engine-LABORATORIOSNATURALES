@@ -1,9 +1,9 @@
 /**
- * Nivel 2 — Backfills vTiger -> GHL ONE-SHOT (servidor).
+ * Nivel 2 — Backfills vTiger -> GHL ONE-SHOT (servidor, PARALELO por sede).
  * Modos:
  *   - 'fecha'              : DATE 'Fecha Creacion (Fecha)' para 2019-2025 (createdtime)
  *   - 'ultima_interaccion' : DATE 'Ultima Interaccion (Fecha)' (modifiedtime)
- * Una sola vida: offset por sede, al llegar al final (meta) muere.
+ * Una sola vida: offset por sede, al llegar al final (meta) muere. 4 sedes en paralelo.
  */
 import { query as vtigerQuery, VTIGER_FIELDS } from './vtigerClient.js';
 import { getActiveSedes, getGhlHeaders } from '../config/index.js';
@@ -12,10 +12,10 @@ import { ghlFetch } from '../utils/ghl_http_client.js';
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 
 const FIELD_ID_FECHA = {
-  '5NqOaPYqWyIw2FPBfoRg': 'BjRhSD5vPaQzLAzS8DSD',   // Palacios
-  'QXcNBK6XCgpQaZ81Z8pv': '16K68thlRzHVmCszqTtG',   // Benavides
-  'SETlaGKhBpbqfBSzzpIB': 'VjLfeS7UdCv8XUeqkeeT',   // Roosevelt
-  '9J4pKs5f7OcaokdhyurW': '6QhWVxjRsDFCJwpl8jDv',   // Piura
+  '5NqOaPYqWyIw2FPBfoRg': 'BjRhSD5vPaQzLAzS8DSD',
+  'QXcNBK6XCgpQaZ81Z8pv': '16K68thlRzHVmCszqTtG',
+  'SETlaGKhBpbqfBSzzpIB': 'VjLfeS7UdCv8XUeqkeeT',
+  '9J4pKs5f7OcaokdhyurW': '6QhWVxjRsDFCJwpl8jDv',
 };
 const FIELD_ID_ULTIMA = {
   '5NqOaPYqWyIw2FPBfoRg': 'l7k03GV4Duq4yTNdgAji',
@@ -24,7 +24,7 @@ const FIELD_ID_ULTIMA = {
   '9J4pKs5f7OcaokdhyurW': '1rETT0jIdVpihwWZ12Fd',
 };
 
-let cursorOffset = new Map(); // locId -> offset en vTiger
+let cursorOffset = new Map();
 let terminadoGlobal = false;
 
 function normPhone(...raws) {
@@ -48,33 +48,25 @@ async function upsertFecha(locId, phone, fecha, fieldId) {
   return (r.status === 200 || r.status === 201);
 }
 
-/**
- * @param {{ modo: 'fecha'|'ultima_interaccion', anoDesde?: number, anoHasta?: number, rate?: number, lotes?: number }} opts
- */
-export async function runVtigerBackfill({ modo = 'fecha', anoDesde = 2019, anoHasta = 2025, rate = 6, lotes = 20 } = {}) {
+export async function runVtigerBackfill({ modo = 'fecha', anoDesde = 2019, anoHasta = 2025, rate = 8, lotes = 20 } = {}) {
   const sedes = getActiveSedes().filter(s => !s.isPaused && s.ghl?.locationId);
   const fieldMap = modo === 'fecha' ? FIELD_ID_FECHA : FIELD_ID_ULTIMA;
   const vtField = modo === 'fecha' ? VTIGER_FIELDS.CREATED_TIME : VTIGER_FIELDS.MODIFIED_TIME;
   const counters = { total: 0, ok: 0, skip: 0, fail: 0 };
   const progreso = [];
 
-  for (const sede of sedes) {
+  await Promise.all(sedes.map(async (sede) => {
     const locId = sede.ghl.locationId;
     const fieldId = fieldMap[locId];
-    if (!fieldId) { progreso.push({ sede: sede.name, locId, error: 'sin field id' }); continue; }
+    if (!fieldId) { progreso.push({ sede: sede.name, locId, error: 'sin field id' }); return; }
 
     let offset = cursorOffset.get(locId) || 0;
-    let filas = 0;
-    let lotesHechos = 0;
-    let sedeTerminada = false;
+    let filas = 0, lotesHechos = 0, sedeTerminada = false;
 
     while (lotesHechos < lotes) {
-      let where;
-      if (modo === 'fecha') {
-        where = `cf_3590 = '${sede.name}' AND createdtime >= '${anoDesde}-01-01' AND createdtime < '${anoHasta + 1}-01-01'`;
-      } else {
-        where = `cf_3590 = '${sede.name}'`;
-      }
+      const where = modo === 'fecha'
+        ? `cf_3590 = '${sede.name}' AND createdtime >= '${anoDesde}-01-01' AND createdtime < '${anoHasta + 1}-01-01'`
+        : `cf_3590 = '${sede.name}'`;
       const q = `SELECT id, phone, mobile, homephone, ${vtField} FROM Contacts WHERE ${where} LIMIT ${offset}, 100;`;
       const rows = await vtigerQuery(q, { context: 'nivel2-vtiger-backfill' }) || [];
       if (!rows.length) { sedeTerminada = true; break; }
@@ -88,30 +80,19 @@ export async function runVtigerBackfill({ modo = 'fecha', anoDesde = 2019, anoHa
         if (ok) counters.ok++; else counters.fail++;
         await new Promise(r => setTimeout(r, Math.round(1000 / rate)));
       }
-      offset += rows.length;
-      filas += rows.length;
-      lotesHechos++;
+      offset += rows.length; filas += rows.length; lotesHechos++;
       if (rows.length < 100) { sedeTerminada = true; break; }
     }
 
-    if (sedeTerminada) {
-      cursorOffset.delete(locId);
-      progreso.push({ sede: sede.name, locId, terminada: true, procesadas: filas });
-    } else {
-      cursorOffset.set(locId, offset);
-      progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas });
-    }
-  }
+    if (sedeTerminada) { cursorOffset.delete(locId); progreso.push({ sede: sede.name, locId, terminada: true, procesadas: filas }); }
+    else { cursorOffset.set(locId, offset); progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas }); }
+  }));
 
   terminadoGlobal = sedes.length > 0 && sedes.every(s => !cursorOffset.has(s.ghl.locationId));
   if (terminadoGlobal) cursorOffset.clear();
 
   return {
-    oneShot: true,
-    modo,
-    terminado: terminadoGlobal,
-    counters,
-    sedes: progreso,
+    oneShot: true, modo, terminado: terminadoGlobal, counters, sedes: progreso,
     mensaje: terminadoGlobal ? 'META ALCANZADA: backfill completo. El proceso murió.' : 'Pasada parcial: queda pendiente.'
   };
 }

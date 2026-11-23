@@ -89,10 +89,10 @@ export async function runLeadsRp({ rate = 6, lotes = 15 } = {}) {
   const counters = { total: 0, ok: 0, skip: 0, fail: 0 };
   const progreso = [];
 
-  for (const sede of sedes) {
+  await Promise.all(sedes.map(async (sede) => {
     const locId = sede.ghl.locationId;
     const cfd = cfMap[sede.name];
-    if (!cfd) { progreso.push({ sede: sede.name, error: 'sin field ids' }); continue; }
+    if (!cfd) { progreso.push({ sede: sede.name, error: 'sin field ids' }); return; }
     const headers = getGhlHeaders({ locationId: locId });
     let offset = cursorOffset.get(locId) || 0;
     let filas = 0, lotesHechos = 0, sedeTerminada = false;
@@ -132,7 +132,8 @@ export async function runLeadsRp({ rate = 6, lotes = 15 } = {}) {
       cursorOffset.set(locId, offset);
       progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas });
     }
-  }
+  }));
+
 
   terminadoGlobal = sedes.length > 0 && sedes.every(s => !cursorOffset.has(s.ghl.locationId));
   if (terminadoGlobal) cursorOffset.clear();
