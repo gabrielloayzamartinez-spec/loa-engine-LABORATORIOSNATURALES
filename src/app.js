@@ -2578,6 +2578,27 @@ app.post('/api/leads/reprocesar-24h', async (req, res) => {
   }
 });
 
+// [NIVEL 2 — ONE-SHOT] Re-etiquetado de canal (una sola vida: llega a su meta y muere).
+app.post('/api/nivel2/retag', async (req, res) => {
+  try {
+    const { maxPaginasPorSede } = req.body || {};
+    const { runRetagOneShot } = await import('./services/nivel2_retag.js');
+    const r = await runRetagOneShot({ maxPaginasPorSede });
+    res.json({ success: true, ...r });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/nivel2/retag/estado', async (req, res) => {
+  try {
+    const { getRetagState } = await import('./services/nivel2_retag.js');
+    res.json({ success: true, ...getRetagState() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 /**
  * [CORRECTOR DE ORIGENES — ULTRA] Re-resuelve el origen de los contactos de la
  * fanpage "BioNatural - Ultra" con los accesos nuevos de Meta.
