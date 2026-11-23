@@ -843,6 +843,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const TIENE_TELEFONO_FIELD = sedeFields.tieneTelefono;
     const ULTIMA_INTERACCION_FIELD = sedeFields.ultimaInteraccion;
     const PROVEEDOR_FIELD = sedeFields.proveedor;
+    const PAGINA_ULTIMO_CHAT_FIELD = sedeFields.paginaUltimoChat || null;
+    const CANAL_ULTIMO_CHAT_FIELD = sedeFields.canalUltimoChat || null;
 
     // [ATRIBUCION VISIBLE] Campos claros (Nombre del Anuncio / Campaña Meta / Conjunto).
     // Se resuelven POR NOMBRE (no estan en las tablas fijas por sede). Si aun no fueron
@@ -1573,6 +1575,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (ORIGEN_LEAD_FIELD && vtigerSource) customFieldsToUpdate.push({ id: ORIGEN_LEAD_FIELD, key: 'contact.origen_lead', field_value: vtigerSource });
     if (TIENE_TELEFONO_FIELD) customFieldsToUpdate.push({ id: TIENE_TELEFONO_FIELD, key: 'contact.tiene_telfono', field_value: (contact.phone || (shippingData && shippingData.hasPhone)) ? 'Sí' : 'No' });
     if (ULTIMA_INTERACCION_FIELD) customFieldsToUpdate.push({ id: ULTIMA_INTERACCION_FIELD, key: 'contact.ultima_interaccion', field_value: new Date().toISOString().split('T')[0] });
+    // [ULTIMO CHAT] Página y canal del último contacto (para conteo por página/canal en Smart Lists).
+    if (PAGINA_ULTIMO_CHAT_FIELD && targetPageName) customFieldsToUpdate.push({ id: PAGINA_ULTIMO_CHAT_FIELD, key: 'contact.pagina_ultimo_chat', field_value: targetPageName });
+    if (CANAL_ULTIMO_CHAT_FIELD) customFieldsToUpdate.push({ id: CANAL_ULTIMO_CHAT_FIELD, key: 'contact.canal_ultimo_chat', field_value: (canalTag ? canalTag.replace('canal-', '') : targetChannel) });
 
     // Extracción de Form ID e inyección en custom field id_form_clipo
     let targetFormId = null;

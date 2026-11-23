@@ -86,7 +86,9 @@ export const SEDE_CUSTOM_FIELDS = {
     canalCaptacion: 'vl6ca0ODB0VILwMnfPqn',
     contactNo: 'FjldqW9y3ZVbZU02D6Yb',
     idCliente: 'M734HXzYwihdi01GhBwO',
-    historialCompleto: 'T3jzpe1j65tDGXLfQNrM'
+    historialCompleto: 'T3jzpe1j65tDGXLfQNrM',
+    paginaUltimoChat: 'enV4eQYmpXlPnYQ4OJCT',
+    canalUltimoChat: '6c5inyktzMBEKV28vYAw'
   },
   BENAVIDES: {
     idAnuncio: 'bjIdaPk0dzyuNw0RCMwn',
@@ -118,7 +120,9 @@ export const SEDE_CUSTOM_FIELDS = {
     canalCaptacion: 'vsq2yFqYfKgcqaHu5bwi',
     contactNo: 'qwtO252zF8ZPnsfuyrE9',
     idCliente: 'wbI32mOZbUg2Mmd9RihL',
-    historialCompleto: 'cZZF2iWCedZpfD8kqR16'
+    historialCompleto: 'cZZF2iWCedZpfD8kqR16',
+    paginaUltimoChat: 'U42QkbUh6Qqwkuwx2oSS',
+    canalUltimoChat: 'WJoc1QISwNNgOcVhgSrc'
   },
   ROOSEVELT: null,
   PIURA: null
