@@ -3191,15 +3191,22 @@ export function registerBackgroundSchedulers() {
   // [NIVEL 2 — ORQUESTADOR INTERNO ONE-SHOT] Corre los 4 backfills en secuencia,
   // dentro del SERVIDOR (no depende de la máquina local). Cada etapa muere en su meta
   // y el cursor persiste en data/ (sobrevive reinicios).
+  // [BLOQUEO DIURNO] Solo corre de noche (22:00-07:00 Lima) para NO competir con Nivel 1.
+  const esHorarioNocturnoLima = () => {
+    const lima = new Date(Date.now() - 5 * 3600 * 1000);
+    const h = lima.getUTCHours();
+    return h >= 22 || h < 7;
+  };
   let nivel2Etapa = 0;
   let nivel2Ocupado = false;
   const NIVEL2_ETAPAS = [
     { nombre: 'retag', run: async () => (await import('./services/nivel2_retag.js')).runRetagOneShot({ maxPaginasPorSede: 100 }) },
-    { nombre: 'fecha-2019-2025', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'fecha', anoDesde: 2019, anoHasta: 2025, rate: 8, lotes: 30 }) },
-    { nombre: 'ultima-interaccion', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'ultima_interaccion', rate: 8, lotes: 30 }) },
-    { nombre: 'leads-roosevelt-piura', run: async () => (await import('./services/nivel2_leads_rp.js')).runLeadsRp({ rate: 8, lotes: 20 }) },
+    { nombre: 'fecha-2019-2025', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'fecha', anoDesde: 2019, anoHasta: 2025, rate: 3, lotes: 30 }) },
+    { nombre: 'ultima-interaccion', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'ultima_interaccion', rate: 3, lotes: 30 }) },
+    { nombre: 'leads-roosevelt-piura', run: async () => (await import('./services/nivel2_leads_rp.js')).runLeadsRp({ rate: 3, lotes: 20 }) },
   ];
   timers.push(setInterval(async () => {
+    if (!esHorarioNocturnoLima()) return; // solo noche (no competir con Nivel 1)
     if (nivel2Etapa >= NIVEL2_ETAPAS.length || nivel2Ocupado) return;
     nivel2Ocupado = true;
     try {
