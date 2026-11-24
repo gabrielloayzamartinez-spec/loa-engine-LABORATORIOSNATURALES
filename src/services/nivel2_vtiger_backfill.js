@@ -58,6 +58,7 @@ export async function runVtigerBackfill({ modo = 'fecha', anoDesde = 2019, anoHa
 
   await Promise.all(sedes.map(async (sede) => {
     const locId = sede.ghl.locationId;
+    const code = sede.vtigerSedeName || sede.sedeId;
     const fieldId = fieldMap[locId];
     if (!fieldId) { progreso.push({ sede: sede.name, locId, error: 'sin field id' }); return; }
 
@@ -66,8 +67,8 @@ export async function runVtigerBackfill({ modo = 'fecha', anoDesde = 2019, anoHa
 
     while (lotesHechos < lotes) {
       const where = modo === 'fecha'
-        ? `cf_3590 = '${sede.name}' AND createdtime >= '${anoDesde}-01-01' AND createdtime < '${anoHasta + 1}-01-01'`
-        : `cf_3590 = '${sede.name}'`;
+        ? `cf_3590 = '${code}' AND createdtime >= '${anoDesde}-01-01' AND createdtime < '${anoHasta + 1}-01-01'`
+        : `cf_3590 = '${code}'`;
       const q = `SELECT id, phone, mobile, homephone, ${vtField} FROM Contacts WHERE ${where} LIMIT ${offset}, 100;`;
       const rows = await vtigerQuery(q, { context: 'nivel2-vtiger-backfill' }) || [];
       if (!rows.length) { sedeTerminada = true; break; }

@@ -85,21 +85,22 @@ function buildCf(cfd, rec, sede) {
 const SELECT = 'id, firstname, lastname, phone, mobile, homephone, cf_3590, cf_1876, cf_2572, cf_3507, cf_2610, cf_2821, cf_994, cf_3472, contact_no, createdtime, wcf_acf_atf_3390';
 
 export async function runLeadsRp({ rate = 6, lotes = 15 } = {}) {
-  const sedes = getActiveSedes().filter(s => ['ROOSEVELT', 'PIURA'].includes(s.name) && s.ghl?.locationId);
+  const sedes = getActiveSedes().filter(s => ['ROOSEVELT', 'PIURA'].includes(s.vtigerSedeName || s.sedeId) && s.ghl?.locationId);
   const cfMap = { ROOSEVELT: CF_ROOSEVELT, PIURA: CF_PIURA };
   const counters = { total: 0, ok: 0, skip: 0, fail: 0 };
   const progreso = [];
 
   await Promise.all(sedes.map(async (sede) => {
     const locId = sede.ghl.locationId;
-    const cfd = cfMap[sede.name];
+    const code = sede.vtigerSedeName || sede.sedeId;
+    const cfd = cfMap[code];
     if (!cfd) { progreso.push({ sede: sede.name, error: 'sin field ids' }); return; }
     const headers = getGhlHeaders({ locationId: locId });
     let offset = cursorOffset.get(locId) || 0;
     let filas = 0, lotesHechos = 0, sedeTerminada = false;
 
     while (lotesHechos < lotes) {
-      const q = `SELECT ${SELECT} FROM Contacts WHERE cf_3590 = '${sede.name}' AND spl_num_compras = '0' LIMIT ${offset}, 100;`;
+      const q = `SELECT ${SELECT} FROM Contacts WHERE cf_3590 = '${code}' AND spl_num_compras = '0' LIMIT ${offset}, 100;`;
       const rows = await vtigerQuery(q, { context: 'nivel2-leads-rp' }) || [];
       if (!rows.length) { sedeTerminada = true; break; }
 
@@ -113,8 +114,8 @@ export async function runLeadsRp({ rate = 6, lotes = 15 } = {}) {
         const payload = {
           locationId: locId, phone,
           firstName: parts[0] || '', lastName: parts.slice(1).join(' '),
-          customFields: buildCf(cfd, rec, sede.name),
-          tags: tagsFor(rec, sede.name),
+          customFields: buildCf(cfd, rec, code),
+          tags: tagsFor(rec, code),
         };
         const r = await ghlFetch(`${GHL_BASE}/contacts/upsert`, { method: 'POST', headers: gh, body: JSON.stringify(payload) }, 1, 'Nivel2-LeadsRP');
         if (r.status === 200 || r.status === 201) counters.ok++; else counters.fail++;
