@@ -3200,13 +3200,12 @@ export function registerBackgroundSchedulers() {
   let nivel2Etapa = 0;
   let nivel2Ocupado = false;
   const NIVEL2_ETAPAS = [
+    { nombre: 'fecha-2019-2025', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'fecha', anoDesde: 2019, anoHasta: 2025, rate: 6, lotes: 30 }) },
+    { nombre: 'leads-roosevelt-piura', run: async () => (await import('./services/nivel2_leads_rp.js')).runLeadsRp({ rate: 6, lotes: 20 }) },
     { nombre: 'retag', run: async () => (await import('./services/nivel2_retag.js')).runRetagOneShot({ maxPaginasPorSede: 100 }) },
-    { nombre: 'fecha-2019-2025', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'fecha', anoDesde: 2019, anoHasta: 2025, rate: 3, lotes: 30 }) },
-    { nombre: 'ultima-interaccion', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'ultima_interaccion', rate: 3, lotes: 30 }) },
-    { nombre: 'leads-roosevelt-piura', run: async () => (await import('./services/nivel2_leads_rp.js')).runLeadsRp({ rate: 3, lotes: 20 }) },
+    { nombre: 'ultima-interaccion', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'ultima_interaccion', rate: 6, lotes: 30 }) },
   ];
   timers.push(setInterval(async () => {
-    if (!esHorarioNocturnoLima()) return; // solo noche (no competir con Nivel 1)
     if (nivel2Etapa >= NIVEL2_ETAPAS.length || nivel2Ocupado) return;
     nivel2Ocupado = true;
     try {
