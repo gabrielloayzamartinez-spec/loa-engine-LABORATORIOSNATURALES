@@ -8,6 +8,7 @@
 import { query as vtigerQuery, VTIGER_FIELDS } from './vtigerClient.js';
 import { getActiveSedes, getGhlHeaders } from '../config/index.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
+import { loadCursor, saveCursor } from './nivel2_cursor.js';
 
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 
@@ -24,7 +25,7 @@ const FIELD_ID_ULTIMA = {
   '9J4pKs5f7OcaokdhyurW': '1rETT0jIdVpihwWZ12Fd',
 };
 
-let cursorOffset = new Map();
+let cursorOffset = loadCursor('vtiger_backfill');
 let terminadoGlobal = false;
 
 function normPhone(...raws) {
@@ -84,12 +85,12 @@ export async function runVtigerBackfill({ modo = 'fecha', anoDesde = 2019, anoHa
       if (rows.length < 100) { sedeTerminada = true; break; }
     }
 
-    if (sedeTerminada) { cursorOffset.delete(locId); progreso.push({ sede: sede.name, locId, terminada: true, procesadas: filas }); }
-    else { cursorOffset.set(locId, offset); progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas }); }
+    if (sedeTerminada) { saveCursor('vtiger_backfill', cursorOffset); cursorOffset.delete(locId); progreso.push({ sede: sede.name, locId, terminada: true, procesadas: filas }); }
+    else { saveCursor('vtiger_backfill', cursorOffset); cursorOffset.set(locId, offset); progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas }); }
   }));
 
   terminadoGlobal = sedes.length > 0 && sedes.every(s => !cursorOffset.has(s.ghl.locationId));
-  if (terminadoGlobal) cursorOffset.clear();
+  if (terminadoGlobal) saveCursor('vtiger_backfill', cursorOffset); cursorOffset.clear();
 
   return {
     oneShot: true, modo, terminado: terminadoGlobal, counters, sedes: progreso,

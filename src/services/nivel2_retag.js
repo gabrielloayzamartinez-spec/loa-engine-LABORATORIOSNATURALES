@@ -6,13 +6,14 @@
  */
 import { getActiveSedes, getGhlHeaders } from '../config/index.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
+import { loadCursor, saveCursor } from './nivel2_cursor.js';
 
 const REEMPLAZOS = { 'canal-fb-msgr': 'canal-messenger', 'canal-form': 'canal-forms' };
 const COLA_TAGS = new Set(['cola-redes-1', 'cola-redes-2', 'cola-forms', 'cola-inhouse', 'cola-wsp', 'cola-general']);
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 
 // Cursor por sede (en memoria + estado persistente opcional vía stateStore).
-let cursorPorSede = new Map();
+let cursorPorSede = loadCursor('retag');
 let terminado = false;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -71,17 +72,17 @@ export async function runRetagOneShot({ maxPaginasPorSede = 300 } = {}) {
     }
 
     if (url) {
-      cursorPorSede.set(locId, url); // quedan páginas: guarda cursor para la próxima pasada
+      saveCursor('retag', cursorPorSede); cursorPorSede.set(locId, url); // quedan páginas: guarda cursor para la próxima pasada
       progreso.push({ sede: sede.name, locId, pendiente: true, paginas, procesadosSede });
     } else {
-      cursorPorSede.delete(locId); // sede terminada
+      saveCursor('retag', cursorPorSede); cursorPorSede.delete(locId); // sede terminada
       progreso.push({ sede: sede.name, locId, terminada: true, paginas, procesadosSede });
     }
   }));
 
 
   terminado = sedes.length > 0 && sedes.every(s => !cursorPorSede.has(s.ghl.locationId));
-  if (terminado) cursorPorSede.clear();
+  if (terminado) saveCursor('retag', cursorPorSede); cursorPorSede.clear();
 
   return {
     oneShot: true,

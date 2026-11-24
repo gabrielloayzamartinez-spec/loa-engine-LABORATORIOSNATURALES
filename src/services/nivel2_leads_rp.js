@@ -6,6 +6,7 @@
 import { query as vtigerQuery } from './vtigerClient.js';
 import { getActiveSedes, getGhlHeaders } from '../config/index.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
+import { loadCursor, saveCursor } from './nivel2_cursor.js';
 
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 
@@ -33,7 +34,7 @@ const CF_PIURA = {
 const PROV_MAP = { ERNESTO: 'prov-ernesto', CLICK2RING: 'prov-click2ring', IN_HOUSE: 'prov-in-house', 'REDES 2 BENAVIDES': 'prov-redes-2-benavides', 'EN CASA G': 'prov-en-casa-g', ENZO: 'prov-enzo', UP_IDEAS: 'prov-up-ideas' };
 const CANAL_MAP = { 'FB-MSGR': 'canal-messenger', 'FB-MESSENGER': 'canal-messenger', FORM: 'canal-forms', WHATSAPP: 'canal-whatsapp', TIKTOK: 'canal-tiktok', SMS: 'canal-sms' };
 
-let cursorOffset = new Map();
+let cursorOffset = loadCursor('leads_rp');
 let terminadoGlobal = false;
 
 function slug(s) { return (s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
@@ -126,17 +127,17 @@ export async function runLeadsRp({ rate = 6, lotes = 15 } = {}) {
     }
 
     if (sedeTerminada) {
-      cursorOffset.delete(locId);
+      saveCursor('leads_rp', cursorOffset); cursorOffset.delete(locId);
       progreso.push({ sede: sede.name, locId, terminada: true, procesadas: filas });
     } else {
-      cursorOffset.set(locId, offset);
+      saveCursor('leads_rp', cursorOffset); cursorOffset.set(locId, offset);
       progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas });
     }
   }));
 
 
   terminadoGlobal = sedes.length > 0 && sedes.every(s => !cursorOffset.has(s.ghl.locationId));
-  if (terminadoGlobal) cursorOffset.clear();
+  if (terminadoGlobal) saveCursor('leads_rp', cursorOffset); cursorOffset.clear();
 
   return {
     oneShot: true, terminado: terminadoGlobal, counters, sedes: progreso,
