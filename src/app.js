@@ -3188,42 +3188,6 @@ export function registerBackgroundSchedulers() {
       .catch(err => console.error("Error en reprocesar-dia:", err));
   }, 3 * 60 * 1000));
 
-  // [NIVEL 2 — ORQUESTADOR INTERNO ONE-SHOT] Corre los 4 backfills en secuencia,
-  // dentro del SERVIDOR (no depende de la máquina local). Cada etapa muere en su meta
-  // y el cursor persiste en data/ (sobrevive reinicios).
-  // [BLOQUEO DIURNO] Solo corre de noche (22:00-07:00 Lima) para NO competir con Nivel 1.
-  const esHorarioNocturnoLima = () => {
-    const lima = new Date(Date.now() - 5 * 3600 * 1000);
-    const h = lima.getUTCHours();
-    return h >= 22 || h < 7;
-  };
-  let nivel2Etapa = 0;
-  let nivel2Ocupado = false;
-  const NIVEL2_ETAPAS = [
-    { nombre: 'fecha-2019-2025', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'fecha', anoDesde: 2019, anoHasta: 2025, rate: 6, lotes: 30 }) },
-    { nombre: 'leads-roosevelt-piura', run: async () => (await import('./services/nivel2_leads_rp.js')).runLeadsRp({ rate: 6, lotes: 20 }) },
-    { nombre: 'retag', run: async () => (await import('./services/nivel2_retag.js')).runRetagOneShot({ maxPaginasPorSede: 100 }) },
-    { nombre: 'ultima-interaccion', run: async () => (await import('./services/nivel2_vtiger_backfill.js')).runVtigerBackfill({ modo: 'ultima_interaccion', rate: 6, lotes: 30 }) },
-  ];
-  timers.push(setInterval(async () => {
-    if (nivel2Etapa >= NIVEL2_ETAPAS.length || nivel2Ocupado) return;
-    nivel2Ocupado = true;
-    try {
-      const etapa = NIVEL2_ETAPAS[nivel2Etapa];
-      const r = await etapa.run();
-      if (r.terminado) {
-        nivel2Etapa++;
-        console.log(`[NIVEL2-ORQ] ${etapa.nombre}: META alcanzada (murió).`);
-      } else {
-        console.log(`[NIVEL2-ORQ] ${etapa.nombre}: pasada parcial ${JSON.stringify(r.counters)}`);
-      }
-    } catch (e) {
-      console.error(`[NIVEL2-ORQ] error: ${e.message}`);
-    } finally {
-      nivel2Ocupado = false;
-    }
-  }, 60 * 1000));
-
   // Guardián de bandejas sin asignar (multi-sede)
   timers.push(setInterval(runUnassignedConversationsGuardian, 60000));
 
