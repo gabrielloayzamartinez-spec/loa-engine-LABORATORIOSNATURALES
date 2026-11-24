@@ -100,7 +100,7 @@ export async function runLeadsRp({ rate = 6, lotes = 15 } = {}) {
     let filas = 0, lotesHechos = 0, sedeTerminada = false;
 
     while (lotesHechos < lotes) {
-      const q = `SELECT ${SELECT} FROM Contacts WHERE cf_3590 = '${code}' AND spl_num_compras = '0' LIMIT ${offset}, 100;`;
+      const q = `SELECT ${SELECT} FROM Contacts WHERE cf_3451 = '${code}' AND spl_num_compras = '0' LIMIT ${offset}, 100;`;
       const rows = await vtigerQuery(q, { context: 'nivel2-leads-rp' }) || [];
       if (!rows.length) { sedeTerminada = true; break; }
 

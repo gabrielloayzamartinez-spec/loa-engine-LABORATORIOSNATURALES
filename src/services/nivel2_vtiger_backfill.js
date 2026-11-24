@@ -67,8 +67,8 @@ export async function runVtigerBackfill({ modo = 'fecha', anoDesde = 2019, anoHa
 
     while (lotesHechos < lotes) {
       const where = modo === 'fecha'
-        ? `cf_3590 = '${code}' AND createdtime >= '${anoDesde}-01-01' AND createdtime < '${anoHasta + 1}-01-01'`
-        : `cf_3590 = '${code}'`;
+        ? `cf_3451 = '${code}' AND createdtime >= '${anoDesde}-01-01' AND createdtime < '${anoHasta + 1}-01-01'`
+        : `cf_3451 = '${code}'`;
       const q = `SELECT id, phone, mobile, homephone, ${vtField} FROM Contacts WHERE ${where} LIMIT ${offset}, 100;`;
       const rows = await vtigerQuery(q, { context: 'nivel2-vtiger-backfill' }) || [];
       if (!rows.length) { sedeTerminada = true; break; }
