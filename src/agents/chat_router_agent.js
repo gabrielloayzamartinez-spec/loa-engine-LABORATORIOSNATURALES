@@ -1766,19 +1766,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       customFields: customFieldsToUpdate
     };
 
-    // [ASIGNACIÓN POR SEDE ACTUAL — SUBCUENTAS SEPARADAS]
-    // El dueño se asigna SIEMPRE según la página por la que escribió (regla estricta
-    // de ruteo). El antiguo "Escudo de Propietario" (no robar clientes cerrados) era
-    // para cuando TODAS las sedes vivían en UNA subcuenta; con subcuentas separadas
-    // cada sede es soberana y no hay conflicto de posesión.
-    //
-    // Aislamiento de datos de compra: si un cliente que compró en PALACIOS escribe a
-    // la página de BENAVIDES, el SEDE-LOCK (cf_3451 = sede) hace que `findVTigerContact`
-    // NO lo encuentre en Benavides: conversa normal, pero sus datos de compra NO se
-    // filtran a Benavides. La compra queda SOLO en la subcuenta de la sede donde compró.
-    if (targetAdvisorId) {
-      updatePayload.assignedTo = targetAdvisorId;
-    }
+    // [BANDEJA GENERAL — 2026-11-25] Se disuelve la asignación de dueño: todo cae en
+    // la bandeja general y se ordena SOLO por etiquetas (prov-*/canal-*/producto-*).
+    // Se fuerza assignedTo a null para quitar cualquier dueño anterior.
+    updatePayload.assignedTo = null;
 
  // INYECCIÓN AUTOMÁTICA DE "GENERAL INFO" (ESTRICTO USA)
     // 1. Teléfono normalizado
