@@ -232,6 +232,23 @@ function estaEnCooldownFondo(contactId) {
   return false;
 }
 
+// [WEBHOOK COOLDOWN — 60s] El webhook se dispara por CUALQUIER escritura (backfill N2,
+// tags, CF). Sin cooldown, una campaña de backfill satura el motor: cada write genera
+// un ruteo completo. Con 60s, un contacto se rutea por webhook COMO MÁXIMO 1 vez/min.
+const ultimoWebhookPorContacto = new Map();
+const COOLDOWN_WEBHOOK_MS = 60 * 1000;
+function enCooldownWebhook(contactId) {
+  const ahora = Date.now();
+  const ultimo = ultimoWebhookPorContacto.get(contactId) || 0;
+  if (ahora - ultimo < COOLDOWN_WEBHOOK_MS) return true;
+  ultimoWebhookPorContacto.set(contactId, ahora);
+  if (ultimoWebhookPorContacto.size > 12000) {
+    const corte = ahora - COOLDOWN_WEBHOOK_MS;
+    for (const [id, t] of ultimoWebhookPorContacto) if (t < corte) ultimoWebhookPorContacto.delete(id);
+  }
+  return false;
+}
+
 function contarRuteoDeContacto(contactId, origen = 'desconocido') {
   const ahora = Date.now();
   const reg = ruteosPorContacto.get(contactId);
@@ -404,6 +421,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
     if (!isDryRun && yaAtendido(contactId, mensajeMsEntrante)) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
+      return 'UNCHANGED';
+    }
+    // [WEBHOOK COOLDOWN] El webhook (disparado por el backfill o por nuestra propia
+    // escritura) no re-rutea el mismo contacto más de 1 vez/min: corta el bucle de
+    // escritura->webhook->escritura que satura la cuota.
+    if (!isDryRun && origenRuteoActual === 'webhook' && enCooldownWebhook(contactId)) {
+      console.log(`[Agente 3] [WEBHOOK-COOLDOWN] ${contactId} en cooldown de webhook. Se omite.`);
       return 'UNCHANGED';
     }
     // [19/10 HOTFIX — LATENCIA N1] El dueño (Nivel 1) se asigna SIN cooldown. Antes el
