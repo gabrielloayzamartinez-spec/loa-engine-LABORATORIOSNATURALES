@@ -454,6 +454,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       activeHeaders = getGhlHeaders({ locationId: activeLocationId });
     }
 
+    // [SMS-ENVIADO — DIVORCIO DEL MOTOR] Si el contacto ya recibió su SMS (marcado
+    // con 'sms-enviado', etiqueta de una sola vida), el motor NO lo re-procesa.
+    // Evita saturar el motor con campañas masivas de SMS (5k+) y evita re-disparar
+    // el workflow de envío (que generaba SMS dobles/triples al re-tocar el contacto).
+    const contactTagsRaw = (contact.tags || []).map(t => String(t).toLowerCase());
+    if (contactTagsRaw.includes('sms-enviado')) {
+      console.log(`[Agente 3] [SMS-ENVIADO] ${contactId} ya tiene 'sms-enviado': se omite el ruteo (no re-procesar ni re-disparar SMS).`);
+      return 'UNCHANGED';
+    }
+
     // 2. Obtener la conversación del contacto
     const convUrl = `https://services.leadconnectorhq.com/conversations/search?locationId=${activeLocationId}&contactId=${contactId}`;
     const convRes = await fetchWithRetry(convUrl, { headers: activeHeaders }, 1, isLive);
