@@ -1854,7 +1854,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
  // Filtro Silencioso: Comprobar si realmente hay cambios antes de hacer PUT
-    const isSameAdvisor = targetAdvisorId ? (contact.assignedTo === targetAdvisorId) : true;
+    // [BANDEJA GENERAL — FIX 2026-11-25] El dueño está DISUELTO: assignedTo siempre
+    // queda null. Antes comparaba contact.assignedTo vs targetAdvisorId y, como
+    // escribíamos null, cada ruteo veía un "cambio" -> re-escritura infinita -> bucle.
+    // Ahora: solo hay "cambio" si el contacto AÚN tiene dueño (se limpia UNA vez).
+    const isSameAdvisor = !contact.assignedTo;
     const isSameSource = contact.source === vtigerSource;
     const currentTags = (contact.tags || []).map(t => String(t).trim());
     const tagsChanged = newTagsSet.size !== currentTags.length || Array.from(newTagsSet).some(t => !currentTags.includes(t)) || tagsToRemove.length > 0;
