@@ -2088,6 +2088,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // Si no hubo actividad de mensaje (actividadMs=0), la ventana de gracia de 12h
     // (lead_activity_memory) frena la re-selección sin bloquear mensajes reales nuevos.
     if (!isDryRun) marcarAtendido(contactId, actividadMs);
+    // [ANTI-DUPLICADO ENTRE PROCESOS] Cualquier ruteo (INCLUIDO el radar, que va en
+    // tiempo real y NO tiene cooldown) marca el cooldown de fondo. Así el curador /
+    // guardián / limpiador / trabajo-del-día NO repiten el mismo contacto que el radar
+    // ya atendió: se corta la duplicación 5x que disparaba el consumo a 15k/h.
+    if (!isDryRun) ultimoRuteoFondo.set(contactId, Date.now());
     registrarCostoRuteo(contactId);
     releaseContactLock(contactId);
   }
