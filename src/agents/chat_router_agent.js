@@ -402,7 +402,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (!isDryRun && ORIGENES_FONDO.has(origenRuteoActual) && estaEnCooldownFondo(contactId)) {
       return 'UNCHANGED';
     }
-    if (!isDryRun && mensajeMsEntrante > 0 && yaAtendido(contactId, mensajeMsEntrante)) {
+    if (!isDryRun && yaAtendido(contactId, mensajeMsEntrante)) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
       return 'UNCHANGED';
     }
@@ -546,8 +546,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       ? Math.max(...allMessages.map(m => new Date(m.dateAdded || 0).getTime()).filter(Number.isFinite))
       : 0;
     actividadMs = mensajeMsEntrante || mensajeRealMs || 0;
-    if (!isDryRun && actividadMs > 0 && yaAtendido(contactId, actividadMs)) {
-      console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya atendido para la actividad ${new Date(actividadMs).toISOString()} (${origenRuteoActual}). Se evita el resto del trabajo.`);
+    if (!isDryRun && yaAtendido(contactId, actividadMs)) {
+      console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya atendido para la actividad ${new Date(actividadMs || 0).toISOString()} (${origenRuteoActual}). Se evita el resto del trabajo.`);
       return 'UNCHANGED';
     }
 
