@@ -381,6 +381,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
   // Quién pidió este ruteo (radar, day-sync, webhook, curador...). Se refleja en
   // /api/auditoria/tecnica para saber de dónde viene el consumo.
   origenRuteoActual = options.origen || 'desconocido';
+  // [SOSTENIBILIDAD CUOTA] La actividad se marca como atendida en el FINALLY, incluso
+  // si el ruteo falla a mitad de camino. Antes solo se marcaba al terminar bien (PUT
+  // exitoso / sin cambios), y un fallo dejaba el contacto sin marca: los 5 procesos de
+  // fondo lo volvían a seleccionar -> BUCLE_DE_REPROCESO y cuota quemada.
+  let actividadMs = 0;
   try {
     // ========================================================================
     // [ARMONIZADOR — SALIDA TEMPRANA SIN COSTO]
@@ -540,7 +545,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const mensajeRealMs = allMessages.length > 0
       ? Math.max(...allMessages.map(m => new Date(m.dateAdded || 0).getTime()).filter(Number.isFinite))
       : 0;
-    const actividadMs = mensajeMsEntrante || mensajeRealMs || 0;
+    actividadMs = mensajeMsEntrante || mensajeRealMs || 0;
     if (!isDryRun && actividadMs > 0 && yaAtendido(contactId, actividadMs)) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya atendido para la actividad ${new Date(actividadMs).toISOString()} (${origenRuteoActual}). Se evita el resto del trabajo.`);
       return 'UNCHANGED';
@@ -2053,6 +2058,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     console.error(`[Agente 3] Error crítico en routeChatByContact:`, error.message);
     return 'ERROR';
   } finally {
+    // [SOSTENIBILIDAD CUOTA] Marcar atendido SIEMPRE (incluso si falló), para que los
+    // procesos de fondo no re-seleccionen el contacto y no se queme la cuota en bucles.
+    // Si no hubo actividad de mensaje (actividadMs=0), la ventana de gracia de 12h
+    // (lead_activity_memory) frena la re-selección sin bloquear mensajes reales nuevos.
+    if (!isDryRun) marcarAtendido(contactId, actividadMs);
     registrarCostoRuteo(contactId);
     releaseContactLock(contactId);
   }
