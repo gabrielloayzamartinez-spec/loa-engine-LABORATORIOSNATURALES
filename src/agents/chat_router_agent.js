@@ -1592,7 +1592,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (ULTIMA_INTERACCION_FIELD) customFieldsToUpdate.push({ id: ULTIMA_INTERACCION_FIELD, key: 'contact.ultima_interaccion', field_value: new Date().toISOString().split('T')[0] });
     // [ULTIMO CHAT] Página y canal del último contacto (para conteo por página/canal en Smart Lists).
     if (PAGINA_ULTIMO_CHAT_FIELD && targetPageName) customFieldsToUpdate.push({ id: PAGINA_ULTIMO_CHAT_FIELD, key: 'contact.pagina_ultimo_chat', field_value: targetPageName });
-    if (CANAL_ULTIMO_CHAT_FIELD) customFieldsToUpdate.push({ id: CANAL_ULTIMO_CHAT_FIELD, key: 'contact.canal_ultimo_chat', field_value: (canalTag ? canalTag.replace('canal-', '') : targetChannel) });
+    if (CANAL_ULTIMO_CHAT_FIELD) {
+      // [FIX ÚLTIMO CANAL — 2026-11-25] Valor humano-legible para la vista de chat:
+      // 'Facebook' (Messenger), 'Forms', 'WhatsApp', 'SMS'. Antes escribía 'messenger'
+      // (minúscula) y el filtro por 'Facebook' no matcheaba.
+      const canalHumano = { 'canal-messenger': 'Facebook', 'canal-forms': 'Forms', 'canal-whatsapp': 'WhatsApp', 'canal-sms': 'SMS', 'canal-instagram': 'Instagram' };
+      customFieldsToUpdate.push({ id: CANAL_ULTIMO_CHAT_FIELD, key: 'contact.canal_ultimo_chat', field_value: (canalHumano[canalTag] || targetChannel || 'Facebook') });
+    }
 
     // Extracción de Form ID e inyección en custom field id_form_clipo
     let targetFormId = null;
