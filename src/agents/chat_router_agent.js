@@ -1504,7 +1504,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       // [PURGA DE PROVEEDOR] Un lead solo tiene UN proveedor activo: si reingresa
       // por otro proveedor/canal, se elimina el prov-* anterior para que el mismo
       // contacto no aparezca en varias vistas de proveedor a la vez (trabajo ordenado).
-      const targetProv = provCampana || getProveedorTagByPageId(targetPageId);
+      // [DECISIÓN 2026-11-26 — MANDATO: "BASEMONOS SOLO EN LAS PÁGINAS"]
+      // El proveedor manda por la PÁGINA (page_matrix, verificado contra el gasto real
+      // de Meta: 'Naturales BioNatural' solo gasta en la campaña de Ernesto). La campaña
+      // queda como RESPALDO únicamente para páginas no mapeadas.
+      const targetProv = getProveedorTagByPageId(targetPageId) || provCampana;
       if (targetProv) {
         for (const t of Array.from(newTagsSet)) {
           if (t.startsWith('prov-') && t !== targetProv) {
