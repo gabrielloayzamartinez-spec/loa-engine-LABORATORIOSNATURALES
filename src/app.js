@@ -365,6 +365,13 @@ let stats = {
 
 const processedContactTimestamps = new Map();
 
+// [FIX 2026-11-26 — BACKOFF DE REINTENTOS] Los contactos que devuelven RETRY (o que
+// se rutean sin `prov-*`) NO deben reintentarse cada 5 s: eso producía el bucle con
+// 38 contactos y ~13 600 llamadas/hora. Con este backoff se reintentan cada 90 s,
+// suficiente para que GHL indexe la conversación, sin quemar cuota.
+const retryBackoff = new Map();
+const RETRY_BACKOFF_MS = 90 * 1000;
+
 // ==========================================================================
 // [MEMORIA PERSISTENTE DEL RADAR — CORRECCIÓN DEL PICO DE CUOTA EN CADA DEPLOY]
 //
@@ -612,6 +619,10 @@ async function runExpressAssignment() {
           }
           const updatedAt = fechaMensaje || fechaRespaldo;
 
+          // [FIX 2026-11-26 — BACKOFF] Si este contacto quedó pendiente de reintento,
+          // respetar su ventana (90 s) antes de volver a rutearlo. Rompe el bucle.
+          if ((retryBackoff.get(contact.id) || 0) > Date.now()) return;
+
           const hoursAgo = (Date.now() - updatedAt) / (1000 * 60 * 60);
           // ==================================================================
           // [VENTANA ACOTADA EN ARRANQUE FRÍO — EL PICO QUE QUEDABA]
@@ -665,7 +676,9 @@ async function runExpressAssignment() {
 
             // Si GHL devolvió 500/502 o requiere reintento de indexación, NO guardamos en el mapa para que se reintente en el próximo ciclo
             if (result === 'RETRY' || result === 'RETRY_INDEXING') {
-              console.log(`[${timeStr}] [Worker 1] [RETRY] Contacto ${contact.id} marcado para re-proceso en el siguiente ciclo (Status: ${result}).`);
+              // [FIX 2026-11-26 — BACKOFF] Se reintenta, pero cada 90 s (no cada 5 s).
+              retryBackoff.set(contact.id, Date.now() + RETRY_BACKOFF_MS);
+              console.log(`[${timeStr}] [Worker 1] [RETRY] Contacto ${contact.id} reintento programado en ${Math.round(RETRY_BACKOFF_MS/1000)}s (Status: ${result}).`);
             } else {
               // [ANTI-BUCLE] Se guarda CUÁNDO lo procesamos NOSOTROS (no el
               // `dateUpdated` del contacto, que nuestra propia escritura modifica).
@@ -685,7 +698,9 @@ async function runExpressAssignment() {
                 processedContactTimestamps.set(contact.id, Date.now());
                 stats.contactsProcessed++;
               } else {
-                console.warn(`[${timeStr}] [Worker 1] [SIN-PROVEEDOR] ${contact.id} ruteado sin prov-*; se reintentará en el próximo ciclo.`);
+                // [FIX 2026-11-26 — BACKOFF] Pendiente de etiqueta: se reintenta en 90 s.
+                retryBackoff.set(contact.id, Date.now() + RETRY_BACKOFF_MS);
+                console.warn(`[${timeStr}] [Worker 1] [SIN-PROVEEDOR] ${contact.id} ruteado sin prov-*; reintento en ${Math.round(RETRY_BACKOFF_MS/1000)}s.`);
               }
             }
           } catch (oneErr) {
