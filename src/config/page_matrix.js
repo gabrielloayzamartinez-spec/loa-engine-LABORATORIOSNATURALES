@@ -38,14 +38,20 @@ export const PAGE_MATRIX = {
   // ── BENAVIDES ─────────────────────────────────────────────
   '510617778807469': { sede: 'BENAVIDES', proveedor: 'ERNESTO', ownerKey: 'redes1', pageName: 'Naturales Bio Corp' },
   '126154270581792': { sede: 'BENAVIDES', proveedor: 'CLICK2RING', ownerKey: 'redes2', pageName: 'Bio Natural' },
-  '1147742788423762': { sede: 'BENAVIDES', proveedor: 'REDES 2 BENAVIDES', ownerKey: 'redes2', pageName: 'BioNatural Fuerza' },
+  // [FIX 2026-11-26 — MAPA VERIFICADO CONTRA META] Esta página corre campañas de
+  // INHOUSE (Testosterona- Benavides- InHouse, INHOUSE-DIABETES, INHOUSE-ARTRITIS),
+  // NO de REDES 2. El proveedor se resuelve por campaña; la página queda en IN_HOUSE.
+  '1147742788423762': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Fuerza' },
+  '1397629783430897': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Testosterona' },
+  '1223518870833689': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Diabetes' },
   // ── ROOSEVELT ─────────────────────────────────────────────
   '568453466348355': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'Bio Naturales' },
   '1075001465705985': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'BioNatural Plus' },
   '180536758476362': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'Bio Natural Salud' },
   // ── PIURA ─────────────────────────────────────────────────
   '1147257965133802': { sede: 'PIURA', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'Natural Bio' },
-  '1057863707412893': { sede: 'PIURA', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'BioNatural' }
+  '1057863707412893': { sede: 'PIURA', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'BioNatural' },
+  '1366688306523831': { sede: 'PIURA', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Piura Inhouse' }
 };
 
 /** Entrada completa de la matriz para un page id. */
