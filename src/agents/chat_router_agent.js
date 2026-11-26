@@ -407,6 +407,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
   // exitoso / sin cambios), y un fallo dejaba el contacto sin marca: los 5 procesos de
   // fondo lo volvían a seleccionar -> BUCLE_DE_REPROCESO y cuota quemada.
   let actividadMs = 0;
+  // [FIX 2026-11-26 — P1 AUDITORÍA] Solo se marca "atendido" cuando el ruteo llegó a
+  // concluir (contacto al día o PUT aplicado). Si un gate cortó antes (p.ej. conversación
+  // aún no indexada), NO se marca y el radar/webhook lo reintenta hasta etiquetarlo.
+  let ruteoConcluido = false;
   try {
     // ========================================================================
     // [ARMONIZADOR — SALIDA TEMPRANA SIN COSTO]
@@ -695,6 +699,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // recurrente "se reasignó a REDES 1 y 2".)
     const esTransporteMeta = /facebook|messenger|fb[-_ ]?msg|instagram|ig[-_ ]?dm|form|lead[-_ ]?ad/.test(transportLimpio);
     if (!hasRealFanpage && !esTransporteMeta && !isAutoFormLead) {
+      // [FIX 2026-11-26 — P4 AUDITORÍA] Si AÚN no hay conversación indexada (el chat
+      // acaba de entrar y GHL no la publicó), NO es un contacto "no-Meta": es un ruteo
+      // PREMATURO. Se devuelve RETRY para que el radar lo reintente con la conversación
+      // ya disponible, en vez de quemarlo como UNCHANGED sin etiquetas.
+      if (allMessages.length === 0) {
+        console.log(`[Agente 3] [SIN-EVIDENCIA-META-PREMATURO] ${contactId}: conversación aún no indexada. Se reintentará.`);
+        return 'RETRY';
+      }
       console.log(`[Agente 3] [SIN-EVIDENCIA-META] ${contactId} sin fanpage ni transporte Meta ('${latestMessageTransport || 'vacio'}'): NO se asigna dueño ni etiquetas.`);
       recordAuditEvent({
         type: 'ROUTEO_SIN_EVIDENCIA_META',
@@ -1453,30 +1465,32 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // INYECCIÓN DE VISTAS INTELIGENTES (SMART VIEWS - OPERACIÓN ÁGIL NIVEL 1)
+    // [FIX 2026-11-26 — P3 AUDITORÍA] El CANAL se aplica SIEMPRE, con o sin página:
+    // antes estaba dentro de `if (targetPageId)` y un chat sin página resuelta quedaba
+    // SIN canal (no entraba a ninguna vista aunque fuera legítimo).
+    const canalTag = (() => {
+      if (isAutoFormLead) return 'canal-forms';
+      const t = String(latestMessageTransport || '').toLowerCase();
+      if (t.includes('whatsapp') || t === 'wsp') return 'canal-whatsapp';
+      if (t === 'sms') return 'canal-sms';
+      if (t === 'instagram') return 'canal-instagram';
+      return 'canal-messenger';
+    })();
+    for (const t of Array.from(newTagsSet)) {
+      if (t.startsWith('canal-') && t !== canalTag) {
+        newTagsSet.delete(t);
+        if (!tagsToRemove.includes(t)) tagsToRemove.push(t);
+      }
+    }
+    for (const t of (contact.tags || [])) {
+      if (typeof t === 'string' && t.startsWith('canal-') && t !== canalTag && !tagsToRemove.includes(t)) {
+        tagsToRemove.push(t);
+      }
+    }
+    newTagsSet.add(canalTag);
+
     if (targetPageId) {
       const smartViewTags = getSmartViewTagsByPageId(targetPageId);
-      // [CANAL — 2026-11-19] Etiqueta LIMPIA de canal (Messenger/Forms/WhatsApp/SMS),
-      // derivada del transporte real del lead, NO de una "cola" mezclada con proveedor.
-      const canalTag = (() => {
-        if (isAutoFormLead) return 'canal-forms';
-        const t = String(latestMessageTransport || '').toLowerCase();
-        if (t.includes('whatsapp') || t === 'wsp') return 'canal-whatsapp';
-        if (t === 'sms') return 'canal-sms';
-        if (t === 'instagram') return 'canal-instagram';
-        return 'canal-messenger';
-      })();
-      for (const t of Array.from(newTagsSet)) {
-        if (t.startsWith('canal-') && t !== canalTag) {
-          newTagsSet.delete(t);
-          if (!tagsToRemove.includes(t)) tagsToRemove.push(t);
-        }
-      }
-      for (const t of (contact.tags || [])) {
-        if (typeof t === 'string' && t.startsWith('canal-') && t !== canalTag && !tagsToRemove.includes(t)) {
-          tagsToRemove.push(t);
-        }
-      }
-      newTagsSet.add(canalTag);
       // [PURGA DE PROVEEDOR] Un lead solo tiene UN proveedor activo: si reingresa
       // por otro proveedor/canal, se elimina el prov-* anterior para que el mismo
       // contacto no aparezca en varias vistas de proveedor a la vez (trabajo ordenado).
@@ -1914,6 +1928,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       console.log(`[Agente 3] [SYNC] Contacto ${contactId} ya está 100% sincronizado. Omitiendo PUT para evitar parpadeos en pantalla.`);
       // [ARMONIZADOR] El contacto está al día: se marca la actividad como atendida
       // para que NINGÚN otro proceso vuelva a hacer el mismo trabajo.
+      ruteoConcluido = true;
       marcarAtendido(contactId, actividadMs);
       return 'UNCHANGED';
     }
@@ -1945,6 +1960,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       // [ARMONIZADOR] Se marca la actividad como atendida: este mensaje del lead
       // queda cerrado para TODOS los procesos. Es lo que evita que el curador, el
       // radar, el guardián y el trabajo del día repitan la misma atención.
+      ruteoConcluido = true;
       marcarAtendido(contactId, actividadMs);
 
  // H. SAVE PROCESS: INYECTAR NOTA HISTÓRICA ANTE NUEVO AD, CAMBIO DE TRATAMIENTO O REINGRESO DE PAUTA (>20H)
@@ -2092,16 +2108,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     console.error(`[Agente 3] Error crítico en routeChatByContact:`, error.message);
     return 'ERROR';
   } finally {
-    // [SOSTENIBILIDAD CUOTA] Marcar atendido SIEMPRE (incluso si falló), para que los
-    // procesos de fondo no re-seleccionen el contacto y no se queme la cuota en bucles.
-    // Si no hubo actividad de mensaje (actividadMs=0), la ventana de gracia de 12h
-    // (lead_activity_memory) frena la re-selección sin bloquear mensajes reales nuevos.
-    if (!isDryRun) marcarAtendido(contactId, actividadMs);
-    // [ANTI-DUPLICADO ENTRE PROCESOS] Cualquier ruteo (INCLUIDO el radar, que va en
-    // tiempo real y NO tiene cooldown) marca el cooldown de fondo. Así el curador /
-    // guardián / limpiador / trabajo-del-día NO repiten el mismo contacto que el radar
-    // ya atendió: se corta la duplicación 5x que disparaba el consumo a 15k/h.
-    if (!isDryRun) ultimoRuteoFondo.set(contactId, Date.now());
+    // [FIX 2026-11-26 — P1 AUDITORÍA] SOLO se marca atendido si el ruteo concluyó
+    // (contacto al día o PUT aplicado). Antes se marcaba SIEMPRE: un gate que cortaba
+    // antes de etiquetar dejaba al contacto "atendido sin etiqueta" y el armonizador
+    // lo bloqueaba 12 h (causa raíz de los chats sin proveedor/canal).
+    if (!isDryRun && ruteoConcluido) marcarAtendido(contactId, actividadMs);
+    // [ANTI-DUPLICADO ENTRE PROCESOS] Cualquier ruteo que CONCLUYÓ (incluido el radar)
+    // marca el cooldown de fondo para que curador/guardián/limpiador no lo repitan.
+    if (!isDryRun && ruteoConcluido) ultimoRuteoFondo.set(contactId, Date.now());
     registrarCostoRuteo(contactId);
     releaseContactLock(contactId);
   }
