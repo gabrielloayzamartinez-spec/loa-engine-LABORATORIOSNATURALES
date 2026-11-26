@@ -429,6 +429,8 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
     if (!isDryRun && mensajeMsEntrante > 0 && yaAtendido(contactId, mensajeMsEntrante)) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
+      // [FIX 2026-11-26 — ANTI-BUCLE] Salida definitiva: refrescar la marca.
+      ruteoConcluido = true;
       return 'UNCHANGED';
     }
     // [WEBHOOK COOLDOWN] El webhook (disparado por el backfill o por nuestra propia
@@ -585,6 +587,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const tieneProvEnContacto = (contact.tags || []).some(t => String(t).toLowerCase().startsWith('prov-'));
     if (!isDryRun && yaAtendido(contactId, actividadMs) && tieneProvEnContacto) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya atendido para la actividad ${new Date(actividadMs || 0).toISOString()} (${origenRuteoActual}). Se evita el resto del trabajo.`);
+      // [FIX 2026-11-26 — ANTI-BUCLE] Ya está atendido Y etiquetado: es una salida
+      // definitiva, se refresca la marca para que el radar no lo re-seleccione.
+      ruteoConcluido = true;
       return 'UNCHANGED';
     }
 
@@ -689,6 +694,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // caer a FB-MSGR/REDES. El canal se corta AQUÍ, antes de asignar dueño.
     if (/sms|twilio|whatsapp|wsp|type_custom_provider|custom[-_ ]?provider|waba|email|mail|type_email/.test(transportLimpio)) {
       console.log(`[Agente 3] [CANAL-NO-META] ${contactId} transporte '${latestMessageTransport}': lo gestiona el WF de GHL. Ruteo omitido (sin dueño ni etiquetas).`);
+      // [FIX 2026-11-26 — ANTI-BUCLE] Es una salida DEFINITIVA (no es lead de Meta):
+      // debe marcarse como atendida o el radar/curador lo reprocesan cada ciclo
+      // (incidente medido: 1.717 ruteos/h con 51% de desperdicio y 57 en bucle).
+      ruteoConcluido = true;
       return 'UNCHANGED';
     }
 
@@ -716,6 +725,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         transporte: latestMessageTransport || 'vacio',
         origen: origenRuteoActual
       });
+      // [FIX 2026-11-26 — ANTI-BUCLE] Salida DEFINITIVA con conversación confirmada:
+      // si no se marca, el radar lo reintenta en cada ciclo indefinidamente.
+      ruteoConcluido = true;
       return 'UNCHANGED';
     }
 
