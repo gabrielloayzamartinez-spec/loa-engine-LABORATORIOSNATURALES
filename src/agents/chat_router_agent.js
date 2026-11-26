@@ -1074,9 +1074,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     try {
       if (!vTigerEnCooldown && effectivePhone) {
         // [FAST-PATH] En ruteo en vivo, proteger con timeout rápido para no demorar la entrega del chat
+        // [FIX 2026-11-26 — P9] 2500ms → 900ms: el gate de vTiger tenía 9.4s de espera
+        // media, así que 2.5s SIEMPRE cortaba y sólo añadía latencia pura a cada ruteo
+        // con teléfono. Con 900ms se conserva el dato cuando vTiger responde rápido.
         vContact = await Promise.race([
           findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('vTiger Timeout 2500ms')), 2500))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('vTiger Timeout 900ms')), 900))
         ]).catch(err => {
           console.warn(`[Agente 3] [VTIGER-FAST-TIMEOUT] vTiger diferido para ${contactId}: ${err.message}`);
           return null;
@@ -1839,20 +1842,26 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     // SINCRONIZACION DE PIPELINE (Orquestacion LOA)
-    try {
-      const cleanSede = (targetPageName?.toLowerCase().includes('bionatural') || targetPageName?.toLowerCase().includes('palacios')) 
-        ? 'PALACIOS' 
-        : (targetPageName ? targetPageName.replace(/Naturales\s*/i, '').trim().toUpperCase() : 'SEDE');
-      const campaignSnippet = (latestCampaign || targetAdName || 'Directa').substring(0, 32);
-      const prodPrefix = targetTratamiento && targetTratamiento !== 'General' ? `[${targetTratamiento.toUpperCase()}] ` : '';
-      // [SOLO TÍTULO DE PANTALLA] El nombre aquí es únicamente la ETIQUETA de la
-      // oportunidad en el pipeline (visual), NO un dato de emparejamiento. El
-      // emparejamiento y la sincronización siguen siendo SOLO por teléfono.
-      const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Lead';
-      const cardTitle = `${prodPrefix}${fullName} | ${cleanSede} | ${campaignSnippet}`;
-      await syncUnifiedPipelineOpportunity(contactId, cardTitle, finalCustomerWon, true, finalMonetaryValue, targetAdvisorId, { locationId: activeLocationId, headers: activeHeaders });
-    } catch (oppErr) {
-      console.error(`[Agente 3] Error sincronizando pipeline para ${contactId}:`, oppErr.message);
+    // [FIX 2026-11-26 — NIVEL 1 LEAN / AHORRO DE CUOTA] El pipeline (oportunidad
+    // visual de GHL) pertenece a la fase CONTACTO, que empieza cuando el lead YA dejó
+    // su número. En la fase CHAT (sin número) se omite: ahorra 2-4 llamadas por ruteo
+    // sin afectar NI UNA etiqueta (las etiquetas van en el PUT atómico de abajo).
+    if (effectivePhone) {
+      try {
+        const cleanSede = (targetPageName?.toLowerCase().includes('bionatural') || targetPageName?.toLowerCase().includes('palacios')) 
+          ? 'PALACIOS' 
+          : (targetPageName ? targetPageName.replace(/Naturales\s*/i, '').trim().toUpperCase() : 'SEDE');
+        const campaignSnippet = (latestCampaign || targetAdName || 'Directa').substring(0, 32);
+        const prodPrefix = targetTratamiento && targetTratamiento !== 'General' ? `[${targetTratamiento.toUpperCase()}] ` : '';
+        // [SOLO TÍTULO DE PANTALLA] El nombre aquí es únicamente la ETIQUETA de la
+        // oportunidad en el pipeline (visual), NO un dato de emparejamiento. El
+        // emparejamiento y la sincronización siguen siendo SOLO por teléfono.
+        const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Lead';
+        const cardTitle = `${prodPrefix}${fullName} | ${cleanSede} | ${campaignSnippet}`;
+        await syncUnifiedPipelineOpportunity(contactId, cardTitle, finalCustomerWon, true, finalMonetaryValue, targetAdvisorId, { locationId: activeLocationId, headers: activeHeaders });
+      } catch (oppErr) {
+        console.error(`[Agente 3] Error sincronizando pipeline para ${contactId}:`, oppErr.message);
+      }
     }
 
  // G. CONSTRUIR PAYLOAD ATÓMICO (1 SOLO PUT)
