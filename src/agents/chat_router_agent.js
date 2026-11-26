@@ -1764,7 +1764,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       const exactFormTags = new Set([
         'canal-forms',
         targetFormId ? `form-id-${targetFormId}` : null,
-        pageSlug,
+        // [FIX 2026-11-26 — P13 AUDITORÍA] La etiqueta de página debe llevar el
+        // prefijo `pagina-` (igual que los chats de Messenger). Antes se guardaba el
+        // slug crudo ('laboratorios-naturales-bio') y la vista por `pagina-*` no lo
+        // encontraba: los formularios quedaban fuera de la vista de su página.
+        `pagina-${pageSlug}`,
         activeProductTag,
         proveedorTag,
         currentSedeTag
