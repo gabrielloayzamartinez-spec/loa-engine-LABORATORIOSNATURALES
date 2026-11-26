@@ -1780,7 +1780,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // 6. 'sede-<sede>'                    → SEDE
     // Cualquier otra etiqueta adicional se purga activamente.
     if (isAutoFormLead) {
-      const pageSlug = (targetPageName || 'Laboratorios Naturales BIO')
+      // [FIX 2026-11-26 — P15 AUDITORÍA] La página del formulario debe salir de la
+      // MATRIZ por page_id real (targetPageId), NO de `targetPageName`, que cae al
+      // nombre por defecto de la sede cuando el FB_PAGE_ID_MAP no conoce la página.
+      // Ese defecto metía leads de 'BioNatural Salud' en la vista de 'Naturales
+      // BioNatural' (18 casos medidos: pagina-naturales-bionatural + prov-in-house).
+      const pageSlug = (getPageMatrixEntry(targetPageId)?.pageName || targetPageName || 'Laboratorios Naturales BIO')
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
