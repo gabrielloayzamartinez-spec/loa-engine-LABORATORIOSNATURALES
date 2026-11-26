@@ -1490,11 +1490,21 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     newTagsSet.add(canalTag);
 
     if (targetPageId) {
+      // [FIX 2026-11-26 — PROVEEDOR POR CAMPAÑA] La página NO basta para saber el
+      // proveedor: 'Naturales BioNatural' (566501466542620) corre a la vez las campañas
+      // 'Ernesto - PALACIOS - Messenger' y 'INHOUSE - Naturales BioNatural'. Se prioriza
+      // el proveedor resuelto por campaña/adset (resolveLeadProvider, que detecta
+      // INHOUSE/ERNESTO/CLICK2RING en el nombre) y la página queda como respaldo.
+      const provCampana = targetProvider
+        ? `prov-${String(targetProvider).toLowerCase().normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')}`
+        : null;
       const smartViewTags = getSmartViewTagsByPageId(targetPageId);
       // [PURGA DE PROVEEDOR] Un lead solo tiene UN proveedor activo: si reingresa
       // por otro proveedor/canal, se elimina el prov-* anterior para que el mismo
       // contacto no aparezca en varias vistas de proveedor a la vez (trabajo ordenado).
-      const targetProv = getProveedorTagByPageId(targetPageId);
+      const targetProv = provCampana || getProveedorTagByPageId(targetPageId);
       if (targetProv) {
         for (const t of Array.from(newTagsSet)) {
           if (t.startsWith('prov-') && t !== targetProv) {
@@ -1507,8 +1517,20 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
             tagsToRemove.push(t);
           }
         }
+        // [FIX 2026-11-26] El proveedor resuelto (campaña > página) SIEMPRE debe quedar
+        // escrito: antes solo se "purgaban" los demás, y si el proveedor de la campaña
+        // (p.ej. IN_HOUSE) difería del de la página (ERNESTO) el contacto terminaba
+        // sin ningún prov-*.
+        newTagsSet.add(targetProv);
       }
       for (const svTag of smartViewTags) {
+        // El prov-* lo decide targetProv (campaña > página): si se añadiera aquí el
+        // proveedor de la PÁGINA, un lead de la campaña Inhouse sobre Naturales
+        // BioNatural quedaría con dos proveedores. Solo se añade la sede y, si hay
+        // proveedor de campaña, se respeta ese.
+        if (typeof svTag === 'string' && svTag.startsWith('prov-')) {
+          if (targetProv) continue;
+        }
         newTagsSet.add(svTag);
       }
       // [ETIQUETA POR NOMBRE DE PÁGINA — 2026-11-19] El lead puede saltar de una
@@ -1633,7 +1655,9 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // [FIX 05/11] El custom field "Proveedor" se llena desde el proveedor RESUELTO
     // (PAGE_MATRIX / formMeta), no solo desde vTiger cf_2572. Así los leads de
     // formulario nuevo (que aún no tienen cf_2572) también lo llevan lleno.
-    if (PROVEEDOR_FIELD && targetPageId) customFieldsToUpdate.push({ id: PROVEEDOR_FIELD, key: 'contact.proveedor', field_value: getPageMatrixEntry(targetPageId)?.proveedor || targetProvider || '' });
+    // [FIX 2026-11-26] El CF "Proveedor" prioriza el proveedor resuelto por campaña
+    // (resolveLeadProvider) porque una misma página puede correr Ernesto e Inhouse.
+    if (PROVEEDOR_FIELD && targetPageId) customFieldsToUpdate.push({ id: PROVEEDOR_FIELD, key: 'contact.proveedor', field_value: targetProvider || getPageMatrixEntry(targetPageId)?.proveedor || '' });
     if (ORIGEN_LEAD_FIELD && vtigerSource) customFieldsToUpdate.push({ id: ORIGEN_LEAD_FIELD, key: 'contact.origen_lead', field_value: vtigerSource });
     if (TIENE_TELEFONO_FIELD) customFieldsToUpdate.push({ id: TIENE_TELEFONO_FIELD, key: 'contact.tiene_telfono', field_value: (contact.phone || (shippingData && shippingData.hasPhone)) ? 'Sí' : 'No' });
     if (ULTIMA_INTERACCION_FIELD) customFieldsToUpdate.push({ id: ULTIMA_INTERACCION_FIELD, key: 'contact.ultima_interaccion', field_value: new Date().toISOString().split('T')[0] });
