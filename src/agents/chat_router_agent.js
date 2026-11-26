@@ -423,7 +423,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     if (!isDryRun && ORIGENES_FONDO.has(origenRuteoActual) && estaEnCooldownFondo(contactId)) {
       return 'UNCHANGED';
     }
-    if (!isDryRun && yaAtendido(contactId, mensajeMsEntrante)) {
+    if (!isDryRun && mensajeMsEntrante > 0 && yaAtendido(contactId, mensajeMsEntrante)) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya fue atendido para esta actividad (${origenRuteoActual}). Sin llamadas.`);
       return 'UNCHANGED';
     }
@@ -574,7 +574,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       ? Math.max(...allMessages.map(m => new Date(m.dateAdded || 0).getTime()).filter(Number.isFinite))
       : 0;
     actividadMs = mensajeMsEntrante || mensajeRealMs || 0;
-    if (!isDryRun && yaAtendido(contactId, actividadMs)) {
+    // [FIX 2026-11-26 — GARANTIZAR ETIQUETA] El armonizador bloqueaba contactos
+    // marcados como "atendidos" AUNQUE no tuvieran `prov-*` (p.ej. una pasada vieja
+    // que corrió antes de capturar la página). Así quedaban atrapados sin etiqueta
+    // para siempre. Ahora solo se salta si el contacto YA tiene proveedor asignado.
+    const tieneProvEnContacto = (contact.tags || []).some(t => String(t).toLowerCase().startsWith('prov-'));
+    if (!isDryRun && yaAtendido(contactId, actividadMs) && tieneProvEnContacto) {
       console.log(`[Agente 3] [ARMONIZADOR] ${contactId} ya atendido para la actividad ${new Date(actividadMs || 0).toISOString()} (${origenRuteoActual}). Se evita el resto del trabajo.`);
       return 'UNCHANGED';
     }
