@@ -219,7 +219,11 @@ const ORIGENES_FONDO = new Set([
   'trabajo-del-dia', 'curador-estandar', 'day-sync'
 ]);
 const ultimoRuteoFondo = new Map();            // contactId -> timestamp
-const COOLDOWN_FONDO_MS = 60 * 60 * 1000;       // 60 min (refuerzo anti-bucle)
+// [PRIORIDAD N1 — FIX 2026-11-26] El fondo (curador/guardián/limpiador/trabajo-del-día)
+// curaba ~480 contactos/h (una vez cada 60 min cada uno) y disparaba 92k llamadas de
+// Nivel 2 (55% del consumo). Con 4 h, el fondo re-toca cada contacto 4x menos y deja
+// la cuota al Nivel 1 (radar/webhook), que NO entra en este cooldown.
+const COOLDOWN_FONDO_MS = 4 * 60 * 60 * 1000;   // 4 horas (prioridad al Nivel 1)
 
 function estaEnCooldownFondo(contactId) {
   const ts = ultimoRuteoFondo.get(contactId) || 0;
