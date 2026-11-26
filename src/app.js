@@ -370,7 +370,7 @@ const processedContactTimestamps = new Map();
 // 38 contactos y ~13 600 llamadas/hora. Con este backoff se reintentan cada 90 s,
 // suficiente para que GHL indexe la conversación, sin quemar cuota.
 const retryBackoff = new Map();
-const RETRY_BACKOFF_MS = 90 * 1000;
+const RETRY_BACKOFF_MS = 120 * 1000;
 
 // ==========================================================================
 // [MEMORIA PERSISTENTE DEL RADAR — CORRECCIÓN DEL PICO DE CUOTA EN CADA DEPLOY]

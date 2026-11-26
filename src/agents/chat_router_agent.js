@@ -714,17 +714,18 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       // ya disponible, en vez de quemarlo como UNCHANGED sin etiquetas.
       if (allMessages.length === 0) {
         // [FIX 2026-11-26 — RETRY ACOTADO, ANTI-BUCLE] Reintentar SOLO durante los
-        // primeros 10 min de vida del contacto: es el margen en que GHL indexa la
-        // conversación. Pasado ese margen se trata como salida definitiva; si no, un
-        // contacto sin conversación (p.ej. 'maria r rentals cotto') se reintentaba
-        // para siempre y producía el bucle con desperdicio.
+        // primeros 4 min de vida del contacto: es el margen real en que GHL indexa la
+        // conversación. Pasado ese margen se cierra como salida definitiva. Con 10 min
+        // + backoff de 90 s cada contacto se reintentaba ~7 veces y generaba el bucle
+        // medido (44 contactos, sobre todo Roosevelt con conversación aún no indexada).
         const edadMsContacto = Date.now() - new Date(contact.dateAdded || 0).getTime();
-        const esNuevoAun = Number.isFinite(edadMsContacto) && edadMsContacto < 10 * 60 * 1000;
+        const RETRY_WINDOW_MS = 4 * 60 * 1000;
+        const esNuevoAun = Number.isFinite(edadMsContacto) && edadMsContacto < RETRY_WINDOW_MS;
         if (esNuevoAun) {
           console.log(`[Agente 3] [SIN-EVIDENCIA-META-PREMATURO] ${contactId}: conversación aún no indexada (${Math.round(edadMsContacto/60000)}m). Se reintentará.`);
           return 'RETRY';
         }
-        console.log(`[Agente 3] [SIN-EVIDENCIA-META-SIN-CONV] ${contactId}: sin conversación tras 10 min. Se cierra sin etiquetas.`);
+        console.log(`[Agente 3] [SIN-EVIDENCIA-META-SIN-CONV] ${contactId}: sin conversación tras 4 min. Se cierra sin etiquetas.`);
         ruteoConcluido = true;
         return 'UNCHANGED';
       }
