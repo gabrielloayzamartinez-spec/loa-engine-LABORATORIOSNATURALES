@@ -1561,9 +1561,22 @@ app.post('/webhook/meta/leadgen', (req, res) => {
   const payload = req.body;
   res.status(200).send('EVENT_RECEIVED');
   setImmediate(() => {
-    procesarLeadgen(payload).catch(err => {
-      console.error('[Leadgen Webhook Error]:', err.message);
-    });
+    // [FIX 2026-11-26 — CAUSA RAÍZ DEL NO-ETIQUETADO] El callback del app en Meta
+    // apunta a ESTE endpoint y las páginas mandan aquí `messages` + `messaging_referrals`
+    // (no solo `leadgen`). Antes solo se procesaba leadgen, así que el motor NUNCA
+    // recibía la referencia de página/anuncio y no podía etiquetar proveedor/canal.
+    // Ahora se despacha según el tipo de evento:
+    //   · messaging / messaging_referrals  → processMetaWebhook (captura page_id + ad_id)
+    //   · leadgen                          → procesarLeadgen
+    const entries = Array.isArray(payload?.entry) ? payload.entry : [];
+    const esMessaging = entries.some(e => Array.isArray(e.messaging) && e.messaging.length > 0);
+    const esLeadgen = entries.some(e => Array.isArray(e.changes) && e.changes.some(ch => ch.field === 'leadgen' || ch.field === 'lead'));
+    if (esMessaging) {
+      processMetaWebhook(payload).catch(err => console.error('[Meta Webhook Receptor Error]:', err.message));
+    }
+    if (esLeadgen || !esMessaging) {
+      procesarLeadgen(payload).catch(err => console.error('[Leadgen Webhook Error]:', err.message));
+    }
   });
 });
 
