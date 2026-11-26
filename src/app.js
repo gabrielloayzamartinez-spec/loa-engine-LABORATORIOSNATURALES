@@ -670,8 +670,23 @@ async function runExpressAssignment() {
               // [ANTI-BUCLE] Se guarda CUÁNDO lo procesamos NOSOTROS (no el
               // `dateUpdated` del contacto, que nuestra propia escritura modifica).
               // Es lo que rompe el bucle infinito de reprocesamiento.
-              processedContactTimestamps.set(contact.id, Date.now());
-              stats.contactsProcessed++;
+              //
+              // [FIX 2026-11-26 — ETIQUETAS GARANTIZADAS] Antes se marcaba SIEMPRE,
+              // incluso cuando el ruteo devolvía UNCHANGED SIN haber puesto proveedor
+              // (p.ej. si no resolvió la página en ese instante). Resultado: el chat
+              // quedaba sin etiqueta y el radar NUNCA lo volvía a intentar.
+              // Ahora: un contacto RECIENTE (<2h) sin etiqueta `prov-*` NO se marca,
+              // así el radar lo reintenta hasta que quede etiquetado (vistas limpias).
+              const tagsList = (contact.tags || []).map(t => String(t).toLowerCase());
+              const tieneProv = tagsList.some(t => t.startsWith('prov-'));
+              const edadMs = Date.now() - new Date(contact.dateAdded || 0).getTime();
+              const esReciente = Number.isFinite(edadMs) && edadMs < 2 * 60 * 60 * 1000;
+              if (tieneProv || !esReciente) {
+                processedContactTimestamps.set(contact.id, Date.now());
+                stats.contactsProcessed++;
+              } else {
+                console.warn(`[${timeStr}] [Worker 1] [SIN-PROVEEDOR] ${contact.id} ruteado sin prov-*; se reintentará en el próximo ciclo.`);
+              }
             }
           } catch (oneErr) {
             // Un contacto problemático NUNCA debe abortar el lote: se reintentará
