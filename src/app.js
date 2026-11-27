@@ -3734,7 +3734,11 @@ export function registerBackgroundSchedulers() {
   // contactos por sede (~27 min con la concurrencia actual), asi que el tope se fija
   // en 45 min: mas del doble del ciclo normal, para NO disparar falsamente.
   const guardaSalesBridge = crearGuardaConWatchdog('Sales Bridge', 45 * 60 * 1000);
+  // [INTERRUPTOR DE HISTORICO — 27/11] N2_HISTORICO_ENABLED=false arranca el sistema
+  // en modo "solo hoy + reactivo": no recorre la cartera historica.
+  // Se usa la comprobacion inline para no depender del scope de este bloque.
   timers.push(setInterval(() => {
+    if (String(process.env.N2_HISTORICO_ENABLED || 'true').toLowerCase() === 'false') return;
     if (!tomarTurno('sales-bridge', CARRILES_N2.HISTORICO)) return; // carril N2A: cobertura (crea compradores que faltan)
     if (!guardaSalesBridge.tomar()) { liberarTurno('sales-bridge'); return; }
     runVtigerSalesBridge({ horasAtras: 6, soloCompradores: true, limitePorSede: 20 })
@@ -3767,6 +3771,7 @@ export function registerBackgroundSchedulers() {
   // cuello de OFFSET de vTiger). Completa la base al 100% en las 4 subcuentas.
   const guardaLeadsBackfill = crearGuardaConWatchdog('Leads Backfill', 60 * 60 * 1000);
   timers.push(setInterval(() => {
+    if (String(process.env.N2_HISTORICO_ENABLED || 'true').toLowerCase() === 'false') return;
     if (!tomarTurno('leads-backfill', CARRILES_N2.HISTORICO)) return; // carril N2A: cobertura
     if (!guardaLeadsBackfill.tomar()) { liberarTurno('leads-backfill'); return; }
     runLeadsBackfill({ tamanoLote: 30, maxLotes: 1, pausaMs: 250 })
@@ -3866,6 +3871,7 @@ export function registerBackgroundSchedulers() {
     // [NIVEL 2A] El backfill histórico toma el turno de SU carril. Antes corría
     // fuera del ciclo operativo y competía con el refill/curador por la misma cuota;
     // ahora el carril B (reconciliación) cede ante él y el trabajo se reparte.
+    if (String(process.env.N2_HISTORICO_ENABLED || 'true').toLowerCase() === 'false') return;
     if (!tomarTurno('backfill-compradores', CARRILES_N2.HISTORICO)) {
       buyersBackfillCorriendo = false;
       return;

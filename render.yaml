@@ -65,6 +65,11 @@ services:
       # N1 trabaja SOLO el día de hoy; N2 el histórico hasta ayer.
       - key: N2_HASTA_AYER
         value: "true"
+      # Interruptor del histórico:
+      #   "true"  → además del día, recorre la cartera histórica (backfill completo)
+      #   "false" → arranque "solo hoy + reactivo" (no toca el histórico)
+      - key: N2_HISTORICO_ENABLED
+        value: "false"
       # Espejo: se publica el estado ACTUAL de vTiger (incluye correcciones).
       - key: GHL_MODO_ESPEJO
         value: "true"
