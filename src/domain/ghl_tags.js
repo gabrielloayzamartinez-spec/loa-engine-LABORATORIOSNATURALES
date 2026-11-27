@@ -71,6 +71,33 @@ export const TAGS_PROTEGIDAS = new Set([
 ]);
 
 /**
+ * [PROVEEDORES VÁLIDOS — 27/11] La matriz de páginas solo conoce los proveedores
+ * que TIENEN página. Pero vTiger trae proveedores que no tienen fanpage propia
+ * (UP IDEAS, ENZO, TIKTOK UPID): son reales y sus leads existen.
+ * Sin esta lista, el contrato los borraría como si fueran basura.
+ * Se amplía por entorno con GHL_PROVEEDORES_VALIDOS=a,b,c
+ */
+const PROVEEDORES_POR_DEFECTO = [
+  'ernesto',
+  'in-house',
+  'click2ring',
+  'en-casa-g',
+  'redes-2-benavides',
+  'enzo',
+  'up-ideas',
+  'tiktok-upid',
+  'diurnay'
+];
+
+export const PROVEEDORES_VALIDOS = new Set([
+  ...PROVEEDORES_POR_DEFECTO,
+  ...String(process.env.GHL_PROVEEDORES_VALIDOS || '')
+    .split(',')
+    .map(s => s.trim().toLowerCase().replace(/^prov-/, ''))
+    .filter(Boolean)
+]);
+
+/**
  * ¿Esta etiqueta pertenece al contrato (se conserva) o es basura (se retira)?
  * @param {string} tag
  * @returns {boolean}
@@ -78,9 +105,11 @@ export const TAGS_PROTEGIDAS = new Set([
 export function esEtiquetaDelContrato(tag) {
   const t = String(tag || '').trim().toLowerCase();
   if (!t) return false;
-  if (/^prov-[a-z0-9-]+$/.test(t)) return true;
   if (/^pagina-[a-z0-9-]+$/.test(t)) return true;
-  // Marcadores operativos que usa el propio motor.
+  if (/^prov-[a-z0-9-]+$/.test(t)) {
+    // Solo los proveedores que existen de verdad (matriz + vTiger).
+    return PROVEEDORES_VALIDOS.has(t.slice(5));
+  }
   if (TAGS_PROTEGIDAS.has(t)) return true;
   return false;
 }
