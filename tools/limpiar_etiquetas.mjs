@@ -78,13 +78,14 @@ for (let p = 0; p < PAGINAS; p++) {
     if (basura.length === 0) continue;
     conBasura++;
     for (const b of basura) retiradas[b.toLowerCase()] = (retiradas[b.toLowerCase()] || 0) + 1;
+  }
 
   // [CONCURRENCIA] Se limpian en tandas de CONC para no tardar horas.
   if (EJECUTAR) {
     const pendientes = lote.filter(c => (c.tags || []).some(t => !esEtiquetaDelContrato(String(t))));
     for (let i = 0; i < pendientes.length; i += CONC) {
       const tanda = pendientes.slice(i, i + CONC);
-      const res = await Promise.all(tanda.map(async (c) => {
+      await Promise.all(tanda.map(async (c) => {
         const tags = (c.tags || []).map(t => String(t));
         const limpias = tags.filter(t => esEtiquetaDelContrato(t));
         try {
@@ -97,7 +98,6 @@ for (let p = 0; p < PAGINAS; p++) {
           errores++; return false;
         } catch { errores++; return false; }
       }));
-      if (res.length === 0) await sleep(50);
     }
   }
 
