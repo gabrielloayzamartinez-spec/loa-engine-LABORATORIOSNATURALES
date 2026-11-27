@@ -17,7 +17,7 @@
  */
 
 import { queryVTiger } from './vtiger_api_service.js';
-import { sedeClause, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
+import { sedeActualClause, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
 import { getActiveSedes } from '../config/index.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
 import { syncVtigerBatchDual, isCentralConfigured } from './dual_sync_service.js';
@@ -65,7 +65,7 @@ export async function fetchVentasRecientesVtiger({
     // Ahora se filtra por `spl_fecha_ultima_compra` (la fecha real de la venta) y
     // se ORDENA de más reciente a más antigua, para que las ventas de ayer sean
     // SIEMPRE las primeras en entrar y no queden detrás del tope.
-    const q = `SELECT * FROM Contacts WHERE ${VTIGER_FIELDS.FECHA_ULTIMA_COMPRA} >= '${desdeDia}'${filtroCompras}${sedeClause(sede)} ORDER BY ${VTIGER_FIELDS.FECHA_ULTIMA_COMPRA} DESC LIMIT ${Math.min(Math.max(parseInt(limitePorSede, 10) || 50, 1), 200)};`;
+    const q = `SELECT * FROM Contacts WHERE ${VTIGER_FIELDS.FECHA_ULTIMA_COMPRA} >= '${desdeDia}'${filtroCompras}${sedeActualClause(sede)} ORDER BY ${VTIGER_FIELDS.FECHA_ULTIMA_COMPRA} DESC LIMIT ${Math.min(Math.max(parseInt(limitePorSede, 10) || 50, 1), 200)};`;
     try {
       const filas = await queryVTiger(q, sede);
       for (const f of (filas || [])) acumulado.push({ ...f, __sedeOrigen: sede });

@@ -86,12 +86,28 @@ export async function runVtigerBackfill({ modo = 'fecha', anoDesde = 2019, anoHa
       if (rows.length < 100) { sedeTerminada = true; break; }
     }
 
-    if (sedeTerminada) { saveCursor('vtiger_backfill', cursorOffset); cursorOffset.delete(locId); progreso.push({ sede: sede.name, locId, terminada: true, procesadas: filas }); }
-    else { saveCursor('vtiger_backfill', cursorOffset); cursorOffset.set(locId, offset); progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas }); }
+    // [AUDITORÍA 27/11 — ORDEN DE PERSISTENCIA] Se muta el Map ANTES de guardar.
+    // Antes se guardaba primero y el archivo quedaba con el offset viejo: cada
+    // reinicio del servidor rebobinaba el backfill a la fila 0.
+    if (sedeTerminada) {
+      cursorOffset.delete(locId);
+      saveCursor('vtiger_backfill', cursorOffset);
+      progreso.push({ sede: sede.name, locId, terminada: true, procesadas: filas });
+    } else {
+      cursorOffset.set(locId, offset);
+      saveCursor('vtiger_backfill', cursorOffset);
+      progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas });
+    }
   }));
 
   terminadoGlobal = sedes.length > 0 && sedes.every(s => !cursorOffset.has(s.ghl.locationId));
-  if (terminadoGlobal) saveCursor('vtiger_backfill', cursorOffset); cursorOffset.clear();
+  // [AUDITORÍA 27/11 — BUG DE CURSOR] Sin llaves, el `clear()` corría SIEMPRE y una
+  // pasada parcial perdía el offset: el backfill volvía a empezar en la fila 0 en
+  // cada relanzamiento y nunca avanzaba sobre el histórico profundo.
+  if (terminadoGlobal) {
+    saveCursor('vtiger_backfill', cursorOffset);
+    cursorOffset.clear();
+  }
 
   return {
     oneShot: true, modo, terminado: terminadoGlobal, counters, sedes: progreso,

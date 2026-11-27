@@ -22,8 +22,9 @@
  */
 
 import { queryVTiger } from './vtiger_api_service.js';
-import { sedeClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
+import { sedeActualClause, VTIGER_CONTACT_SELECT, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS } from './vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
+import { filtroVtigerAntesDeHoy, n2SoloHistorico } from '../domain/ventana_temporal.js';
 import { SEDES_GATEWAY } from '../config/index.js';
 import { readSecret } from '../config/secrets.js';
 import { syncVtigerContactDual, pickPhone, isCentralConfigured } from './dual_sync_service.js';
@@ -35,15 +36,21 @@ import { tokenBucketQueue } from './token_bucket_queue.js';
 const backfillStore = getStateStore('buyers_backfill');
 const CURSOR_KEY = 'cursor_v2_desc';
 
-// [CONTEO REAL POR SEDE] Medido en vTiger con `SELECT count(*) FROM Contacts
-// WHERE spl_num_compras > 0 AND cf_3451 = '<SEDE>'` el 2026-10-05. Es la base para
-// calcular lo implementado vs lo pendiente en tiempo real. Si la cartera crece,
-// se recalibra con el endpoint /api/vtiger/buyers-backfill/recontar.
+// [CONTEO REAL POR SEDE — POR OFICINA ACTUAL (cf_3590)]
+// Medido en vivo el 2026-11-27 con `SELECT count(*) FROM Contacts WHERE
+// cf_3590 = '<SEDE>' AND spl_num_compras > 0`. ANTES estaba contado por la oficina
+// de REGISTRO (cf_3451), que ya no representa la operación: 139.562 fichas de
+// Palacios fueron reasignadas a otra oficina. Diferencia real:
+//   Palacios  36.925 (registro)  → 21.830 (actual)
+//   Benavides  6.008 (registro)  → 12.907 (actual)
+//   Roosevelt  2.151 (registro)  →  6.115 (actual)
+//   Piura        669 (registro)  →  4.894 (actual)
+// Si la cartera crece, se recalibra con /api/vtiger/buyers-backfill/recontar.
 export const COMPRADORES_POR_SEDE = {
-  PALACIOS: 36652,
-  BENAVIDES: 5301,
-  ROOSEVELT: 1908,
-  PIURA: 603
+  PALACIOS: 21830,
+  BENAVIDES: 12907,
+  ROOSEVELT: 6115,
+  PIURA: 4894
 };
 export const TOTAL_COMPRADORES = Object.values(COMPRADORES_POR_SEDE).reduce((a, b) => a + b, 0);
 
@@ -394,7 +401,14 @@ export async function runBuyersBackfill({
       const filtroCursor = ultimoId
         ? ` AND id < '${sanitizeForVtigerQuery(String(ultimoId), 20)}'`
         : '';
-      const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeClause(sede)}${filtroCursor} ORDER BY id DESC LIMIT ${limiteSede};`;
+      // [FRONTERA N1/N2 — 27/11] El Nivel 2 es HISTÓRICO: todo lo anterior a HOY
+      // (hora Lima). Los compradores de HOY los atiende el Nivel 1 (en vivo) y el
+      // Nivel 3 (reactivo); mañana entran solos a este cursor.
+      const filtroHistorico = n2SoloHistorico() ? filtroVtigerAntesDeHoy('createdtime') : '';
+      // [SEDE ACTUAL — 27/11] Se recorre por OFICINA ACTUAL (cf_3590), no por la de
+      // registro: 139.562 fichas de Palacios fueron reasignadas y su subcuenta destino
+      // es otra. Así cada carril procesa SU cartera real.
+      const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeActualClause(sede)}${filtroCursor}${filtroHistorico} ORDER BY id DESC LIMIT ${limiteSede};`;
 
       let contactos = [];
       try {

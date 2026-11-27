@@ -72,6 +72,11 @@ export function normalizarNombreCampo(s) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')   // quita tildes
     .toLowerCase()
+    // [FIX 27/11] La puntuación también debe normalizarse: GHL tiene el campo como
+    // "Fecha Creacion (Fecha)" y el alias es "fecha creacion fecha". Antes los
+    // paréntesis sobrevivían y la comparación fallaba SIEMPRE (la auditoría reportaba
+    // 100% de hueco en un campo que sí estaba lleno).
+    .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

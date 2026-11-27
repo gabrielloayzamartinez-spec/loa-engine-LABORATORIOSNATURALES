@@ -286,11 +286,16 @@ export const JOBS = {
   VTIGER_RETRY: 'vtiger-retry',
   CURATION_FORWARD: 'curation-forward',
   CURATION_BACKWARD: 'curation-backward',
-  META_CAPI: 'meta-capi'
+  META_CAPI: 'meta-capi',
+  // [NIVEL 3] Un cambio puntual de vTiger = un job de sincronización reactiva.
+  NIVEL3_SYNC: 'nivel3-sync'
 };
 
 export const QUEUES = {
   WEBHOOKS: 'webhooks',
   SYNC: 'sync',
-  CURATION: 'curation'
+  CURATION: 'curation',
+  // [NIVEL 3] Cola propia: el trabajo reactivo no debe quedar detrás de los
+  // backfills de Nivel 2 cuando la cola es durable (BullMQ).
+  NIVEL3: 'nivel3'
 };

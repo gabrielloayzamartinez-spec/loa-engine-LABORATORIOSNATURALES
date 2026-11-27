@@ -30,7 +30,7 @@
 
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { SEDES_GATEWAY } from '../config/index.js';
-import { query as vtigerQuery, VTIGER_CONTACT_SELECT, VTIGER_FIELDS, sedeClause } from './vtigerClient.js';
+import { query as vtigerQuery, VTIGER_CONTACT_SELECT, VTIGER_FIELDS, sedeActualClause } from './vtigerClient.js';
 import { obtenerMapaCamposGhl, leerCampoPorNombre } from './ghl_fields_map.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -84,8 +84,9 @@ export async function auditarCamposComerciales({ sede = 'PALACIOS', muestra = 40
   //    leer los valores: GHL los entrega por id, sin nombre.
   const mapaCampos = await obtenerMapaCamposGhl(locId, headers);
 
-  // 1. Muestra de compradores REALES desde vTiger (los más recientes primero).
-  const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeClause(sedeId)} ORDER BY id DESC LIMIT ${n};`;
+  // 1. Muestra de compradores REALES desde vTiger (por OFICINA ACTUAL: así se compara
+  //    contra la subcuenta donde el contacto está HOY, no donde se registró).
+  const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeActualClause(sedeId)} ORDER BY id DESC LIMIT ${n};`;
   let compradores = [];
   try {
     compradores = await vtigerQuery(q, sedeId) || [];

@@ -45,9 +45,15 @@
 | 25 | Fecha Ultima Compra | TEXT | fecha |
 | 26 | Fecha Ultima Factura | TEXT | fecha |
 | 27 | Fecha Creacion | TEXT | fecha |
-| 28 | Precio Venta | NUMERICAL | monto USD |
+| 28 | Precio Venta | TEXT | monto USD de la **última orden** (verificado en vivo: en Palacios/Benavides el campo es TEXT, no NUMERICAL) |
 | 29 | Total Compras | NUMERICAL | número |
-| 30 | Total Historico Gastado USD | NUMERICAL | monto acumulado |
+| 30 | Total Historico Gastado USD | NUMERICAL | monto **acumulado** (`cf_3392`) |
+
+> ⚠️ **CORRECCIÓN DE AUDITORÍA (27-nov-2026).** "Precio Venta" y "Total Historico
+> Gastado USD" son campos DISTINTOS y no deben mezclarse: el primero lo escribe el
+> Order History con el total de la última orden; el segundo lo escribe el Dual Sync
+> con el acumulado de vTiger. Durante meses ambos escritores usaron "Precio Venta" y
+> el valor oscilaba. Detalle: [`AUDITORIA_N1_N2_CF_ETIQUETAS.md`](./AUDITORIA_N1_N2_CF_ETIQUETAS.md).
 | 31 | Estado de Compra | TEXT | Comprador / No Comprador |
 | 32 | Sede Tienda Compra | TEXT | sede donde compró |
 | 33 | Anotaciones Redes | TEXT | notas |

@@ -417,11 +417,15 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
           throw new Error(`Naturales Bio Corp debe ser BENAVIDES-ERNESTO, recibido: ${p2Sede}-${p2Prov}`);
         }
 
-        // BioNatural Fuerza (1147742788423762) -> REDES 2 BENAVIDES (confirmado 16/10)
+        // BioNatural Fuerza (1147742788423762) -> IN_HOUSE.
+        // [CORREGIDO 27/11 — AUDITORÍA] El 16/10 esta página se mapeó a REDES 2, pero
+        // el commit 5785b95 la corrigió a IN_HOUSE tras verificar el gasto real en
+        // Meta (campañas 'Testosterona- Benavides- InHouse', 'INHOUSE-DIABETES').
+        // La prueba quedó con la expectativa vieja y rompía la suite completa.
         const p3Prov = resolveLeadProvider({ pageId: '1147742788423762', pageName: 'BioNatural Fuerza' });
         const p3Sede = resolveLeadSede({ pageId: '1147742788423762', pageName: 'BioNatural Fuerza' });
-        if (p3Prov !== 'REDES 2 BENAVIDES' || p3Sede !== 'BENAVIDES') {
-          throw new Error(`BioNatural Fuerza debe ser BENAVIDES-REDES 2, recibido: ${p3Sede}-${p3Prov}`);
+        if (p3Prov !== 'IN_HOUSE' || p3Sede !== 'BENAVIDES') {
+          throw new Error(`BioNatural Fuerza debe ser BENAVIDES-IN_HOUSE, recibido: ${p3Sede}-${p3Prov}`);
         }
 
         // 2. Verificación a Nivel Nombre de Campaña (Image 2)
@@ -822,18 +826,22 @@ export function runPreFlightSanityCheck({ silent = false } = {}) {
           throw new Error('Stages de Benavides incompletos');
         }
 
-        // 3. Simetría 1:1 de 30 Custom Fields (29 originales + "proveedor" añadido 05/11)
+        // 3. Simetría 1:1 de 32 Custom Fields (29 originales + "proveedor" 05/11
+        //    + "paginaUltimoChat" y "canalUltimoChat" 2026-11-26).
+        // [CORREGIDO 27/11 — AUDITORÍA] La prueba quedó fijada en 30 cuando el router
+        // ya escribía 32 campos reales (verificados en el diccionario de GHL), así que
+        // la suite completa fallaba y ningún cambio se podía validar.
         const palFields = resolveSedeCustomFields({ sede: 'PALACIOS' });
         const benFields = resolveSedeCustomFields({ locationId: 'QXcNBK6XCgpQaZ81Z8pv' });
 
         const palKeys = Object.keys(palFields).sort();
         const benKeys = Object.keys(benFields).sort();
 
-        if (palKeys.length !== 30) {
-          throw new Error(`Palacios debe tener exactamente 30 custom fields, tiene: ${palKeys.length}`);
+        if (palKeys.length !== 32) {
+          throw new Error(`Palacios debe tener exactamente 32 custom fields, tiene: ${palKeys.length}`);
         }
-        if (benKeys.length !== 30) {
-          throw new Error(`Benavides debe tener exactamente 30 custom fields, tiene: ${benKeys.length}`);
+        if (benKeys.length !== 32) {
+          throw new Error(`Benavides debe tener exactamente 32 custom fields, tiene: ${benKeys.length}`);
         }
         if (palKeys.join(',') !== benKeys.join(',')) {
           throw new Error('Asimetría detectada en las llaves de custom fields entre Palacios y Benavides');

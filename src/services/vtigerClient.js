@@ -374,12 +374,18 @@ export function assertTenantIsolation(sql = '', { inheritedSede = null } = {}) {
 
   // --- Estrategia 1: el módulo tiene el campo de sede ---
   if (strategy.mode === 'direct') {
-    const hasSedeFilter = new RegExp(`${strategy.field}\\s*=`, 'i').test(statement);
-    if (!hasSedeFilter) {
+    // [SEDE ACTUAL — 27/11] En `Contacts` se aceptan DOS cláusulas de aislamiento:
+    //   · cf_3451 (oficina de REGISTRO) — controles históricos/auditoría
+    //   · cf_3590 (oficina ACTUAL)     — la que manda para la subcuenta destino
+    // Ambas acotan a UNA sede; ninguna permite leer toda la base.
+    const porSedeOriginal = new RegExp(`${strategy.field}\\s*=`, 'i').test(statement);
+    const porSedeActual = module === VTIGER_MODULES.CONTACTS
+      && new RegExp(`${VTIGER_FIELDS.SEDE_ACTUAL}\\s*=`, 'i').test(statement);
+    if (!porSedeOriginal && !porSedeActual) {
       return {
         safe: false,
         module,
-        reason: `Consulta a ${module} sin cláusula de aislamiento ${strategy.field}: se leerían datos de todas las sedes (violación del Sede-Lock).`
+        reason: `Consulta a ${module} sin cláusula de aislamiento ${strategy.field} ni ${VTIGER_FIELDS.SEDE_ACTUAL}: se leerían datos de todas las sedes (violación del Sede-Lock).`
       };
     }
     return { safe: true, module, reason: null };
@@ -990,14 +996,68 @@ export function sedeClause(sede) {
   return ` AND ${VTIGER_FIELDS.SEDE} = '${clean}'`;
 }
 
-/** Cláusula por teléfono normalizado a dígitos (NANP 10 dígitos). */
-export function phoneClause(rawPhone) {
+/**
+ * Cláusula por OFICINA ACTUAL (`cf_3590`): la sede a la que el contacto pertenece HOY.
+ *
+ * [DECISIÓN 27/11/2026 — "LA LÓGICA ES DE SEDE ACTUAL"]
+ * `cf_3451` es la oficina de REGISTRO (donde nació la ficha) y ya no representa la
+ * operación: medido en vivo, **139.562 fichas de Palacios fueron reasignadas** a otra
+ * oficina. Filtrar por la sede original hacía que:
+ *   · Palacios "procesara" 139.562 fichas que ya no son suyas (y las escribiera en la
+ *     subcuenta de destino, gastando el doble),
+ *   · Benavides/Roosevelt/Piura NUNCA vieran esas fichas (su cartera real es 2–7 veces
+ *     mayor que la de registro: 12.907 vs 6.008 compradores en Benavides).
+ *
+ * Toda consulta cuyo destino sea una subcuenta GHL debe usar ESTA cláusula.
+ * `sedeClause()` queda para los controles de aislamiento/auditoría sobre el registro.
+ *
+ * @param {string} sede
+ * @returns {string}
+ */
+export function sedeActualClause(sede) {
+  const clean = sanitizeForVtigerQuery(sede).toUpperCase().replace(/[^A-Z]/g, '');
+  if (!clean || !VTIGER_SEDES_VALIDAS.includes(clean)) {
+    console.error(`[vTiger] [SEDE-ACTUAL] Sede inválida o ausente ("${String(sede).slice(0, 24)}"). Consulta bloqueada.`);
+    recordAuditEvent({
+      type: 'VTIGER_SEDE_ACTUAL_INVALID',
+      severity: 'warn',
+      received: String(sede || '').slice(0, 40),
+      normalizado: clean || '(vacío)'
+    });
+    return ` AND ${VTIGER_FIELDS.SEDE_ACTUAL} = '__SIN_SEDE__'`;
+  }
+  return ` AND ${VTIGER_FIELDS.SEDE_ACTUAL} = '${clean}'`;
+}
+
+/** Cláusula por teléfono normalizado a dígitos (NANP 10 dígitos).
+ *
+ * [FIX 27/11/2026] El Webservice de vTiger **no admite paréntesis** en el WHERE:
+ * una condición como `AND (homephone='x' OR mobile='x')` responde
+ * `Syntax Error on line 1: token '(' Unexpected PARENOPEN`. La versión anterior
+ * devolvía exactamente eso, así que CUALQUIER consulta por teléfono fallaba, se
+ * reintentaba 3 veces y terminaba abriendo el circuit breaker de vTiger.
+ *
+ * Ahora se devuelve UNA cláusula por campo (sin OR ni paréntesis); el llamador las
+ * prueba en orden (homephone primero: es donde vive el 100% de los números reales
+ * de los compradores).
+ *
+ * @param {string} rawPhone
+ * @returns {string[]} cláusulas listas para concatenar con AND
+ */
+export function phoneClauses(rawPhone) {
   const digits = digitsOnly(rawPhone, 15);
-  if (digits.length < 7) return '';
+  if (digits.length < 7) return [];
   const last10 = digits.slice(-10);
-  return ` AND (${VTIGER_FIELDS.HOME_PHONE} = '${last10}'`
-    + ` OR ${VTIGER_FIELDS.MOBILE} = '${last10}'`
-    + ` OR ${VTIGER_FIELDS.PHONE} = '${last10}')`;
+  return [
+    ` AND ${VTIGER_FIELDS.HOME_PHONE} = '${last10}'`,
+    ` AND ${VTIGER_FIELDS.MOBILE} = '${last10}'`,
+    ` AND ${VTIGER_FIELDS.PHONE} = '${last10}'`
+  ];
+}
+
+/** Compatibilidad: devuelve la primera cláusula (homephone). */
+export function phoneClause(rawPhone) {
+  return phoneClauses(rawPhone)[0] || '';
 }
 
 export { sanitizeForVtigerQuery, digitsOnly };

@@ -33,7 +33,7 @@ import { tokenBucketQueue } from './token_bucket_queue.js';
 import { hayCuotaRealDeFondo } from '../utils/ghl_http_client.js';
 import { syncVtigerContactDual } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
-import { query as vtigerQuery, VTIGER_CONTACT_SELECT, VTIGER_FIELDS, sedeClause, VTIGER_SEDES_VALIDAS } from './vtigerClient.js';
+import { query as vtigerQuery, VTIGER_CONTACT_SELECT, VTIGER_FIELDS, sedeActualClause, VTIGER_SEDES_VALIDAS } from './vtigerClient.js';
 
 const store = getStateStore('commercial_refill');
 const CURSOR_KEY = 'refill_v1_desc';
@@ -84,7 +84,7 @@ export async function refillComercial({ sede = 'PALACIOS', lote = 50, lotes = 1,
     }
 
     const filtro = cursorSede.ultimoId ? ` AND id < '${String(cursorSede.ultimoId).slice(0, 20)}'` : '';
-    const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeClause(sedeId)}${filtro} ORDER BY id DESC LIMIT ${limite};`;
+    const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeActualClause(sedeId)}${filtro} ORDER BY id DESC LIMIT ${limite};`;
 
     let contactos = [];
     try {

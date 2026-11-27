@@ -1,6 +1,7 @@
 import { queryVTiger } from '../services/vtiger_api_service.js';
 import { GHL_CONFIG, SEDES_GATEWAY, getGhlHeaders, resolveSedeContext, getActiveSedes } from '../config/index.js';
-import { normalizeTreatment, toProductTag, isProductTag, PRODUCT_TAGS } from '../domain/clinical_vocabulary.js';
+import { normalizeTreatment, toProductTag, isProductTag } from '../domain/clinical_vocabulary.js';
+import { etiquetaCanal, aplicarContratoEtiquetas, TAGS_ESTADO } from '../domain/ghl_tags.js';
 import { ghlFetch, GHL_HEADERS } from '../utils/ghl_http_client.js';
 import { acquireContactLock, releaseContactLock } from './chat_router_agent.js';
 import { buildSanitizedCommercialFields, evaluateCommercialTruth } from '../domain/commercial_engine.js';
@@ -457,36 +458,40 @@ async function aplicarCambioEnGhl(vContact, phoneDigits) {
       const newTagsSet = new Set((ghlContact.tags || []).map(t => String(t).trim()));
 
       if (hasPhone) {
-        newTagsSet.add('con-telefono');
-        newTagsSet.delete('sin-telefono');
+        newTagsSet.add(TAGS_ESTADO.CON_TELEFONO);
+        newTagsSet.delete(TAGS_ESTADO.SIN_TELEFONO);
       } else {
-        newTagsSet.add('sin-telefono');
-        newTagsSet.delete('con-telefono');
+        newTagsSet.add(TAGS_ESTADO.SIN_TELEFONO);
+        newTagsSet.delete(TAGS_ESTADO.CON_TELEFONO);
       }
 
-      newTagsSet.add('vtiger');
-      newTagsSet.add('vtiger-sincronizado');
-
+      // [AUDITORÍA 27/11 — RUIDO ELIMINADO] Aquí se añadían `vtiger` y
+      // `vtiger-sincronizado` en CADA sincronización, justo las etiquetas que el
+      // Nivel 1 purga. Medición real: 92.9% de los compradores de Roosevelt y 33%
+      // de los de Piura las tenían, y el router las volvía a quitar en el ciclo
+      // siguiente (guerra de etiquetas). El contrato las declara RUIDO: no se
+      // añaden y se retiran si ya estaban.
       if (truth.isWon) {
-        newTagsSet.add('compro');
-        newTagsSet.delete('no-compro');
-        newTagsSet.add('cliente-vtiger');
-        newTagsSet.delete('prospecto-vtiger');
+        newTagsSet.add(TAGS_ESTADO.COMPRO);
+        newTagsSet.delete(TAGS_ESTADO.NO_COMPRO);
+        newTagsSet.add(TAGS_ESTADO.CLIENTE);
+        newTagsSet.delete(TAGS_ESTADO.PROSPECTO);
       } else {
-        newTagsSet.add('no-compro');
-        newTagsSet.delete('compro');
-        newTagsSet.add('prospecto-vtiger');
-        newTagsSet.delete('cliente-vtiger');
+        newTagsSet.add(TAGS_ESTADO.NO_COMPRO);
+        newTagsSet.delete(TAGS_ESTADO.COMPRO);
+        newTagsSet.add(TAGS_ESTADO.PROSPECTO);
+        newTagsSet.delete(TAGS_ESTADO.CLIENTE);
       }
 
-      if (vContact.cf_994) {
-        const vStClean = String(vContact.cf_994).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        if (vStClean) newTagsSet.add(`vtiger-status-${vStClean}`);
-      }
-      if (vContact.cf_3507) {
-        const vCanalClean = String(vContact.cf_3507).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        if (vCanalClean) newTagsSet.add(`canal-${vCanalClean}`);
-      }
+      // [AUDITORÍA 27/11] `vtiger-status-*` (volcado crudo de cf_994) también es
+      // ruido declarado. Se retira en lugar de crearse.
+      //
+      // CANAL: antes se escribía `canal-${cf_3507 en minúsculas}` -> `canal-fb-msgr`
+      // y `canal-form`, variantes LEGADAS que duplicaban la etiqueta canónica que
+      // escribe el Nivel 1 (`canal-messenger` / `canal-forms`). Ahora se normaliza
+      // con el contrato: una sola etiqueta de canal por contacto.
+      const canalVt = etiquetaCanal(vContact.cf_3507);
+      if (canalVt) newTagsSet.add(canalVt);
 
       // 4.2 Refuerzo de Etiquetas de Producto:
       // Si el contacto ya tiene una etiqueta activa de pauta Meta Ads ('meta-ads' o producto detectado recientemente),
@@ -494,22 +499,25 @@ async function aplicarCambioEnGhl(vContact, phoneDigits) {
       const hasActiveMetaAds = (ghlContact.tags || []).includes('meta-ads');
       const hasExistingProductTag = (ghlContact.tags || []).some(t => isProductTag(t));
 
-      if (treatment && (!hasActiveMetaAds || !hasExistingProductTag)) {
-        const activeProductTag = toProductTag(treatment);
-        newTagsSet.add(activeProductTag);
+      // El producto de vTiger SOLO gana si el contacto no está en una conversación
+      // Meta activa con producto ya detectado (prioridad del Nivel 1).
+      const productoGanador = (treatment && (!hasActiveMetaAds || !hasExistingProductTag))
+        ? toProductTag(treatment)
+        : null;
+      if (productoGanador) newTagsSet.add(productoGanador);
 
-        // Purgar etiquetas falsas/obsoletas de otros productos (incluye la legada
-        // `producto-tetosterona`, que se normaliza a `producto-potencia`).
-        for (const pTag of PRODUCT_TAGS) {
-          if (pTag !== activeProductTag) {
-            newTagsSet.delete(pTag);
-          }
-        }
-      }
-      
+      // [CONTRATO ÚNICO] Pasada final: retira ruido de vTiger, normaliza variantes
+      // legadas de canal y deja UNA etiqueta por familia. El PUT de abajo reemplaza
+      // la lista completa, así que las etiquetas retiradas desaparecen del contacto.
+      const contrato = aplicarContratoEtiquetas({
+        actuales: [...newTagsSet],
+        canal: canalVt,
+        producto: productoGanador
+      });
+
       const updatePayload = {
         customFields: customFieldsToUpdate.filter(cf => cf && cf.id && cf.field_value !== ''),
-        tags: Array.from(newTagsSet)
+        tags: contrato.tags
       };
 
       // 5. Inyectar a GHL (Custom Fields y Tags sanados) con headers específicos de subcuenta

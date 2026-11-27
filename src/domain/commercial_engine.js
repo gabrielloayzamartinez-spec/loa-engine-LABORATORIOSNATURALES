@@ -28,7 +28,13 @@ export function getCommercialFieldIdsForSede({ locationId = '', sede = '', cfOve
     ANOTACIONES_REDES: cf.anotacionesRedes,
     CANAL_CAPTACION: cf.canalCaptacion,
     CONTACT_NO: cf.contactNo,
-    FECHA_CREACION_VT: sedeId === 'BENAVIDES' ? cf.ultimaInteraccion : cf.fechaAsignacion,
+    // [AUDITORÍA 27/11 — DEFECTO CORREGIDO] Antes esta llave apuntaba a OTRO campo:
+    // `sedeId === 'BENAVIDES' ? cf.ultimaInteraccion : cf.fechaAsignacion`. Es decir,
+    // el `createdtime` de vTiger se escribía en "Fecha Ultima Asignacion" (Palacios) o
+    // en "Ultima Interaccion" (Benavides), pisando datos con semántica distinta.
+    // Ahora se usa el campo de fecha de creación REAL cuando la sede lo declara; si
+    // no existe, no se escribe (el dual sync lo resuelve por nombre).
+    FECHA_CREACION: cf.fechaCreacion || null,
     ID_CLIENTE_VT: cf.idCliente,
     TIENE_TELEFONO: cf.tieneTelefono,
     SEDE_ASIGNADA: cf.sedeAsignada,
@@ -203,9 +209,14 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
     if (truth.salesCount > 0 && fieldIds.NUM_COMPRAS) {
       fields.push({ id: fieldIds.NUM_COMPRAS, key: 'contact.spl_num_compras', field_value: String(truth.salesCount) });
     }
-    if (truth.totalSpent > 0 && fieldIds.PRECIO_VENTA) {
-      fields.push({ id: fieldIds.PRECIO_VENTA, key: 'contact.precio_venta', field_value: String(truth.totalSpent.toFixed(2)) });
-    }
+    // [AUDITORÍA 27/11 — DOBLE ESCRITOR ELIMINADO] Aquí se escribía el GASTO
+    // ACUMULADO (`cf_3392`) dentro de "Precio venta". El historial de órdenes escribe
+    // el MISMO campo con el TOTAL DE LA ÚLTIMA ORDEN (`hdnGrandTotal`). Dos escritores
+    // con semánticas distintas sobre el mismo CF: el valor visible oscilaba entre el
+    // acumulado y la última compra según qué ciclo corriera al final.
+    // Contrato correcto: "Precio venta" = última orden (order history) y
+    // "Total Historico Gastado USD" = acumulado `cf_3392` (dual sync). Este módulo
+    // ya NO toca "Precio venta" para un comprador; solo lo purga en un prospecto.
   }
 
   if (validVContact) {
@@ -236,8 +247,8 @@ export function buildSanitizedCommercialFields(ghlContact = {}, vContact = null,
     if (validVContact.contact_no && fieldIds.CONTACT_NO) {
       fields.push({ id: fieldIds.CONTACT_NO, key: 'contact.vtiger_contact_no', field_value: validVContact.contact_no });
     }
-    if (validVContact.createdtime && fieldIds.FECHA_CREACION_VT) {
-      fields.push({ id: fieldIds.FECHA_CREACION_VT, key: 'contact.vtiger_fecha_creacion', field_value: validVContact.createdtime });
+    if (validVContact.createdtime && fieldIds.FECHA_CREACION) {
+      fields.push({ id: fieldIds.FECHA_CREACION, key: 'contact.vtiger_fecha_creacion', field_value: validVContact.createdtime });
     }
     if (validVContact.id && fieldIds.ID_CLIENTE_VT) {
       fields.push({ id: fieldIds.ID_CLIENTE_VT, key: 'contact.vtiger_id_cliente', field_value: validVContact.id });

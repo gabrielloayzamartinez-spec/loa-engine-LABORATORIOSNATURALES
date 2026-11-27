@@ -7,6 +7,7 @@ import { query as vtigerQuery } from './vtigerClient.js';
 import { getActiveSedes, getGhlHeaders } from '../config/index.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { loadCursor, saveCursor } from './nivel2_cursor.js';
+import { aplicarContratoEtiquetas, etiquetaCanal, etiquetaProveedor, etiquetaProducto, etiquetaSede, TAGS_ESTADO } from '../domain/ghl_tags.js';
 
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 
@@ -31,13 +32,13 @@ const CF_PIURA = {
   asesorAsignado: 'NZE3uT3xOcwLkuJGykRw', tieneTelefono: 'EznP2kUQGm9agUpufvtW',
 };
 
-const PROV_MAP = { ERNESTO: 'prov-ernesto', CLICK2RING: 'prov-click2ring', IN_HOUSE: 'prov-in-house', 'REDES 2 BENAVIDES': 'prov-redes-2-benavides', 'EN CASA G': 'prov-en-casa-g', ENZO: 'prov-enzo', UP_IDEAS: 'prov-up-ideas' };
-const CANAL_MAP = { 'FB-MSGR': 'canal-messenger', 'FB-MESSENGER': 'canal-messenger', FORM: 'canal-forms', WHATSAPP: 'canal-whatsapp', TIKTOK: 'canal-tiktok', SMS: 'canal-sms' };
+// [AUDITORÍA 27/11] Los mapas PROV_MAP / CANAL_MAP / slug() se eliminaron: el
+// vocabulario vive en el contrato único (domain/ghl_tags.js). Duplicarlo aquí era
+// la causa de que un mismo canal se etiquetara distinto según el proceso.
 
 let cursorOffset = loadCursor('leads_rp');
 let terminadoGlobal = false;
 
-function slug(s) { return (s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
 function v(x) { const s = String(x || '').trim(); return (s && !['none', 'null'].includes(s.toLowerCase())) ? s : ''; }
 function normPhone(...raws) {
   for (const r of raws) {
@@ -49,15 +50,22 @@ function normPhone(...raws) {
   }
   return null;
 }
+/**
+ * [AUDITORÍA 27/11 — CONTRATO ÚNICO] Antes esta función devolvía
+ * `['vtiger','vtiger-sincronizado','prospecto-vtiger', ...]`: las dos primeras son
+ * RUIDO declarado (el Nivel 1 las purga) y provocaban que el mismo contacto
+ * tuviera etiquetas que se contradecían con el router. Ahora se construyen con el
+ * contrato: canal/proveedor/producto/sede canónicos + estado de prospecto.
+ */
 function tagsFor(rec, sede) {
-  const tags = ['vtiger', 'vtiger-sincronizado', 'prospecto-vtiger'];
-  const prov = String(rec.cf_2572 || '').trim().toUpperCase();
-  const canal = String(rec.cf_3507 || '').trim().toUpperCase();
-  const trat = String(rec.cf_2610 || '').trim();
-  if (sede) tags.push(`sede-${sede.toLowerCase()}`);
-  if (prov) tags.push(PROV_MAP[prov] || `prov-${slug(prov)}`);
-  if (canal) tags.push(CANAL_MAP[canal] || `canal-${slug(canal)}`);
-  if (trat) tags.push(`producto-${slug(trat)}`);
+  const { tags } = aplicarContratoEtiquetas({
+    actuales: [],
+    canal: etiquetaCanal(rec.cf_3507),
+    proveedor: etiquetaProveedor(rec.cf_2572),
+    sede: etiquetaSede(sede),
+    producto: etiquetaProducto(rec.cf_2610),
+    agregar: [TAGS_ESTADO.PROSPECTO]
+  });
   return tags;
 }
 function buildCf(cfd, rec, sede) {
@@ -114,11 +122,28 @@ export async function runLeadsRp({ rate = 6, lotes = 15 } = {}) {
         const payload = {
           locationId: locId, phone,
           firstName: parts[0] || '', lastName: parts.slice(1).join(' '),
-          customFields: buildCf(cfd, rec, code),
-          tags: tagsFor(rec, code),
+          customFields: buildCf(cfd, rec, code)
+          // [AUDITORÍA 27/11] `tags` se retiró del cuerpo del upsert: GHL reemplaza
+          // la lista y este job habría borrado `meta-ads`/`canal-messenger` de los
+          // leads que también entraron por Meta (Nivel 1). Ahora se AÑADEN con el
+          // endpoint aditivo /contacts/{id}/tags.
         };
         const r = await ghlFetch(`${GHL_BASE}/contacts/upsert`, { method: 'POST', headers: gh, body: JSON.stringify(payload) }, 1, 'Nivel2-LeadsRP');
-        if (r.status === 200 || r.status === 201) counters.ok++; else counters.fail++;
+        if (r.status === 200 || r.status === 201) {
+          counters.ok++;
+          const data = await r.json().catch(() => ({}));
+          const contactId = data?.contact?.id || data?.id || null;
+          const tags = tagsFor(rec, code);
+          if (contactId && tags.length) {
+            await new Promise(res => setTimeout(res, 120));
+            const rt = await ghlFetch(`${GHL_BASE}/contacts/${contactId}/tags`, {
+              method: 'POST', headers: gh, body: JSON.stringify({ tags })
+            }, 1, 'Nivel2-LeadsRP');
+            if (rt.status !== 200 && rt.status !== 201) counters.fail++;
+          }
+        } else {
+          counters.fail++;
+        }
         await new Promise(res => setTimeout(res, Math.round(1000 / rate)));
       }
       offset += rows.length;
@@ -127,18 +152,27 @@ export async function runLeadsRp({ rate = 6, lotes = 15 } = {}) {
       if (rows.length < 100) { sedeTerminada = true; break; }
     }
 
+    // [AUDITORÍA 27/11 — ORDEN DE PERSISTENCIA] Se muta el Map ANTES de guardar:
+    // antes el archivo quedaba con el offset anterior y un reinicio rebobinaba el job.
     if (sedeTerminada) {
-      saveCursor('leads_rp', cursorOffset); cursorOffset.delete(locId);
+      cursorOffset.delete(locId);
+      saveCursor('leads_rp', cursorOffset);
       progreso.push({ sede: sede.name, locId, terminada: true, procesadas: filas });
     } else {
-      saveCursor('leads_rp', cursorOffset); cursorOffset.set(locId, offset);
+      cursorOffset.set(locId, offset);
+      saveCursor('leads_rp', cursorOffset);
       progreso.push({ sede: sede.name, locId, pendiente: true, offset, procesadas: filas });
     }
   }));
 
 
   terminadoGlobal = sedes.length > 0 && sedes.every(s => !cursorOffset.has(s.ghl.locationId));
-  if (terminadoGlobal) saveCursor('leads_rp', cursorOffset); cursorOffset.clear();
+  // [AUDITORÍA 27/11 — BUG DE CURSOR] Mismo defecto que en retag/backfill: el
+  // `clear()` sin llaves borraba el offset tras CUALQUIER pasada parcial.
+  if (terminadoGlobal) {
+    saveCursor('leads_rp', cursorOffset);
+    cursorOffset.clear();
+  }
 
   return {
     oneShot: true, terminado: terminadoGlobal, counters, sedes: progreso,

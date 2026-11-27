@@ -14,6 +14,7 @@ import { isContextualDuplicate } from './fuzzy_matcher.js';
 import { findVTigerContact } from '../services/vtiger_api_service.js';
 import { learningBrain } from '../services/learning_brain.js';
 import { buildSanitizedCommercialFields, evaluateCommercialTruth } from '../domain/commercial_engine.js';
+import { etiquetaCanal, etiquetaProveedor, etiquetaSede, etiquetaPagina, aplicarContratoEtiquetas, canalVtigerDesdeTag, TAGS_ESTADO } from '../domain/ghl_tags.js';
 import { syncUnifiedPipelineOpportunity } from '../services/ghl_opportunity_service.js';
 import { getMetaAdDetails } from '../services/meta_api_service.js';
 
@@ -644,6 +645,20 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
           break;
         }
       }
+      // [FIX 27/11 — "revisar-ruteo" MASIVO EN MESSENGER SIN TELÉFONO]
+      // El nombre de página resuelto por ETIQUETA dejaba `targetPageId` en null.
+      // Después, `getPageMatrixEntry(null)` devolvía undefined y el contacto se
+      // marcaba "fanpage no mapeada" → revisar-ruteo, AUNQUE la página, el
+      // proveedor y el dueño fueran correctos. Era la causa del 60% de
+      // "revisar-ruteo" en los leads de Messenger (los que aún no dan teléfono).
+      // Se recupera el pageId desde el mapa inverso para que el resto de la lógica
+      // (matriz de páginas, proveedor, producto) trabaje con el ID real.
+      if (targetPageName) {
+        const idInverso = Object.keys(FB_PAGE_ID_MAP).find(
+          id => String(FB_PAGE_ID_MAP[id]).toLowerCase() === String(targetPageName).toLowerCase()
+        );
+        if (idInverso) targetPageId = idInverso;
+      }
     }
 
     // [PROCEDENCIA REAL vs CONTEXTO DE SUBCUENTA]
@@ -789,38 +804,37 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
     const resolvedSede = resolveSedeContext({ pageId: targetPageId, sede: currentSedeName, locationId: activeLocationId });
     if (resolvedSede && resolvedSede.users) {
-      // [REGLA ESTRICTA DE PROPIETARIO — FUENTE ÚNICA (page_matrix.js)]
-      // La asignación es por PAGE ID (condición exacta), NUNCA por nombre de fanpage.
-      // El dueño se resuelve desde PAGE_MATRIX.ownerKey y se busca en users de la sede.
+      // [REGLA ÚNICA — 27/11] EL DUEÑO ES EL PROVEEDOR.
+      // Antes había dos columnas (proveedor y dueño) que se contradecían y una rama
+      // `sinDueno` que mandaba a Cola Forms páginas que sí tenían proveedor.
+      // Ahora la matriz solo declara `proveedor` y el dueño se deriva de él:
+      //   ERNESTO → ERNESTO · IN_HOUSE → IN_HOUSE · CLICK2RING → CLICK2RING · EN CASA G → EN CASA G
+      // (En GHL el `assignedTo` sigue en null: el trabajo se ordena por etiquetas.)
       const pageEntry = getPageMatrixEntry(targetPageId);
-      // [16/10] Los REDES 1/2 son SOLO Facebook. Una página de canal NO-Facebook
-      // (ej. WSP) NO tiene dueño de REDES: se deja sin dueño para el workflow de GHL.
-      if (pageEntry?.canal && pageEntry.canal !== 'FB-MSGR') {
-        console.log(`[Agente 3] [PAGINA-NO-FACEBOOK] ${contactId} página ${targetPageName || targetPageId} es canal ${pageEntry.canal}: no se asigna dueño de REDES.`);
+      // [INICIATIVAS — 27/11] El `canal` declarado en la matriz dice qué iniciativa
+      // corre cada página. Se usa como RESPALDO cuando no hay mensaje (un lead de
+      // FORMULARIO no tiene conversación: sin esto quedaba sin página y en revisión).
+      if (pageEntry?.canal && !hasRealFanpage) {
+        hasRealFanpage = true;
+        if (!targetPageName) targetPageName = pageEntry.pageName;
+      }
+      // Solo se omite el ruteo para canales que NO son Meta (WSP nativo/GHL), no para
+      // FORM: los formularios sí se etiquetan (prov-* + pagina-*).
+      if (pageEntry?.canal && pageEntry.canal !== 'FB-MSGR' && pageEntry.canal !== 'FORM') {
+        console.log(`[Agente 3] [PAGINA-NO-META] ${contactId} página ${targetPageName || targetPageId} es canal ${pageEntry.canal}: lo gestiona el WF de GHL.`);
         return 'UNCHANGED';
       }
-      // [19/10] Página desvinculada de REDES (sinDueno): los leads de esta iniciativa
-      // (formularios) NO se asignan a ningún dueño de REDES; se canalizan a Cola Forms y se sincronizan.
-      // [30/10] Igual para CUALQUIER página cuando el lead es un FORMULARIO Lead Ads
-      // (isAutoFormLead): ERNESTO ahora recibe formularios, y esos NO van a Ernesto,
-      // van a cola-forms sin dueño (trabajo separado y ordenado).
       if (isAutoFormLead) {
-        console.log(`[Agente 3] [FORM-SIN-DUENO] ${contactId} es formulario Lead Ads en página ${targetPageName || targetPageId}: sin dueño, canalizado a Cola Forms.`);
-        targetAdvisorId = null;
-        targetAdvisorName = 'Cola Forms';
-      } else if (pageEntry?.sinDueno) {
-        console.log(`[Agente 3] [PAGINA-SIN-DUENO] ${contactId} página ${targetPageName || targetPageId} está desvinculada de REDES: canalizado a Cola Forms.`);
+        // Un formulario Lead Ads no va a una persona: va a Cola Forms.
+        console.log(`[Agente 3] [FORM-COLA] ${contactId} es formulario Lead Ads en página ${targetPageName || targetPageId}: Cola Forms.`);
         targetAdvisorId = null;
         targetAdvisorName = 'Cola Forms';
       } else {
-        // [DISUELTO — 2026-11-19] Sistema de dueños desvanecido: el Nivel 1 trabaja
-        // por ETIQUETAS (sede-*/prov-*/canal-*/cola-*/pagina-*), NO por dueño (assignedTo).
-        // Ahorra llamadas a GHL y elimina la dependencia de IDs de usuario obsoletos.
         targetAdvisorId = null;
-        targetAdvisorName = 'Sin dueño (etiquetas)';
+        targetAdvisorName = pageEntry?.proveedor || 'Sin proveedor';
         if (!hasRealFanpage) {
           routingReviewReason = 'sin evidencia de fanpage de Meta';
-        } else if (!getPageMatrixEntry(targetPageId)) {
+        } else if (!pageEntry) {
           routingReviewReason = `fanpage no mapeada (${targetPageName || targetPageId})`;
         }
       }
@@ -844,9 +858,16 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         ? Object.values(sedeActual.users).filter(u => u?.id)
         : [];
       if (asesoresPropios.length > 0) {
-        targetAdvisorId = asesoresPropios[0].id;
-        targetAdvisorName = asesoresPropios[0].name;
-        routingReviewReason = routingReviewReason || 'asignado por defecto al primer asesor de la sede';
+        // [FIX 27/11 — "REVISAR-RUTEO" EN CADA LEAD NUEVO]
+        // Antes se asignaba el PRIMER asesor de la sede y se marcaba
+        // "asignado por defecto al primer asesor de la sede". Pero más abajo el
+        // payload fuerza `assignedTo = null` (el N1 trabaja por ETIQUETAS), así que
+        // la asignación no llegaba nunca a GHL: lo ÚNICO que quedaba era la etiqueta
+        // `revisar-ruteo` en TODOS los leads de Messenger sin teléfono.
+        // Ahora no se asigna a nadie y NO se marca revisión: si la página, el
+        // proveedor y el canal están resueltos, el lead está bien etiquetado.
+        targetAdvisorId = null;
+        targetAdvisorName = 'Sin dueño (etiquetas)';
       } else {
         routingReviewReason = `sede ${currentSedeName} sin asesores configurados`;
         console.warn(`[Agente 3] [RUTEO] ${currentSedeName} no tiene asesores configurados: no se asigna un asesor de otra subcuenta.`);
@@ -874,9 +895,14 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       }
     }
 
-    if (!targetAdvisorId && targetAdvisorName !== 'Cola Forms') {
-      console.log(`[Agente 3] No se encontró un asesor asignado para la página ${targetPageName}.`);
-      return;
+    // [FIX 27/11 — CORTE POR "SIN ASESOR"] Antes, si no se resolvía un asesor para la
+    // página, el ruteo se ABORTABA aquí (`return`). Eso era coherente cuando el N1
+    // asignaba dueños; hoy el dueño se fuerza a null y el trabajo es por ETIQUETAS:
+    // abortar dejaba al lead SIN canal, SIN proveedor y SIN página (el defecto que
+    // rompía las vistas del equipo de redes). Se deja constancia y se continúa.
+    if (!targetAdvisorId && !targetAdvisorName) {
+      console.log(`[Agente 3] [SIN-PROVEEDOR] ${contactId}: página ${targetPageName || targetPageId || '(sin página)'} sin proveedor resuelto. Se etiqueta igual.`);
+      targetAdvisorName = 'Sin proveedor';
     }
 
     indexingRetries.delete(contactId); // Limpiar reintentos en caso de éxito
@@ -928,6 +954,10 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const TIENE_TELEFONO_FIELD = sedeFields.tieneTelefono;
     const ULTIMA_INTERACCION_FIELD = sedeFields.ultimaInteraccion;
     const PROVEEDOR_FIELD = sedeFields.proveedor;
+    // [AUDITORÍA 27/11 — CF FALTANTE EN N1] "Canal Captación" nunca lo escribía el
+    // router: sólo el Nivel 2 (desde cf_3507). Resultado medido: cobertura ~0% en los
+    // leads de Meta y la dimensión de canal dependía únicamente de la etiqueta.
+    const CANAL_CAPTACION_FIELD = sedeFields.canalCaptacion;
     const PAGINA_ULTIMO_CHAT_FIELD = sedeFields.paginaUltimoChat || null;
     const CANAL_ULTIMO_CHAT_FIELD = sedeFields.canalUltimoChat || null;
 
@@ -1105,6 +1135,66 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         if (vSede && curSede && vSede !== curSede) {
           console.warn(`[Agente 3] [SEDE-SHIELD] Bloqueado match vTiger ${vContact.id} (Sede: ${vSede}) para subcuenta de ${curSede}. Contacto invalidado.`);
           vContact = null;
+        }
+      }
+
+      // ======================================================================
+      // [N1 — "SE OBTUVO EL NÚMERO"] El momento crítico del Nivel 1.
+      //
+      // Hasta que el lead da su teléfono (o llega por formulario) NO hay nada que
+      // buscar en el CRM. En cuanto el número aparece en el chat, ESE es el instante
+      // para cruzar con vTiger:
+      //   · si el número PERTENECE a un contacto del CRM → se traen sus datos y se
+      //     llenan sus CF en GHL (esto es el "éxito de la sincronización");
+      //   · si NO pertenece a nadie → es un lead NUEVO y no se hace nada
+      //     (el motor jamás escribe en vTiger).
+      //
+      // El primer intento usa el fast-path de 900 ms (para no demorar el chat). Un
+      // número recién obtenido ocurre UNA vez por contacto, así que aquí sí se
+      // permite esperar más: se reintenta con 2.5 s y se deja constancia en auditoría.
+      // ======================================================================
+      const telefonoRecienObtenido = Boolean(
+        (autoFormPhone && contact.phone !== autoFormPhone) ||
+        (shippingData?.hasPhone && String(contact.phone || '') !== String(shippingData.phone || ''))
+      );
+      if (!vContact && telefonoRecienObtenido && effectivePhone && !vTigerEnCooldown) {
+        try {
+          const vc = await Promise.race([
+            findVTigerContact({ ...contact, phone: effectivePhone }, currentSedeName),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('vTiger Timeout 2500ms')), 2500))
+          ]);
+          if (vc) {
+            const vSedeNuevo = String(vc.cf_3451 || '').toUpperCase().trim();
+            const curSedeNuevo = String(currentSedeName || '').toUpperCase().trim();
+            if (!vSedeNuevo || !curSedeNuevo || vSedeNuevo === curSedeNuevo) {
+              vContact = vc;
+              recordAuditEvent({
+                type: 'N1_NUMERO_MATCH_OK',
+                severity: 'info',
+                contactId,
+                sede: currentSedeName,
+                vTigerId: vc.id,
+                compras: vc.spl_num_compras || 0,
+                motivo: 'número obtenido en el chat'
+              });
+              console.log(`[Agente 3] [NUMERO-MATCH] ${contactId}: el número corresponde a vTiger ${vc.id} (${vc.spl_num_compras || 0} compras). Se llenan sus CF.`);
+            } else {
+              recordAuditEvent({ type: 'N1_NUMERO_MATCH_OTRA_SEDE', severity: 'warn', contactId, sede: currentSedeName, vTigerId: vc.id, sedeVtiger: vSedeNuevo });
+              console.warn(`[Agente 3] [NUMERO-MATCH] ${contactId}: el número es de ${vSedeNuevo}, no de ${curSedeNuevo}. No se cruza.`);
+            }
+          } else {
+            // Lead nuevo: no existe en el CRM. No se hace nada (no se crea en vTiger).
+            recordAuditEvent({
+              type: 'N1_NUMERO_SIN_MATCH',
+              severity: 'info',
+              contactId,
+              sede: currentSedeName,
+              motivo: 'lead nuevo: el número no existe en vTiger'
+            });
+          }
+        } catch (err) {
+          recordAuditEvent({ type: 'N1_NUMERO_MATCH_TIMEOUT', severity: 'warn', contactId, sede: currentSedeName, message: err.message });
+          console.warn(`[Agente 3] [NUMERO-MATCH] ${contactId}: vTiger no respondió a tiempo (${err.message}). Se reintenta en el próximo ruteo.`);
         }
       }
       if (vContact) {
@@ -1498,11 +1588,11 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // SIN canal (no entraba a ninguna vista aunque fuera legítimo).
     const canalTag = (() => {
       if (isAutoFormLead) return 'canal-forms';
-      const t = String(latestMessageTransport || '').toLowerCase();
-      if (t.includes('whatsapp') || t === 'wsp') return 'canal-whatsapp';
-      if (t === 'sms') return 'canal-sms';
-      if (t === 'instagram') return 'canal-instagram';
-      return 'canal-messenger';
+      // [AUDITORÍA 27/11 — CONTRATO ÚNICO] Se usa el normalizador canónico en lugar
+      // de una cadena de `includes()` local: el mismo criterio que N2 y el que usan
+      // las Smart Views. Un transporte desconocido cae a Messenger (canal de origen
+      // del motor) en vez de quedar sin etiqueta.
+      return etiquetaCanal(latestMessageTransport) || 'canal-messenger';
     })();
     for (const t of Array.from(newTagsSet)) {
       if (t.startsWith('canal-') && t !== canalTag) {
@@ -1523,11 +1613,7 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
       // 'Ernesto - PALACIOS - Messenger' y 'INHOUSE - Naturales BioNatural'. Se prioriza
       // el proveedor resuelto por campaña/adset (resolveLeadProvider, que detecta
       // INHOUSE/ERNESTO/CLICK2RING en el nombre) y la página queda como respaldo.
-      const provCampana = targetProvider
-        ? `prov-${String(targetProvider).toLowerCase().normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '')}`
-        : null;
+      const provCampana = targetProvider ? etiquetaProveedor(targetProvider) : null;
       const smartViewTags = getSmartViewTagsByPageId(targetPageId);
       // [PURGA DE PROVEEDOR] Un lead solo tiene UN proveedor activo: si reingresa
       // por otro proveedor/canal, se elimina el prov-* anterior para que el mismo
@@ -1589,12 +1675,13 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
         }
       }
     } else if (currentSedeName) {
-      newTagsSet.add(`sede-${currentSedeName.toLowerCase()}`);
+      const sedeTagFallback = etiquetaSede(currentSedeName);
+      if (sedeTagFallback) newTagsSet.add(sedeTagFallback);
     }
 
     // [HERMETISMO DE SEDES] Purga quirúrgica de etiquetas de sedes ajenas
     const ALL_SEDE_TAGS = ['sede-palacios', 'sede-benavides', 'sede-roosevelt', 'sede-piura'];
-    const currentSedeTag = `sede-${currentSedeName.toLowerCase()}`;
+    const currentSedeTag = etiquetaSede(currentSedeName) || `sede-${currentSedeName.toLowerCase()}`;
     for (const sTag of ALL_SEDE_TAGS) {
       if (sTag !== currentSedeTag && newTagsSet.has(sTag)) {
         newTagsSet.delete(sTag);
@@ -1691,6 +1778,12 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     // (resolveLeadProvider) porque una misma página puede correr Ernesto e Inhouse.
     if (PROVEEDOR_FIELD && targetPageId) customFieldsToUpdate.push({ id: PROVEEDOR_FIELD, key: 'contact.proveedor', field_value: targetProvider || getPageMatrixEntry(targetPageId)?.proveedor || '' });
     if (ORIGEN_LEAD_FIELD && vtigerSource) customFieldsToUpdate.push({ id: ORIGEN_LEAD_FIELD, key: 'contact.origen_lead', field_value: vtigerSource });
+    // Canal Captación con el MISMO vocabulario que vTiger (FB-MSGR / FORM / ...),
+    // para que N1 y N2 no describan el mismo canal con valores distintos.
+    if (CANAL_CAPTACION_FIELD && canalTag) {
+      const canalVtiger = canalVtigerDesdeTag(canalTag);
+      if (canalVtiger) customFieldsToUpdate.push({ id: CANAL_CAPTACION_FIELD, key: 'contact.vtiger_canal_captacion', field_value: canalVtiger });
+    }
     if (TIENE_TELEFONO_FIELD) customFieldsToUpdate.push({ id: TIENE_TELEFONO_FIELD, key: 'contact.tiene_telfono', field_value: (contact.phone || (shippingData && shippingData.hasPhone)) ? 'Sí' : 'No' });
     if (ULTIMA_INTERACCION_FIELD) customFieldsToUpdate.push({ id: ULTIMA_INTERACCION_FIELD, key: 'contact.ultima_interaccion', field_value: new Date().toISOString().split('T')[0] });
     // [ULTIMO CHAT] Página y canal del último contacto (para conteo por página/canal en Smart Lists).
@@ -1771,26 +1864,35 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
 
  // INYECCIÓN FLUIDA DE ETIQUETAS VTIGER EN VIVO (SOLO LAS ESENCIALES)
     if (vContact || targetVtigerNota) {
-      // [19/10 — REDUCCIÓN DE ETIQUETAS] Se eliminan 'vtiger', 'vtiger-sincronizado',
-      // 'vtiger-status-*' y 'canal-*': eran ruido redundante (cliente/prospecto-vtiger
-      // ya resume el estado comercial). Se mantiene solo la etiqueta accionable.
+      // [19/10 — REDUCCIÓN DE ETIQUETAS] Se eliminan 'vtiger', 'vtiger-sincronizado'
+      // y 'vtiger-status-*': eran ruido redundante (cliente/prospecto-vtiger ya
+      // resume el estado comercial). Se mantiene solo la etiqueta accionable.
       if (finalCustomerWon) {
-        newTagsSet.add('cliente-vtiger');
-        newTagsSet.delete('prospecto-vtiger');
-        if ((contact.tags || []).includes('prospecto-vtiger')) tagsToRemove.push('prospecto-vtiger');
+        newTagsSet.add(TAGS_ESTADO.CLIENTE);
+        newTagsSet.delete(TAGS_ESTADO.PROSPECTO);
+        if ((contact.tags || []).includes(TAGS_ESTADO.PROSPECTO)) tagsToRemove.push(TAGS_ESTADO.PROSPECTO);
       } else {
-        newTagsSet.add('prospecto-vtiger');
-        newTagsSet.delete('cliente-vtiger');
-        if ((contact.tags || []).includes('cliente-vtiger')) tagsToRemove.push('cliente-vtiger');
+        newTagsSet.add(TAGS_ESTADO.PROSPECTO);
+        newTagsSet.delete(TAGS_ESTADO.CLIENTE);
+        if ((contact.tags || []).includes(TAGS_ESTADO.CLIENTE)) tagsToRemove.push(TAGS_ESTADO.CLIENTE);
       }
       // Purga de las etiquetas vTiger ruidosas que hayan quedado de sincronizaciones previas.
       for (const t of ['vtiger', 'vtiger-sincronizado']) {
         newTagsSet.delete(t);
         if ((contact.tags || []).includes(t)) tagsToRemove.push(t);
       }
+      // [AUDITORÍA 27/11 — DEFECTO CRÍTICO CORREGIDO] Aquí se borraban TAMBIÉN las
+      // etiquetas `canal-*` recién calculadas unas líneas antes. Resultado: todo
+      // contacto con registro en vTiger quedaba SIN canal, y el Nivel 2 (dual sync /
+      // reverse sync) volvía a escribirlo en el ciclo siguiente. Las Smart Views de
+      // chat parpadeaban y se gastaba cuota reescribiendo la misma etiqueta.
+      // Medición: 95.7% de los contactos recientes tenía canal, pero 8 de Palacios y
+      // 11 de Roosevelt quedaban con DOS etiquetas de canal (la vieja y la nueva).
+      // Decisión: el canal se conserva (es una dimensión de trabajo, no ruido); solo
+      // se purga lo que el contrato declara ruido de vTiger.
       for (const t of Array.from(newTagsSet)) {
         const ts = String(t).trim();
-        if (ts.startsWith('vtiger-status-') || ts.startsWith('canal-')) {
+        if (ts.startsWith('vtiger-status-')) {
           newTagsSet.delete(t);
           tagsToRemove.push(ts);
         }
@@ -1878,9 +1980,23 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
  // G. CONSTRUIR PAYLOAD ATÓMICO (1 SOLO PUT)
+    // [CONTRATO ÚNICO DE ETIQUETAS — 27/11] El equipo de redes trabaja SOLO con
+    // `prov-*` y `pagina-*`. Todo lo demás que se acumuló (cola-*, canal-*, sede-*,
+    // producto-*, revisar-ruteo, facebook-messenger, meta-ads, sin-telefono…) se
+    // retira aquí, sin importar qué rama lo haya agregado antes.
+    // [REGLA DE ORO] El proveedor sale de la PÁGINA (matriz). Si la campaña/anuncio
+    // lo resolvió antes, ese manda; si no, se usa el proveedor declarado de la página.
+    // Sin este respaldo, un chat sin campaña quedaba con página pero SIN proveedor.
+    const proveedorDeLaPagina = getPageMatrixEntry(targetPageId)?.proveedor || null;
+    const contrato = aplicarContratoEtiquetas({
+      actuales: Array.from(newTagsSet),
+      proveedor: etiquetaProveedor(targetProvider || proveedorDeLaPagina || ''),
+      pagina: etiquetaPagina(targetPageName)
+    });
+
     const updatePayload = {
       source: vtigerSource,        // Fuente de contacto estilo vTiger
-      tags: Array.from(newTagsSet),
+      tags: contrato.tags,
       customFields: customFieldsToUpdate
     };
 
@@ -1993,7 +2109,15 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     const hasTzUpdate = (!contact.timezone || contact.timezone === '--') && Boolean(shippingData.timezone);
 
     const hasGeoUpdate = hasCountryUpdate || hasAddressUpdate || hasCityUpdate || hasStateUpdate || hasZipUpdate || hasTzUpdate;
-    const hasChanges = !isSameAdvisor || !isSameSource || tagsChanged || hasCFChanges || hasPhoneUpdate || hasGeoUpdate || isDoubleAdEntry;
+    // [CONTRATO ÚNICO — 27/11] Se calcula ANTES de decidir si hay cambios.
+    // Si el contacto arrastra etiquetas fuera del contrato (cola-*, canal-*, sede-*,
+    // producto-*, revisar-ruteo, vtiger, facebook-messenger, meta-ads, sin-telefono…)
+    // eso YA es un cambio: hay que hacer el PUT para limpiarlas. Antes el router
+    // decía "no hay cambios" y la basura se quedaba pegada para siempre.
+    const tieneEtiquetasBasura = contrato.removidas.length > 0;
+
+    const hasChanges = !isSameAdvisor || !isSameSource || tagsChanged || hasCFChanges
+      || hasPhoneUpdate || hasGeoUpdate || isDoubleAdEntry || tieneEtiquetasBasura;
 
     if (!hasChanges) {
       console.log(`[Agente 3] [SYNC] Contacto ${contactId} ya está 100% sincronizado. Omitiendo PUT para evitar parpadeos en pantalla.`);
@@ -2012,9 +2136,25 @@ export async function routeChatByContact(contactId, isLive = false, isDryRun = f
     }
 
     if (isDryRun) {
+      // [LABORATORIO N1] En simulación se devuelve el payload calculado para poder
+      // auditarlo en local (qué etiquetas entrarían/saldrían, qué CF se escribirían,
+      // a quién se asignaría) SIN tocar GHL.
       console.log(`[Agente 3] [DRY-RUN] Simulacion completada para ${contactId}. Cambios que se habrian inyectado:`);
       console.log(JSON.stringify(updatePayload, null, 2));
-      return;
+      return {
+        dryRun: true,
+        contactId,
+        payload: updatePayload,
+        asesor: targetAdvisorName || null,
+        origen: vtigerSource || null,
+        canal: canalTag || null,
+        pagina: targetPageName || null,
+        proveedor: targetProvider || null,
+        revisarRuteo: Boolean(routingReviewReason),
+        motivoRevision: routingReviewReason || null,
+        adId: targetAdId || null,
+        tratamiento: targetTratamiento || null
+      };
     }
 
     const updateRes = await fetchWithRetry(`https://services.leadconnectorhq.com/contacts/${contactId}`, {

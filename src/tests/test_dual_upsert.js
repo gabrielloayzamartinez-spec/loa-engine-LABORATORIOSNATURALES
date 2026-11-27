@@ -124,12 +124,13 @@ assert(!existente.seguros.some(c => c.nombre === 'total_compras'), 'total_compra
 const nuevo = partitionFields(camposPrueba, false);
 assert(nuevo.seguros.length === 4 && nuevo.protegidos.length === 0, 'Con contacto nuevo viaja el historial completo (se crea con sus compras)');
 
-// Etiquetas de estatus
+// Etiquetas de estatus — [DEPURACIÓN 27/11] ya NO se preservan: el estado vive en
+// el custom field "Estado de Compra", no en etiquetas.
 const tags = mergeTagsPreservingStatus(['convertido', 'compro', 'cliente-vtiger', 'no-compro'], ['vtiger', 'campana-nueva']);
-assert(tags.tags.includes('convertido'), 'La etiqueta "convertido" se preserva en el reingreso');
-assert(tags.tags.includes('compro'), 'La etiqueta "compro" se preserva');
-assert(!tags.tags.includes('no-compro'), 'Una etiqueta contradictoria "no-compro" se retira si el cliente ya compró');
-assert(tags.preservadas.includes('convertido'), 'Se reporta qué etiquetas de estatus se preservaron (auditoría)');
+assert(!tags.tags.includes('convertido'), 'La etiqueta "convertido" se retira (el estado va en el CF)');
+assert(!tags.tags.includes('compro'), 'La etiqueta "compro" se retira');
+assert(!tags.tags.includes('no-compro'), 'La etiqueta "no-compro" se retira');
+assert(tags.preservadas.length === 0, 'No se reporta ninguna etiqueta de estatus preservada');
 for (const t of TAGS_ESTATUS_PROTEGIDAS) {
   const r = mergeTagsPreservingStatus([t], []);
   assert(r.tags.includes(t), `La etiqueta protegida "${t}" nunca se retira`);
@@ -174,9 +175,14 @@ assert(payloads.macro.customFields.some(f => f.id === 'C_FECHA'), 'La carga MACR
 assert(payloads.operativa.locationId === SEDES_GATEWAY.PALACIOS.ghl.locationId, 'La carga OPERATIVA apunta a la subcuenta de Palacios');
 assert(!payloads.operativa.customFields.some(f => f.id === 'C_OFICINA'), 'La carga operativa NO mezcla los IDs de la Central (son por location)');
 
-assert(payloads.tagsNuevas.includes('convertido') && payloads.tagsNuevas.includes('compro'), 'Las etiquetas de comprador se aplican en la creación');
-assert(payloads.tagsNuevas.includes('producto-diabetes'), 'Se etiqueta el producto canónico');
-assert(!payloads.tagsNuevas.includes('vtiger-sincronizado') && !payloads.tagsNuevas.includes('vtiger'), 'Se eliminan las etiquetas vTiger redundantes (cliente-vtiger ya resume)');
+assert(!payloads.tagsNuevas.some(t => ['convertido','compro','cliente-vtiger','prospecto-vtiger'].includes(t)), 'Las etiquetas de estado NO se escriben (van en el CF)');
+// [CONTRATO 27/11] El equipo de redes trabaja SOLO con prov-* y pagina-*.
+// El producto, el canal y la sede YA NO se escriben como etiquetas: viven en sus
+// custom fields. Etiquetarlos era el ruido que ensuciaba las vistas de chat.
+assert(!payloads.tagsNuevas.some(t => String(t).startsWith('producto-')), 'El producto NO se escribe como etiqueta (va en el CF)');
+assert(!payloads.tagsNuevas.some(t => String(t).startsWith('canal-')), 'El canal NO se escribe como etiqueta');
+assert(!payloads.tagsNuevas.some(t => String(t).startsWith('sede-')), 'La sede NO se escribe como etiqueta');
+assert(!payloads.tagsNuevas.some(t => String(t).startsWith('cola-')), 'Las colas ya no existen');
 
 // Geografía corregida en ambas cargas
 assert(payloads.operativa.city === 'Miami' && payloads.operativa.state === 'FL', `Ciudad y estado separados correctamente (city=${payloads.operativa.city}, state=${payloads.operativa.state})`);
@@ -543,12 +549,28 @@ const enviaCampo = (ghlFields, id) => buildUpsertPayloads(vMono, {
 }).operativa.customFields.some(f => f.id === id);
 
 assert(enviaCampo([{ id: 'F1', value: ms('2025-01-01') }], 'F1') === true, 'Contacto EXISTENTE con fecha vieja: la fecha AVANZA');
-assert(enviaCampo([{ id: 'F1', value: ms('2027-01-01') }], 'F1') === false, 'Contacto EXISTENTE con fecha más nueva: se PROTEGE');
+// [MODO ESPEJO — 27/11/2026] Por defecto vTiger manda: una corrección hacia atrás
+// (una fecha mal cargada que el CRM corrige) SÍ debe reflejarse en GHL.
+assert(enviaCampo([{ id: 'F1', value: ms('2027-01-01') }], 'F1') === true, 'Modo espejo: una corrección de fecha de vTiger se publica');
 assert(enviaCampo([], 'F1') === true, 'Contacto sin el dato: la fecha se escribe');
 assert(enviaCampo([], 'F2') === true, 'La fecha de PRIMERA compra también se escribe cuando falta');
 assert(enviaCampo([{ id: 'T1', value: '1' }], 'T1') === true, 'El contador de compras avanza (1 -> 3)');
-assert(enviaCampo([{ id: 'T1', value: '9' }], 'T1') === false, 'El contador no retrocede (9 -> 3 se omite)');
+assert(enviaCampo([{ id: 'T1', value: '9' }], 'T1') === true, 'Modo espejo: una corrección 9 -> 3 se publica (orden anulada)');
+// Centinela: si vTiger trae 0 compras pero GHL ya tiene 5, NO se borra el contador
+// (en este vTiger `spl_num_compras` queda en 0 aunque existan órdenes).
+const vCero = { ...vMono, spl_num_compras: '0' };
+const enviaCero = buildUpsertPayloads(vCero, {
+  incluirHistorial: true, fieldIdsSede: idsMono,
+  ghlExistenteSede: { customFields: [{ id: 'T1', value: '5' }] }
+}).operativa.customFields.some(f => f.id === 'T1');
+assert(enviaCero === false, 'Un 0 NO borra un contador positivo (spl_num_compras=0 es centinela, no corrección)');
 assert(enviaCampo([{ id: 'I1', value: '12x1' }], 'I1') === true, 'Un campo no comparable (id de cliente) se envía igual');
+
+// El modo anterior (monótono) sigue disponible por si se necesita:
+process.env.GHL_MODO_ESPEJO = 'false';
+assert(enviaCampo([{ id: 'F1', value: ms('2027-01-01') }], 'F1') === false, 'Modo legado: la fecha más nueva se PROTEGE');
+assert(enviaCampo([{ id: 'T1', value: '9' }], 'T1') === false, 'Modo legado: el contador no retrocede');
+process.env.GHL_MODO_ESPEJO = 'true';
 
 // ------------------------------------------------------------------------------
 // [REGLA DE MERGE] La sede más reciente gana en la Empresa

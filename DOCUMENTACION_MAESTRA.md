@@ -50,6 +50,30 @@ graph TD
 
 ---
 
+### 2.3 Niveles de sincronización (N1 · N2A · N2B · N3)
+
+El motor separa el trabajo por **prioridad y objetivo**. Todos escriben con el MISMO
+contrato de campos y etiquetas (`src/domain/ghl_tags.js`).
+
+| Nivel | Objetivo | Qué corre | Cadencia | Cuota |
+| :--- | :--- | :--- | :--- | :--- |
+| **N1** | Atención en vivo (Meta) | radar, router, webhooks, trabajo del día | 5 s / 3 min | prioridad absoluta (reserva intocable) |
+| **N2A** | **Cobertura** (histórico) | backfill de compradores, leads backfill, sales bridge | continuo por cursor | resto del fondo; manda sobre N2B |
+| **N2B** | **Completitud** (reconciliación) | re-llenado comercial, curador de estándar, order history | 15–20 min | lote corto; cede ante N2A |
+| **N3** | **Frescura** (reactivo vTiger) | un cambio de vTiger = una ficha completa en GHL | 60 s | tope `NIVEL3_MAX_DIA` (4.000/día) |
+
+- **N2 partido en dos carriles** (`src/services/ciclo_operativo.js`): un carril a la
+  vez, y si ambos quieren arrancar gana el histórico. Antes un solo turno hacía que
+  el re-llenado le robara el turno al backfill.
+- **N3 reemplaza al demonio inverso** (`src/services/nivel3_reactive_sync.js`):
+  idempotente por `sede:id:modifiedtime`, con Sede-Lock y salto de cursor si el
+  atraso supera 45 min. El demonio antiguo queda detrás de
+  `VTIGER_REVERSE_SYNC_ENABLED=true`.
+- **Paneles:** `GET /api/nivel2/carriles`, `GET /api/nivel3/estado`,
+  `GET /api/sync/estado`, `GET /api/auditoria/contrato-sync`.
+
+---
+
 ## 3. Protocolo de Modificaciones y Desarrollo (Sandbox)
 
 Para preservar la integridad del entorno de producción, las modificaciones al código core (ej. lógica de deduplicación, asignación de asesores) deben seguir un flujo estricto de desarrollo modular:

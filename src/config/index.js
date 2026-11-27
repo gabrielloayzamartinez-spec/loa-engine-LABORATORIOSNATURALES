@@ -180,7 +180,21 @@ export const FB_PAGE_ID_MAP = {
   "1075001465705985": "BioNatural Plus",
   // PIURA
   "1147257965133802": "Natural Bio",
-  "1057863707412893": "BioNatural"
+  "1057863707412893": "BioNatural",
+  // [FIX 27/11] Páginas que existían en la MATRIZ pero NO aquí: un mensaje de
+  // cualquiera de ellas no resolvía nombre, así que el contacto se quedaba SIN
+  // etiqueta `pagina-*` (y el proveedor caía al respaldo de campaña).
+  //   · BioHealth Natural (Palacios · EN CASA G)
+  //   · BioNatural Salud (Palacios · IN_HOUSE)
+  //   · BioNatural Testosterona / Diabetes (Benavides · IN_HOUSE)
+  //   · Bio Natural Salud (Roosevelt · IN_HOUSE)
+  //   · BioNatural Piura Inhouse (Piura · IN_HOUSE)
+  "1422379957628845": "BioHealth Natural",
+  "1438600545996758": "BioNatural Salud",
+  "1397629783430897": "BioNatural Testosterona",
+  "1223518870833689": "BioNatural Diabetes",
+  "180536758476362": "Bio Natural Salud",
+  "1366688306523831": "BioNatural Piura Inhouse"
 };
 
 // ==========================================

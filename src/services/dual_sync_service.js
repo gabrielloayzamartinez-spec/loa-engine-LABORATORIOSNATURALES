@@ -37,6 +37,8 @@ import { SEDES_GATEWAY, resolveSedeContext } from '../config/index.js';
 import { ghlFetch } from '../utils/ghl_http_client.js';
 import { normalizeToE164, buildSanitizedGeoFields, splitCityAndState, isUsStateCode, isUsStateName, normalizeUsState } from '../utils/geo_phone_sanitizer.js';
 import { normalizeTreatment } from '../domain/clinical_vocabulary.js';
+import { aplicarContratoEtiquetas, etiquetaProveedor, etiquetaPagina, TAGS_ESTADO } from '../domain/ghl_tags.js';
+import { clasificarCliente } from '../domain/segmentacion.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { detectarSedeEnTexto } from './contact_collision_service.js';
 import { readSecret } from '../config/secrets.js';
@@ -109,6 +111,18 @@ export const CAMPOS_REQUERIDOS = {
   contactoNo: ['contact no', 'numero de contacto', 'v tiger contact no'],
   asesorAsignado: ['asesor asignado', 'v tiger asesor asignado'],
   fechaCreacion: ['fecha creacion', 'v tiger fecha creacion'],
+  // [SEGMENTACIÓN 27/11] "Fecha Creación (Fecha)" es el campo DATE que sí permite
+  // filtrar por RANGO en las Listas Inteligentes de GHL. El TEXT no sirve para
+  // "entre el 1 y el 31": se publican los dos, cada uno a su campo.
+  // El alias por `fieldKey` es el contrato estable: en las 4 subcuentas el campo es
+  // literalmente `contact.contactfecha_creacion_fecha` (verificado en vivo), así que
+  // aunque alguien lo renombre, se sigue resolviendo por la clave.
+  fechaCreacionFecha: ['contact.contactfecha_creacion_fecha', 'fecha creacion fecha', 'fecha de creacion fecha'],
+  // "Fuente Última Orden" (Mi Re-Orden / Primera Compra). Existía en GHL al 0%
+  // porque ningún servicio la escribía: aquí se le da semántica y se publica.
+  fuenteUltimaOrden: ['fuente ultima orden', 'v tiger fuente ultima orden'],
+  // Comprador / No Comprador (vocabulario del negocio, distinto de "Estado Comercial").
+  estadoCompra: ['estado de compra', 'estado compra'],
   anotacionesRedes: ['anotaciones redes', 'v tiger anotaciones redes'],
   // Campo LARGE_TEXT que aloja el detalle de órdenes.
   historialCompleto: ['historial completo', 'v tiger historial completo'],
@@ -383,13 +397,17 @@ export const CAMPOS_HISTORIAL_PROTEGIDOS = [
   'estado_comercial', 'estado_compra_lista'
 ];
 
-/** Etiquetas de estatus comercial que nunca se retiran en un reingreso. */
-export const TAGS_ESTATUS_PROTEGIDAS = [
-  'convertido', 'compro', 'cliente-vtiger', 'cliente-comprador', 'venta-cerrada'
-];
+/**
+ * Etiquetas de estatus que antes se preservaban en un reingreso.
+ * [DEPURACIÓN 27/11] La lista queda VACÍA: las etiquetas de estado ya no existen en
+ * el sistema; el estado vive en el custom field "Estado de Compra". Se mantiene la
+ * exportación para no romper a quien la importe.
+ */
+export const TAGS_ESTATUS_PROTEGIDAS = [];
 
-/** Etiquetas que el middleware está autorizado a gestionar (campaña/interacción). */
-const TAGS_GESTIONADAS = ['vtiger', 'vtiger-sincronizado', 'campaña-nueva', 'campana-nueva', 'reingreso'];
+// [AUDITORÍA 27/11] Aquí vivía `TAGS_GESTIONADAS`, una lista que NUNCA se usaba y
+// que decía que el motor "gestiona" `vtiger`/`vtiger-sincronizado`. El reemplazo es
+// el contrato único (domain/ghl_tags.js), que sí retira ese ruido en cada merge.
 
 /**
  * Limpia un componente del nombre.
@@ -624,24 +642,16 @@ export function splitCamposMonotonos(campos = [], existentes = {}) {
  * @returns {{ tags: string[], preservadas: string[], removidas: string[] }}
  */
 export function mergeTagsPreservingStatus(actuales = [], nuevas = []) {
-  const set = new Set([...actuales, ...nuevas].map(t => String(t).trim()).filter(Boolean));
-  const preservadas = [];
-  const removidas = [];
-
-  for (const tag of TAGS_ESTATUS_PROTEGIDAS) {
-    if (set.has(tag)) preservadas.push(tag);
-  }
-
-  // Gestionadas: si el contacto ya tiene 'convertido', 'compro' se conserva y no
-  // se intenta degradar el estado comercial por un reingreso.
-  const tieneConvertido = set.has('convertido') || set.has('compro') || set.has('cliente-vtiger');
-  if (tieneConvertido) {
-    set.delete('no-compro');
-    set.delete('prospecto-vtiger');
-    if (set.has('no-compro')) removidas.push('no-compro');
-  }
-
-  return { tags: [...set], preservadas, removidas };
+  // [AUDITORÍA 27/11 — CONTRATO ÚNICO] Antes esta función sólo retiraba
+  // `no-compro`/`prospecto-vtiger`, y `TAGS_GESTIONADAS` (declarada arriba) NUNCA se
+  // usaba: `vtiger` y `vtiger-sincronizado` sobrevivían en cada sincronización.
+  // Medición real: 92.9% de los compradores de Roosevelt y 33% de los de Piura
+  // seguían con esas etiquetas de ruido. Ahora el merge pasa por el contrato:
+  // retira ruido, normaliza variantes legadas de canal y deja UNA etiqueta por
+  // familia. Las etiquetas de estatus comercial siguen protegidas.
+  const { tags, removidas } = aplicarContratoEtiquetas({ actuales, agregar: nuevas });
+  const preservadas = TAGS_ESTATUS_PROTEGIDAS.filter(t => tags.includes(t));
+  return { tags, preservadas, removidas };
 }
 
 // ------------------------------------------------------------------------------
@@ -786,6 +796,18 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   push(fieldIdsCentral, 'estadoComercial', vContact.cf_1876 || '');
   push(fieldIdsCentral, 'asesorAsignado', vContact.wcf_acf_atf_3390 || '');
   push(fieldIdsCentral, 'fechaCreacion', String(vContact.createdtime || '').slice(0, 10));
+  // [SEGMENTACIÓN] Misma fecha en el campo DATE (filtrable por rango).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(vContact.createdtime || '').slice(0, 10))) {
+    push(fieldIdsCentral, 'fechaCreacionFecha', String(vContact.createdtime).slice(0, 10));
+  }
+  // [SEGMENTACIÓN] Comprador / No Comprador y recompra. El order history los
+  // recalcula con el nº REAL de órdenes (más fiable que spl_num_compras), así que
+  // este valor es el de arranque y aquel manda al final del flujo.
+  {
+    const clasif = clasificarCliente({ numCompras: compras });
+    push(fieldIdsCentral, 'estadoCompra', clasif.esComprador ? 'Comprador' : 'No Comprador');
+    if (clasif.fuenteUltimaOrden) push(fieldIdsCentral, 'fuenteUltimaOrden', clasif.fuenteUltimaOrden);
+  }
   if (vContact.cf_2572) {
     let prov = String(vContact.cf_2572).trim().toUpperCase();
     if (/pikalex|pikales/i.test(prov)) prov = 'CLICK2RING';
@@ -859,6 +881,16 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
   pushSede('totalHistorico', vContact.cf_3392 || '');
   pushSede('asesorAsignado', vContact.wcf_acf_atf_3390 || '');
   pushSede('fechaCreacion', String(vContact.createdtime || '').slice(0, 10));
+  // [SEGMENTACIÓN] Los mismos campos derivados en la subcuenta de la sede: es ahí
+  // donde marketing crea las Listas Inteligentes y lanza los SMS.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(vContact.createdtime || '').slice(0, 10))) {
+    pushSede('fechaCreacionFecha', String(vContact.createdtime).slice(0, 10));
+  }
+  {
+    const clasif = clasificarCliente({ numCompras: compras });
+    pushSede('estadoCompra', clasif.esComprador ? 'Comprador' : 'No Comprador');
+    if (clasif.fuenteUltimaOrden) pushSede('fuenteUltimaOrden', clasif.fuenteUltimaOrden);
+  }
   // [FILL ATRIBUCIÓN — 2026-11-18] Campos que antes solo escribía el router (Meta)
   // o el reverse-sync, dejando VACÍOS a los compradores del backfill/sales-bridge.
   pushSede('idAnuncio', vContact.cf_2850 || '');
@@ -999,32 +1031,69 @@ export function buildUpsertPayloads(vContact = {}, opts = {}) {
     console.error(`[Dual Sync] [SEDE-SHIELD] Registro ${vContact.id} es de ${sedeOrigenRegistro || '(sin sede)'} y el destino es ${sedeDestino || '(sin sede)'}: se purgan idClienteVt y contactoNo.`);
   }
 
-  macro.customFields = soloAvances(macro.customFields, porIdMacro);
-  operativa.customFields = soloAvances(operativa.customFields, porIdSede);
+  // ==========================================================================
+  // [MODO ESPEJO — 27/11/2026] "Todo lo de vTiger debe verse reflejado en GHL y
+  // cada cosa debe poder actualizarse".
+  //
+  // ANTES (filtro monótono): un contador sólo se escribía si era MAYOR y una fecha
+  // sólo si era MÁS RECIENTE. Efecto medido: si vTiger corregía una compra (3 → 1),
+  // anulaba una orden o corregía una fecha hacia atrás, **GHL quedaba con el dato
+  // viejo para siempre**. El filtro existía para protegerse de payloads atrasados,
+  // pero hoy el registro SIEMPRE se relee de vTiger antes de escribir (backfill,
+  // sales bridge y Nivel 3), así que ese riesgo no aplica.
+  //
+  // AHORA (por defecto): se publica el ESTADO ACTUAL de vTiger. Se conserva una
+  // única protección: los vaciados deliberados del Sede-Shield (campo = '') siguen
+  // viajando, para que un dato de otra sede no quede pegado.
+  //
+  // Para volver al comportamiento anterior: GHL_MODO_ESPEJO=false.
+  // ==========================================================================
+  const MODO_ESPEJO = String(process.env.GHL_MODO_ESPEJO ?? 'true').toLowerCase() !== 'false';
+  if (MODO_ESPEJO) {
+    // Única protección que se conserva: un CONTADOR que llega en 0 no debe borrar un
+    // valor positivo ya conocido. En este vTiger `spl_num_compras` queda en 0 en
+    // compradores recientes aunque exista la orden (documentado y medido), así que
+    // "0" es un centinela de "no calculado", no una corrección real. Las
+    // correcciones reales (3 → 1) sí se publican.
+    const CONTADORES = new Set(['totalCompras', 'totalHistorico', 'numCompras', 'precioVenta']);
+    const protegerCentinelaCero = (campos = [], porId = {}) => campos.filter(c => {
+      if (!CONTADORES.has(c.nombre)) return true;
+      const entrante = parseFloat(String(c.field_value ?? '').replace(/[^0-9.-]/g, ''));
+      const actual = parseFloat(String(porId[c.id] ?? '').replace(/[^0-9.-]/g, ''));
+      const llegaCero = !Number.isFinite(entrante) || entrante === 0;
+      const actualPositivo = Number.isFinite(actual) && actual > 0;
+      return !(llegaCero && actualPositivo);
+    });
+    macro.customFields = protegerCentinelaCero(macro.customFields, porIdMacro);
+    operativa.customFields = protegerCentinelaCero(operativa.customFields, porIdSede);
+    if (macro.customFields.length === 0 && operativa.customFields.length === 0) {
+      recordAuditEvent({ type: 'DUAL_SYNC_EMPTY_PAYLOAD', severity: 'warn', vTigerId: vContact.id || null });
+    }
+  } else {
+    macro.customFields = soloAvances(macro.customFields, porIdMacro);
+    operativa.customFields = soloAvances(operativa.customFields, porIdSede);
+  }
 
   const particionMacro = { protegidos: [] };
   const particionSede = { protegidos: [] };
 
   // [19/10 — REDUCCIÓN DE ETIQUETAS] 'vtiger' y 'vtiger-sincronizado' eran ruido
   // redundante: cliente-vtiger/convertido/compro ya resumen el estado comercial.
+  // [AUDITORÍA 27/11] Las etiquetas se construyen con el CONTRATO ÚNICO
+  // (domain/ghl_tags.js): un solo vocabulario para N1 y N2. Antes se repetían aquí
+  // los mapas de proveedor/canal y se generaba `producto-<texto libre>` con
+  // `toLowerCase()` (podía producir `producto-tetosterona` o `producto--`).
+  // [CONTRATO ÚNICO — 27/11] El equipo de redes trabaja SOLO con `prov-*` y
+  // `pagina-*`. Ya NO se escriben `sede-*`, `canal-*` ni `producto-*`: el canal, la
+  // sede y el tratamiento viven en sus custom fields. Cada etiqueta de más era
+  // ruido que ensuciaba las vistas de chat.
   const tagsNuevas = [];
-  if (esComprador) tagsNuevas.push('compro', 'convertido', 'cliente-vtiger');
-  else tagsNuevas.push('prospecto-vtiger');
-  if (tratamiento) tagsNuevas.push(`producto-${tratamiento.toLowerCase()}`);
-  // [ETIQUETAS DE VISTA — 2026-11-19] Separar las vistas de chats por sede, proveedor
-  // y canal. Así los contactos de vTiger (compradores y leads) quedan en las mismas
-  // vistas que los leads de Meta (por proveedor/canal), listas para Smart Views.
-  if (sedeId) tagsNuevas.push(`sede-${sedeId.toLowerCase()}`);
-  const provEtiqueta = String(vContact.cf_2572 || '').trim().toUpperCase();
-  if (provEtiqueta) {
-    const provMap = { ERNESTO: 'prov-ernesto', CLICK2RING: 'prov-click2ring', IN_HOUSE: 'prov-in-house', 'REDES 2 BENAVIDES': 'prov-redes-2-benavides', 'EN CASA G': 'prov-en-casa-g', ENZO: 'prov-enzo', UP_IDEAS: 'prov-up-ideas' };
-    tagsNuevas.push(provMap[provEtiqueta] || `prov-${provEtiqueta.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
-  }
-  const canalEtiqueta = String(vContact.cf_3507 || '').trim().toUpperCase();
-  if (canalEtiqueta) {
-    const canalMap = { 'FB-MSGR': 'canal-messenger', 'FB-MESSENGER': 'canal-messenger', FORM: 'canal-forms', WHATSAPP: 'canal-whatsapp', TIKTOK: 'canal-tiktok', SMS: 'canal-sms' };
-    tagsNuevas.push(canalMap[canalEtiqueta] || `canal-${canalEtiqueta.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
-  }
+  // [DEPURACIÓN 27/11] Las etiquetas de estado (compro/cliente/prospecto/convertido)
+  // YA NO SE ESCRIBEN: el estado comercial vive en el custom field "Estado de Compra"
+  // y las listas de SMS filtran por ese campo. La única etiqueta que escribe el N2
+  // es la de proveedor (y la página la escribe el N1).
+  const provTag = etiquetaProveedor(vContact.cf_2572);
+  if (provTag) tagsNuevas.push(provTag);
 
   return {
     phone,
@@ -1376,12 +1445,21 @@ export async function syncVtigerContactDual(vContact = {}, { permitirLead = fals
   // ====== PASO 3: HISTORIAL DE COMPRAS (detalle de órdenes) ======
   // Se ejecuta DESPUÉS de crear/actualizar el contacto: el historial necesita que
   // el contacto ya exista para poder encontrar su id por teléfono.
-  // [INTEGRACIÓN] Sin este paso, el puente de ventas creaba el contacto pero NO
-  // publicaba el detalle de sus compras: quedaba como resumen sin desglose.
-  // Para sedes sin subcuenta propia, el historial se publica SOLO a la Empresa.
-  // Import dinámico para evitar dependencia circular (el módulo de historial
-  // importa utilidades de este servicio).
-  if (resultado.operativa.ok || (sedeSinSubcuenta && resultado.macro?.ok)) {
+  //
+  // [AHORRO DE CUOTA — 27/11/2026] Antes se pedían órdenes para TODOS los contactos,
+  // incluidos los leads sin compras: 1 llamada a vTiger + 1-2 a GHL por lead, sin
+  // nada que publicar. Con miles de leads (backfill de leads y Nivel 3) eso era un
+  // consumo enorme. Ahora, si el registro no tiene compras NI monto acumulado, se
+  // omite el paso (no hay historial que publicar). El día que compre, el cambio de
+  // `modifiedtime` dispara el Nivel 3 y el historial se publica.
+  //   ORDER_HISTORY_SOLO_COMPRADORES=false → vuelve a pedir órdenes siempre.
+  const tieneCompras = (parseInt(vContact.spl_num_compras || '0', 10) || 0) > 0
+    || (parseFloat(String(vContact.cf_3392 || '0').replace(/[^0-9.]/g, '')) || 0) > 0;
+  const historialSoloCompradores = String(process.env.ORDER_HISTORY_SOLO_COMPRADORES ?? 'true').toLowerCase() !== 'false';
+
+  if (!tieneCompras && historialSoloCompradores) {
+    resultado.historial = { ok: true, skipped: true, reason: 'sin compras: no hay órdenes que publicar' };
+  } else if (resultado.operativa.ok || (sedeSinSubcuenta && resultado.macro?.ok)) {
     try {
       const { syncContactOrderHistory } = await import('./vtiger_order_history_service.js');
       // Se pasan los ids que devolvió el upsert: evita depender del índice de

@@ -13,7 +13,7 @@
  */
 
 import { queryVTiger } from './vtiger_api_service.js';
-import { sedeClause, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS, VTIGER_CONTACT_SELECT } from './vtigerClient.js';
+import { sedeActualClause, VTIGER_SEDES_VALIDAS, VTIGER_FIELDS, VTIGER_CONTACT_SELECT } from './vtigerClient.js';
 import { syncVtigerContactDual } from './dual_sync_service.js';
 import { getStateStore } from './state/state_store.js';
 import { recordAuditEvent } from './audit_logger.js';
@@ -50,8 +50,9 @@ export async function runLeadsBackfill({ tamanoLote = 50, maxLotes = 1, pausaMs 
       const anoSig = ANOS[s.anoIdx + 1] || '2027';
       const limite = Math.min(Math.max(parseInt(tamanoLote, 10) || 50, 1), 150);
 
-      // Solo leads (spl_num_compras = 0), acotado por año y por sede (Sede-Lock).
-      const q = `SELECT ${VTIGER_CONTACT_SELECT}, ${VTIGER_FIELDS.ESTADO_CRM}, ${VTIGER_FIELDS.PROVEEDOR}, ${VTIGER_FIELDS.CANAL}, ${VTIGER_FIELDS.CAMPANA}, ${VTIGER_FIELDS.SEXO}, ${VTIGER_FIELDS.ESTADO_VENTA}, ${VTIGER_FIELDS.CONTACT_NO}, ${VTIGER_FIELDS.ASESOR}, ${VTIGER_FIELDS.CREATED_TIME}, ${VTIGER_FIELDS.SEDE_ACTUAL} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} = '0' AND ${VTIGER_FIELDS.CREATED_TIME} >= '${ano}-01-01' AND ${VTIGER_FIELDS.CREATED_TIME} < '${anoSig}-01-01'${sedeClause(sede)} ORDER BY ${VTIGER_FIELDS.CREATED_TIME} ASC LIMIT ${s.offset}, ${limite};`;
+      // Solo leads (spl_num_compras = 0), acotado por año y por OFICINA ACTUAL
+      // (cf_3590): un lead reasignado se sincroniza en su subcuenta de HOY.
+      const q = `SELECT ${VTIGER_CONTACT_SELECT}, ${VTIGER_FIELDS.ESTADO_CRM}, ${VTIGER_FIELDS.PROVEEDOR}, ${VTIGER_FIELDS.CANAL}, ${VTIGER_FIELDS.CAMPANA}, ${VTIGER_FIELDS.SEXO}, ${VTIGER_FIELDS.ESTADO_VENTA}, ${VTIGER_FIELDS.CONTACT_NO}, ${VTIGER_FIELDS.ASESOR}, ${VTIGER_FIELDS.CREATED_TIME}, ${VTIGER_FIELDS.SEDE_ACTUAL} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} = '0' AND ${VTIGER_FIELDS.CREATED_TIME} >= '${ano}-01-01' AND ${VTIGER_FIELDS.CREATED_TIME} < '${anoSig}-01-01'${sedeActualClause(sede)} ORDER BY ${VTIGER_FIELDS.CREATED_TIME} ASC LIMIT ${s.offset}, ${limite};`;
 
       let filas = [];
       try {

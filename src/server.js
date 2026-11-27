@@ -159,29 +159,46 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     })();
   };
 
-  // 1. MODO 1: "Del Ahora en Adelante" (Forward / En Vivo) - Cada 60s
-  // [FIX 04/11] Reducido de 25s/15 a 60s/10: el curador forward era el mayor
-  // consumidor (~880 ruteos/h) y redundante con el radar en vivo. Con esto baja
-  // ~60% su ritmo y corta el CONSUMO_EXCESIVO sin tocar el Nivel 1.
-  setInterval(() => { dispatchCuration(JOBS.CURATION_FORWARD, 10).catch(() => {}); }, 60 * 1000);
+  // 1. MODO 1: "Del Ahora en Adelante" (Forward / En Vivo)
+  // [27/11 — AHORRO DE CUOTA] Antes cada 60 s. Medición: 82 ruteos/hora del curador
+  // para 81 contactos únicos, compitiendo con el radar y con el Nivel 3. Ahora cada
+  // 15 min: la frescura la garantiza el Nivel 3 (reactivo por modifiedtime); este
+  // carril queda como reconciliación de fondo.
+  //   CURADOR_FORWARD_MS=900000  (15 min)
+  const curadorActivo = String(process.env.CURADOR_BIDIRECCIONAL_ENABLED ?? 'true').toLowerCase() !== 'false';
+  let curadorTimer = null;
+  if (curadorActivo) {
+    const msForward = Math.max(parseInt(process.env.CURADOR_FORWARD_MS || String(15 * 60 * 1000), 10) || 900000, 60000);
+    setInterval(() => { dispatchCuration(JOBS.CURATION_FORWARD, 10).catch(() => {}); }, msForward);
+    curadorTimer = msForward;
+  } else {
+    console.warn('[CURADOR] [OFF] CURADOR_BIDIRECCIONAL_ENABLED=false: no se reconcilia de fondo (el Nivel 3 sigue activo).');
+  }
 
-  // 2. MODO 2: "Del Ahora para Atrás" (Backward / Histórico Profundo) - Turnos equitativos entre sedes activas
-  let backwardTurn = 0;
-  setInterval(() => {
-    const agents = getActiveSedeAgents().filter(a => !a.isPaused);
-    if (agents.length === 0) return;
-    const targetAgent = agents[backwardTurn % agents.length];
-    backwardTurn++;
+  // 2. MODO 2: "Del Ahora para Atrás" (Backward / Histórico Profundo)
+  // [27/11 — AHORRO DE CUOTA] Antes cada 60 s (un turno por sede cada 4 min). Ahora
+  // cada 30 min: recorre GHL contact por contact y era redundante con N2A/N3.
+  //   CURADOR_BACKWARD_MS=1800000  (30 min)
+  if (curadorActivo) {
+    const msBackward = Math.max(parseInt(process.env.CURADOR_BACKWARD_MS || String(30 * 60 * 1000), 10) || 1800000, 60000);
+    let backwardTurn = 0;
+    setInterval(() => {
+      const agents = getActiveSedeAgents().filter(a => !a.isPaused);
+      if (agents.length === 0) return;
+      const targetAgent = agents[backwardTurn % agents.length];
+      backwardTurn++;
 
-    if (getQueueStatus().enabled) {
-      getQueue(QUEUES.CURATION)
-        .enqueue(JOBS.CURATION_BACKWARD, { sede: targetAgent.sedeId, limit: 10 })
-        .catch(err => console.warn(`[Queue] Curación backward no encolada: ${err.message}`));
-      return;
-    }
+      if (getQueueStatus().enabled) {
+        getQueue(QUEUES.CURATION)
+          .enqueue(JOBS.CURATION_BACKWARD, { sede: targetAgent.sedeId, limit: 10 })
+          .catch(err => console.warn(`[Queue] Curación backward no encolada: ${err.message}`));
+        return;
+      }
 
-    targetAgent.runBackward({ limit: 10 }).catch(() => {});
-  }, 60 * 1000);
+      targetAgent.runBackward({ limit: 10 }).catch(() => {});
+    }, msBackward);
+  }
+  if (curadorTimer) console.log(`[CURADOR] Reconciliación de fondo cada ${Math.round(curadorTimer / 60000)} min (forward).`);
 
   // Calibración Periódica de vTiger (Cada 30 min)
   setInterval(() => {

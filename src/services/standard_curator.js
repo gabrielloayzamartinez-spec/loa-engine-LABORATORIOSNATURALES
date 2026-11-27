@@ -22,7 +22,7 @@
 
 import { ghlFetch, hayCuotaRealDeFondo } from '../utils/ghl_http_client.js';
 import { SEDES_GATEWAY } from '../config/index.js';
-import { query as vtigerQuery, VTIGER_CONTACT_SELECT, VTIGER_FIELDS, sedeClause } from './vtigerClient.js';
+import { query as vtigerQuery, VTIGER_CONTACT_SELECT, VTIGER_FIELDS, sedeActualClause } from './vtigerClient.js';
 import { obtenerMapaCamposGhl, leerCampoPorNombre } from './ghl_fields_map.js';
 import { syncVtigerContactDual } from './dual_sync_service.js';
 import { recordAuditEvent } from './audit_logger.js';
@@ -109,8 +109,8 @@ export async function ejecutarCuracionEstandar({ sede = 'PALACIOS', muestra = 40
 
   const mapaCampos = await obtenerMapaCamposGhl(locId, headers);
 
-  // Muestra de compradores desde vTiger (los más recientes primero).
-  const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeClause(sedeId)} ORDER BY id DESC LIMIT ${n};`;
+  // Muestra de compradores desde vTiger (por OFICINA ACTUAL: la subcuenta destino).
+  const q = `SELECT ${VTIGER_CONTACT_SELECT} FROM Contacts WHERE ${VTIGER_FIELDS.NUM_COMPRAS} > 0${sedeActualClause(sedeId)} ORDER BY id DESC LIMIT ${n};`;
   let compradores = [];
   try {
     compradores = await vtigerQuery(q, sedeId) || [];

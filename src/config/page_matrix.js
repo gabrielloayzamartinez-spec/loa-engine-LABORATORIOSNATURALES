@@ -2,61 +2,81 @@
  * ==============================================================================
  * MATRIZ DE PÁGINAS — FUENTE ÚNICA DE VERDAD DE FACEBOOK PAGE IDS
  * ==============================================================================
- * PROBLEMA QUE RESUELVE (auditoría 16/10):
- * Los 10 page IDs estaban hardcodeados en 5 archivos (config/index.js,
- * config/sedes_gateway.js, chat_router_agent.js, nlp_symptom_engine.js y
- * owner_guardian.js). Un cambio en un archivo no se propagaba y la asignación
- * de dueño/proveedor/sede se desincronizaba en silencio.
+ * [SIMPLIFICACIÓN 27/11 — "UNA SOLA COLUMNA"]
+ * El negocio trabaja con UNA dimensión: el PROVEEDOR. Antes la matriz tenía dos
+ * columnas que se contradecían (`proveedor` y `ownerKey`/`sinDueno`), y eso producía
+ * casos donde el proveedor era EN CASA G pero el dueño figuraba como REDES.
  *
- * REGLA: todo módulo que necesite resolver pageId -> { sede, proveedor, dueño }
- * debe leer de AQUÍ y de ningún otro sitio.
+ * REGLA NUEVA: se declara SOLO el proveedor; el DUEÑO se DERIVA de él.
+ *   proveedor: 'ERNESTO'   → dueño: ERNESTO
+ *   proveedor: 'IN_HOUSE'  → dueño: IN_HOUSE
+ *   proveedor: 'CLICK2RING'→ dueño: CLICK2RING
+ *   proveedor: 'EN CASA G' → dueño: EN CASA G
+ * Ya no existe `sinDueno` ni `ownerKey` como dato independiente.
  * ==============================================================================
  */
 
 /**
  * @typedef {Object} PageEntry
  * @property {string} sede      PALACIOS | BENAVIDES | ROOSEVELT | PIURA
- * @property {string} proveedor ERNESTO | CLICK2RING | IN_HOUSE | REDES 2 BENAVIDES
- * @property {string} ownerKey  clave del usuario en SEDES_GATEWAY[sede].users
+ * @property {string} proveedor ERNESTO | CLICK2RING | IN_HOUSE | EN CASA G | ENZO | UP IDEAS | REDES 2 BENAVIDES
  * @property {string} pageName  nombre de la fanpage
  * @property {string} [canal]   canal si NO es FB-MSGR (ej. 'WSP')
  */
 
 /** @type {Record<string, PageEntry>} */
 export const PAGE_MATRIX = {
+  // [INICIATIVAS — 27/11] Cada página corre UNA sola iniciativa. El `canal` se
+  // declara aquí porque los leads de FORMULARIO no tienen conversación: sin este
+  // dato, el router no puede saber de qué página vienen (ni marcar la iniciativa).
+  // Medido en vivo sobre el CF "Canal Captación" de contactos reales:
+  //   Palacios  · Naturales BioNatural      → FB-MSGR
+  //   Palacios  · Laboratorios Naturales BIO→ FORM
+  //   Palacios  · BioNatural Salud          → FORM
+  //   Benavides · Naturales Bio Corp        → FB-MSGR
+  //   Benavides · Bio Natural               → FB-MSGR
+  //   Benavides · BioNatural Fuerza         → FORM
+  // Las páginas sin medición quedan sin `canal` (se resuelve por el mensaje).
   // ── PALACIOS ──────────────────────────────────────────────
-  '566501466542620': { sede: 'PALACIOS', proveedor: 'ERNESTO', ownerKey: 'ernesto', pageName: 'Naturales BioNatural' },
-  // 19/10: SOLO acciones IN-HOUSE. Esta página gestiona WSP ADS (WhatsApp, sin dueño)
-  // y FORMS ADS (formularios, sin dueño). El número se sincroniza con vTiger pero
-  // NUNCA se asigna dueño de REDES (trabajo ordenado, sin mezclarse con ERNESTO).
-  '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'Laboratorios Naturales BIO' },
-  '111906554968800': { sede: 'PALACIOS', proveedor: 'CLICK2RING', ownerKey: 'ultra', pageName: 'BioNatural - Ultra' },
-  // 31/10: SOLO acciones IN-HOUSE. Página de Diabetes Forms (sin dueño, cola-forms).
-  '1087387677802467': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BIO Vida Natural' },
-  '1422379957628845': { sede: 'PALACIOS', proveedor: 'EN CASA G', ownerKey: null, sinDueno: true, pageName: 'BioHealth Natural' },
-  '1438600545996758': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Salud' },
+  '566501466542620': { sede: 'PALACIOS', proveedor: 'ERNESTO', canal: 'FB-MSGR', pageName: 'Naturales BioNatural' },
+  '718150351371765': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', canal: 'FORM', pageName: 'Laboratorios Naturales BIO' },
+  '111906554968800': { sede: 'PALACIOS', proveedor: 'CLICK2RING', pageName: 'BioNatural - Ultra' },
+  '1087387677802467': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', canal: 'FORM', pageName: 'BIO Vida Natural' },
+  '1422379957628845': { sede: 'PALACIOS', proveedor: 'EN CASA G', pageName: 'BioHealth Natural' },
+  '1438600545996758': { sede: 'PALACIOS', proveedor: 'IN_HOUSE', canal: 'FORM', pageName: 'BioNatural Salud' },
   // ── BENAVIDES ─────────────────────────────────────────────
-  '510617778807469': { sede: 'BENAVIDES', proveedor: 'ERNESTO', ownerKey: 'redes1', pageName: 'Naturales Bio Corp' },
-  '126154270581792': { sede: 'BENAVIDES', proveedor: 'CLICK2RING', ownerKey: 'redes2', pageName: 'Bio Natural' },
-  // [FIX 2026-11-26 — MAPA VERIFICADO CONTRA META] Esta página corre campañas de
-  // INHOUSE (Testosterona- Benavides- InHouse, INHOUSE-DIABETES, INHOUSE-ARTRITIS),
-  // NO de REDES 2. El proveedor se resuelve por campaña; la página queda en IN_HOUSE.
-  '1147742788423762': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Fuerza' },
-  '1397629783430897': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Testosterona' },
-  '1223518870833689': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Diabetes' },
+  '510617778807469': { sede: 'BENAVIDES', proveedor: 'ERNESTO', canal: 'FB-MSGR', pageName: 'Naturales Bio Corp' },
+  '126154270581792': { sede: 'BENAVIDES', proveedor: 'CLICK2RING', canal: 'FB-MSGR', pageName: 'Bio Natural' },
+  '1147742788423762': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', canal: 'FORM', pageName: 'BioNatural Fuerza' },
+  '1397629783430897': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', pageName: 'BioNatural Testosterona' },
+  '1223518870833689': { sede: 'BENAVIDES', proveedor: 'IN_HOUSE', pageName: 'BioNatural Diabetes' },
   // ── ROOSEVELT ─────────────────────────────────────────────
-  '568453466348355': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'Bio Naturales' },
-  '1075001465705985': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'BioNatural Plus' },
-  '180536758476362': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'Bio Natural Salud' },
+  '568453466348355': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', canal: 'FB-MSGR', pageName: 'Bio Naturales' },
+  '1075001465705985': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', pageName: 'BioNatural Plus' },
+  '180536758476362': { sede: 'ROOSEVELT', proveedor: 'IN_HOUSE', pageName: 'Bio Natural Salud' },
   // ── PIURA ─────────────────────────────────────────────────
-  '1147257965133802': { sede: 'PIURA', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'Natural Bio' },
-  '1057863707412893': { sede: 'PIURA', proveedor: 'IN_HOUSE', ownerKey: 'redes', pageName: 'BioNatural' },
-  '1366688306523831': { sede: 'PIURA', proveedor: 'IN_HOUSE', ownerKey: null, sinDueno: true, pageName: 'BioNatural Piura Inhouse' }
+  '1147257965133802': { sede: 'PIURA', proveedor: 'IN_HOUSE', pageName: 'Natural Bio' },
+  '1057863707412893': { sede: 'PIURA', proveedor: 'IN_HOUSE', pageName: 'BioNatural' },
+  '1366688306523831': { sede: 'PIURA', proveedor: 'IN_HOUSE', pageName: 'BioNatural Piura Inhouse' }
 };
 
-/** Entrada completa de la matriz para un page id. */
+/** Convierte 'EN CASA G' → 'en-casa-g' (slug estable). */
+export function slugificar(texto) {
+  return String(texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Entrada completa de la matriz para un page id (con dueño derivado). */
 export function getPageMatrixEntry(pageId) {
-  return PAGE_MATRIX[String(pageId || '').trim()] || null;
+  const e = PAGE_MATRIX[String(pageId || '').trim()];
+  if (!e) return null;
+  // El dueño ES el proveedor. Se expone como propiedad derivada para que los
+  // módulos que ya leían `ownerKey`/`ownerName` sigan funcionando sin cambios.
+  return { ...e, ownerKey: slugificar(e.proveedor), ownerName: e.proveedor };
 }
 
 /** Sede oficial de un page id (null si no está mapeado). */
@@ -101,30 +121,21 @@ export function getAllPageIds() {
  * Determina la etiqueta de cola (Smart View) correspondiente a una fanpage:
  * - 'cola-redes-1': Asignada a Ernesto o Redes 1
  * - 'cola-redes-2': Asignada a Click2Ring / Ultra o Redes 2
- * - 'cola-forms': Formularios Lead Ads (Laboratorios Naturales BIO 718150351371765)
+ * - 'cola-forms': Formularios Lead Ads (los formularios van a Cola Forms por ser AutoForm)
  * - 'cola-inhouse': Operación In-House
  */
 export function getQueueTagByPageId(pageId) {
   const entry = getPageMatrixEntry(pageId);
   if (!entry) return 'cola-general';
 
-  if (entry.sinDueno || String(pageId).trim() === '718150351371765') {
-    return 'cola-forms';
-  }
-
+  // [SIMPLIFICACIÓN 27/11] La cola se decide SOLO por proveedor: el dueño es el
+  // proveedor. Se eliminó el caso especial por ID y el campo `sinDueno`.
   const prov = String(entry.proveedor || '').toUpperCase();
-  const owner = String(entry.ownerKey || '').toLowerCase();
 
-  if (prov === 'ERNESTO' || owner === 'ernesto' || owner === 'redes1') {
-    return 'cola-redes-1';
-  }
-  if (prov === 'CLICK2RING' || prov === 'REDES 2 BENAVIDES' || owner === 'ultra' || owner === 'redes2' || owner === 'click2ring') {
-    return 'cola-redes-2';
-  }
-  if (prov === 'IN_HOUSE') {
-    return 'cola-inhouse';
-  }
-  return 'cola-redes-1';
+  if (prov === 'ERNESTO') return 'cola-redes-1';
+  if (prov === 'CLICK2RING' || prov === 'REDES 2 BENAVIDES') return 'cola-redes-2';
+  if (prov === 'IN_HOUSE' || prov === 'EN CASA G' || prov === 'ENZO' || prov === 'UP IDEAS') return 'cola-inhouse';
+  return 'cola-general';
 }
 
 /**

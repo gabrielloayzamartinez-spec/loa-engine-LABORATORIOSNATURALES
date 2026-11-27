@@ -31,7 +31,7 @@
 
 import { queryVTiger } from './vtiger_api_service.js';
 import { SEDES_GATEWAY, getActiveSedes } from '../config/index.js';
-import { sedeClause } from './vtigerClient.js';
+import { sedeActualClause } from './vtigerClient.js';
 import { sanitizeForVtigerQuery } from '../utils/sanitize.js';
 import { recordAuditEvent } from './audit_logger.js';
 import { getGhlHeaders } from '../config/index.js';
@@ -39,6 +39,8 @@ import { ghlFetch } from '../utils/ghl_http_client.js';
 import { getStateStore } from './state/state_store.js';
 import { resolveCustomFieldIds, isCentralConfigured } from './dual_sync_service.js';
 import { readSecret } from '../config/secrets.js';
+import { clasificarCliente } from '../domain/segmentacion.js';
+import { filtroVtigerAntesDeHoy, n2SoloHistorico } from '../domain/ventana_temporal.js';
 
 const CENTRAL_LOCATION_ID = readSecret('GHL_LOCATION_ID_CENTRAL');
 const CENTRAL_API_KEY = readSecret('GHL_API_KEY_CENTRAL');
@@ -357,6 +359,13 @@ export function buildOrderEnrichmentFields(ultimaOrden = {}, fieldIds = {}, numO
   // (`numOrdenes`) es la fuente de verdad: aquí se SOBREESCRIBE el contador para
   // que "Total Compras" nunca quede en 0 cuando hay órdenes reales.
   push('totalCompras', numOrdenes > 0 ? String(numOrdenes) : '');
+  // [SEGMENTACIÓN 27/11] Comprador / No Comprador y la señal de RECOMPRA, calculadas
+  // con el nº REAL de órdenes (fuente más fiable que spl_num_compras).
+  {
+    const clasif = clasificarCliente({ numCompras: numOrdenes });
+    push('estadoCompra', clasif.esComprador ? 'Comprador' : 'No Comprador');
+    push('fuenteUltimaOrden', clasif.fuenteUltimaOrden);
+  }
   // [FIX ESTADO COMERCIAL — 2026-11-18] Igual que el contador, `cf_1876` puede
   // quedar como "SIN VENTA" pese a existir la orden. Si hay órdenes, es comprador:
   // se SOBREESCRIBE a "CONVERTIDO" para que las Smart Lists no mezclen compradores
@@ -475,7 +484,7 @@ export async function runOrderHistoryBackfill({
       // spl_num_compras>0) para incluir a los compradores cuyo contador vTiger
       // quedó en 0 pero que SÍ tienen órdenes reales. El destino se resuelve por
       // cf_3590 dentro de syncContactOrderHistory.
-      const q = `SELECT id, firstname, lastname, phone, mobile, homephone, cf_3451, cf_3590, cf_1876, spl_num_compras, spl_fecha_ultima_compra FROM Contacts WHERE cf_1876 = 'CONVERTIDO'${sedeClause(sede)} ORDER BY modifiedtime DESC LIMIT ${offset}, ${limite};`;
+      const q = `SELECT id, firstname, lastname, phone, mobile, homephone, cf_3451, cf_3590, cf_1876, spl_num_compras, spl_fecha_ultima_compra FROM Contacts WHERE cf_1876 = 'CONVERTIDO'${sedeActualClause(sede)}${n2SoloHistorico() ? filtroVtigerAntesDeHoy('createdtime') : ''} ORDER BY modifiedtime DESC LIMIT ${offset}, ${limite};`;
 
       let contactos = [];
       try {

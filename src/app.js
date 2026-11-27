@@ -33,6 +33,7 @@ import { guardianDePropietario } from './services/owner_guardian.js';
 import { diagnosticarContacto } from './services/contact_diagnostic.js';
 import { auditarPrimerNivel } from './services/first_level_audit.js';
 import { auditarCamposComerciales } from './services/commercial_fields_audit.js';
+import { auditarContratoSede, auditarContratoTodas } from './services/sync_contract_audit.js';
 import { auditarTecnico } from './services/technical_audit.js';
 import { refillComercial, getRefillStatus, resetRefill } from './services/commercial_refill.js';
 import { getStateStore } from './services/state/state_store.js';
@@ -40,7 +41,10 @@ import { cargarMemoriaActividad, persistirMemoriaActividad, getEstadoMemoriaActi
 import { ejecutarVigilanciaProduccion } from './services/production_guard.js';
 import { ejecutarCuracionEstandar, getControlEstandarStatus, ESTANDAR_CAMPOS } from './services/standard_curator.js';
 import { reasignarSmsErroneos, asignarSmsAMonitor } from './services/assignment_curator.js';
-import { tomarTurno, liberarTurno, getCicloOperativo } from './services/ciclo_operativo.js';
+import { tomarTurno, liberarTurno, getCicloOperativo, CARRILES as CARRILES_N2 } from './services/ciclo_operativo.js';
+import { getEstadoCarriles } from './services/nivel2_carriles.js';
+import { esDeHoy as esDeHoyLima, inicioDiaLima as inicioDiaLimaCompartido } from './domain/ventana_temporal.js';import { runNivel3Tail, runNivel3OrderTail, getNivel3Status, procesarCambioConLimite, procesarCambioVtiger, reiniciarCursoresN3 } from './services/nivel3_reactive_sync.js';
+import { arrancarControladores, encolarContacto, getEstadoGlobal as getControlGlobal, getEstadoSubcuenta as getControlSede, reintentarFallidos, pausarSede, reanudarSede, setProcesador as setProcesadorControl, hidratarControl } from './services/subaccount_controller.js';
 import { procedenciaLeads } from './services/lead_provenance.js';
 import { corregirOrigenesUltra, iniciarCorreccionUltraFondo, estadoCorreccionUltra, diagnosticarUtmsUltra } from './services/ultra_origin_corrector.js';
 
@@ -665,6 +669,14 @@ async function runExpressAssignment() {
           const creadoMs = new Date(contact.dateAdded || 0).getTime();
           const esLeadNuevo = Number.isFinite(creadoMs) && (Date.now() - creadoMs) <= LEAD_NUEVO_MIN * 60000;
           if (!tieneMensajeNuevo && !esLeadNuevo) return;
+
+          // [N1 = SOLO HOY — 27/11] Regla del negocio: el Nivel 1 atiende el trabajo
+          // de HOY (Lima). Si la última conversación no tiene actividad de hoy, ese
+          // contacto es HISTÓRICO y le corresponde al Nivel 2: se descarta SIN
+          // gastar ninguna llamada. Así el radar deja de re-rutear cartera vieja y
+          // los asesores ven solo lo del día.
+          const mensajeMs = ultimoMensajePorContacto.get(contact.id) || 0;
+          if (mensajeMs > 0 && !esDeHoyLima(mensajeMs)) return;
 
           countNew++;
           const edadMin = Math.round((Date.now() - updatedAt) / 60000);
@@ -2481,12 +2493,11 @@ app.post('/api/empresa/depurar-sin-telefono', async (req, res) => {
 
 /**
  * [TRABAJO DEL DÍA] Medianoche del día en hora Lima (UTC-5, sin horario de verano).
- * Devuelve el timestamp (ms UTC) de las 00:00 de HOY en Lima = 05:00 UTC.
+ * Se delega en `domain/ventana_temporal.js` para que el radar, los backfills y las
+ * auditorías usen EXACTAMENTE el mismo corte (antes cada módulo lo recalculaba).
  */
 function inicioDiaLima() {
-  const ahora = new Date();
-  const lima = new Date(ahora.getTime() - (5 * 60 * 60 * 1000));
-  return Date.UTC(lima.getUTCFullYear(), lima.getUTCMonth(), lima.getUTCDate()) + (5 * 60 * 60 * 1000);
+  return inicioDiaLimaCompartido();
 }
 
 /**
@@ -2693,6 +2704,180 @@ app.get('/api/nivel2/leads-rp/estado', async (req, res) => {
     res.json({ success: true, ...getLeadsRpState() });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==========================================================================
+// [NIVEL 2 — DOS CARRILES] Estado del reparto histórico vs reconciliación.
+// ==========================================================================
+/**
+ * Panel del Nivel 2 partido en dos:
+ *   N2A · HISTÓRICO      → cobertura (trae de vTiger lo que falta)
+ *   N2B · RECONCILIACIÓN → completitud (repara lo que ya está en GHL)
+ *
+ *   GET /api/nivel2/carriles
+ */
+app.get('/api/nivel2/carriles', (req, res) => {
+  try {
+    res.json({
+      ok: true,
+      ...getEstadoCarriles(),
+      ciclo: getCicloOperativo()
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ==========================================================================
+// [NIVEL 3 — SINCRONIZACIÓN REACTIVA vTiger → GHL]
+// ==========================================================================
+/**
+ * Estado del Nivel 3: cursores por sede, cola, contadores e idempotencia.
+ *   GET /api/nivel3/estado
+ */
+app.get('/api/nivel3/estado', async (req, res) => {
+  try {
+    res.json(await getNivel3Status());
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Fuerza UNA pasada del tail (busca cambios de vTiger y los encola).
+ * Útil para probar sin esperar el ciclo de 60 s.
+ *   POST /api/nivel3/tail?limite=25
+ */
+app.post('/api/nivel3/tail', async (req, res) => {
+  try {
+    const limite = parseInt(req.query.limite || '25', 10);
+    const r = await runNivel3Tail({ limite });
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Sincroniza UN contacto de vTiger ahora mismo (ficha completa + historial).
+ *   POST /api/nivel3/contacto?id=12x2473710&sede=PALACIOS
+ */
+app.post('/api/nivel3/contacto', async (req, res) => {
+  try {
+    const id = String(req.query.id || req.body?.id || '').trim();
+    const sede = String(req.query.sede || req.body?.sede || '').toUpperCase();
+    if (!id || !sede) return res.status(400).json({ ok: false, error: 'Indica ?id=<vtigerId>&sede=<SEDE>' });
+    const r = await procesarCambioConLimite({ id, sede, motivo: 'manual' });
+    res.json(r);
+  } catch (err) {
+    // Si está ocupado o sin cuota, es reintentable: 429 en vez de 500.
+    const status = err.reintentable ? 429 : 500;
+    res.status(status).json({ ok: false, error: err.message, reintentable: Boolean(err.reintentable) });
+  }
+});
+
+/**
+ * Reinicia los cursores del Nivel 3 (el próximo ciclo se ancla en el último cambio).
+ *   POST /api/nivel3/reset
+ */
+app.post('/api/nivel3/reset', async (req, res) => {
+  try {
+    res.json(await reiniciarCursoresN3());
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ==========================================================================
+// [CONTROL POR SUBCUENTA — 4 PROCESOS INDEPENDIENTES]
+// Cada sede tiene su worker, su cola, su cuota y su libro de contactos.
+// ==========================================================================
+/**
+ * Consolidado de las 4 subcuentas: cuota consumida, cola, efectividad por sede y
+ * total. Es el panel que responde "¿cada contacto terminó bien?".
+ *
+ *   GET /api/subcuentas/control
+ */
+app.get('/api/subcuentas/control', (req, res) => {
+  try {
+    res.json(getControlGlobal());
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Estado de UNA subcuenta (cuota, cola, libro, efectividad, fallidos).
+ *   GET /api/subcuentas/control/:sede
+ */
+app.get('/api/subcuentas/control/:sede', (req, res) => {
+  try {
+    const sede = String(req.params.sede || '').toUpperCase();
+    const r = getControlSede(sede);
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Encola UN contacto en la subcuenta indicada (prioridad 1 = al frente).
+ *   POST /api/subcuentas/control/:sede/contacto?id=12x2473710
+ */
+app.post('/api/subcuentas/control/:sede/contacto', async (req, res) => {
+  try {
+    const sede = String(req.params.sede || '').toUpperCase();
+    const id = String(req.query.id || req.body?.id || '').trim();
+    if (!id) return res.status(400).json({ ok: false, error: 'Indica ?id=<vtigerId>' });
+    const r = await encolarContacto({ sede, vtigerId: id, prioridad: 1, origen: 'manual' });
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Pausa una subcuenta sin tocar a las demás.
+ *   POST /api/subcuentas/control/:sede/pausar?minutos=5
+ */
+app.post('/api/subcuentas/control/:sede/pausar', (req, res) => {
+  try {
+    const minutos = parseInt(req.query.minutos || '5', 10);
+    res.json(pausarSede(req.params.sede, minutos));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Reanuda una subcuenta pausada.
+ *   POST /api/subcuentas/control/:sede/reanudar
+ */
+app.post('/api/subcuentas/control/:sede/reanudar', (req, res) => {
+  try {
+    res.json(reanudarSede(req.params.sede));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Reencola los contactos FALLIDOS (de una sede o de todas) para volver a intentar.
+ *   POST /api/subcuentas/control/reintentar?sedes=PALACIOS,BENAVIDES
+ */
+app.post('/api/subcuentas/control/reintentar', async (req, res) => {
+  try {
+    const pedidas = String(req.query.sedes || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (pedidas.length === 0) return res.json(await reintentarFallidos());
+    const acumulado = {};
+    for (const sede of pedidas) {
+      const r = await reintentarFallidos(sede);
+      Object.assign(acumulado, r.reencolados);
+    }
+    res.json({ ok: true, reencolados: acumulado });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -2958,6 +3143,35 @@ app.get('/api/auditoria/campos-comerciales', async (req, res) => {
 });
 
 /**
+ * [AUDITORÍA DEL CONTRATO DE SINCRONIZACIÓN — N1 + N2]
+ * Verifica, con el diccionario REAL de cada subcuenta, que todos los custom fields
+ * y todas las familias de etiquetas del contrato estén presentes y sin conflictos
+ * (dos canales, dos proveedores, dos sedes) ni ruido de vTiger.
+ *
+ * Es la medición que faltaba: las auditorías previas revisaban N1 (primer nivel) y
+ * los campos comerciales por separado, pero ninguna comparaba las CUATRO sedes
+ * contra el MISMO contrato de CF + etiquetas.
+ *
+ * SOLO LECTURA. ~1 llamada por cada 100 contactos muestreados + 1 por subcuenta.
+ *   GET /api/auditoria/contrato-sync?sede=PALACIOS&paginas=3
+ *   GET /api/auditoria/contrato-sync?todas=true&paginas=2
+ */
+app.get('/api/auditoria/contrato-sync', async (req, res) => {
+  try {
+    const paginas = parseInt(req.query.paginas || '3', 10);
+    const todas = String(req.query.todas || '').toLowerCase() === 'true';
+    if (todas) {
+      return res.json(await auditarContratoTodas({ paginas }));
+    }
+    const sede = String(req.query.sede || 'PALACIOS').toUpperCase();
+    const maxMuestras = parseInt(req.query.maxMuestras || '10', 10);
+    res.json(await auditarContratoSede({ sede, paginas, maxMuestras }));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * [AUDITORÍA DE PRIMER NIVEL — DE ESQUINA A ESQUINA]
  * Verifica contacto por contacto las 7 dimensiones del primer nivel y devuelve
  * la cobertura de cada una + los huecos concretos + un veredicto de salud.
@@ -3204,7 +3418,16 @@ function registerQueueProcessors() {
   curation.registerProcessor(JOBS.CURATION_FORWARD, runCuration, { concurrency: 1 });
   curation.registerProcessor(JOBS.CURATION_BACKWARD, runCuration, { concurrency: 1 });
 
-  console.log(`[QUEUE] Procesadores registrados en '${QUEUES.WEBHOOKS}', '${QUEUES.SYNC}', '${QUEUES.CURATION}'.`);
+  // [NIVEL 3] Un cambio de vTiger = un job. Si no hay cuota o el motor está ocupado,
+  // el job se relanza con backoff (BullMQ) o se reprograma (driver memoria): el
+  // cambio NO se pierde.
+  const nivel3 = getQueue(QUEUES.NIVEL3);
+  nivel3.registerProcessor(JOBS.NIVEL3_SYNC, async (data) => {
+    const r = await procesarCambioConLimite(data);
+    return r;
+  }, { concurrency: envInt('NIVEL3_CONCURRENCIA', 2) });
+
+  console.log(`[QUEUE] Procesadores registrados en '${QUEUES.WEBHOOKS}', '${QUEUES.SYNC}', '${QUEUES.CURATION}', '${QUEUES.NIVEL3}'.`);
 }
 
 // ==========================================
@@ -3214,25 +3437,56 @@ function registerQueueProcessors() {
 // test NO dispara tráfico contra GHL ni vTiger: cero side effects al importar.
 export function registerBackgroundSchedulers() {
   const timers = [];
+  const envOn = (nombre, porDefecto) => String(process.env[nombre] ?? (porDefecto ? 'true' : 'false')).toLowerCase() !== 'false';
 
-  // Radar de asignación en vivo (Worker 1)
-  timers.push(setInterval(runExpressAssignment, 5000));
+  // ==========================================================================
+  // [RADAR — SCANNER DE CONVERSACIONES]
+  //
+  // MEDICIÓN REAL (27/11): 56.432 llamadas GHL. El radar corría cada 5 s y, como
+  // el ciclo dura ~1 min, en la práctica corría SIN PARAR: releía 60 contactos +
+  // 100 conversaciones por sede en cada pasada, hubiera o no mensajes nuevos.
+  // Además el diagnóstico de bucles marcó 122 ruteos/hora para 92 contactos
+  // únicos (30% de desperdicio) y 58 contactos ruteados varias veces.
+  //
+  // AHORA: 60 s (configurable con RADAR_INTERVALO_MS). El radar sigue siendo la
+  // red de seguridad del Nivel 1, pero deja de escanear de forma continua.
+  // Se puede apagar del todo con RADAR_ENABLED=false si el webhook ya cubre todo.
+  // ==========================================================================
+  if (envOn('RADAR_ENABLED', true)) {
+    const intervaloRadar = Math.max(parseInt(process.env.RADAR_INTERVALO_MS || '60000', 10) || 60000, 5000);
+    timers.push(setInterval(runExpressAssignment, intervaloRadar));
+  } else {
+    console.warn('[RADAR] [OFF] RADAR_ENABLED=false: no se escanea GHL de forma periódica. El ruteo depende del webhook.');
+  }
 
-  // [TRABAJO DEL DÍA] Cada 3 min reprocesa las conversaciones desde medianoche (Lima)
-  // hasta ahora, para que los UTMs/IDs/orígenes del día estén SIEMPRE actualizados.
-  // Cubre de 12 AM a la próxima 12 AM (hora Lima), sin tocar la base histórica.
-  timers.push(setInterval(() => {
-    reprocesarConversacionesDesde(inicioDiaLima())
-      .then(r => {
-        if (r.totalConversaciones > 0) {
-          console.log(`[TRABAJO-DIA] Reprocesadas ${r.totalConversaciones} conversaciones de hoy (${r.totalProcesados} contactos actualizados).`);
-        }
-      })
-      .catch(err => console.error("Error en reprocesar-dia:", err));
-  }, 3 * 60 * 1000));
+  // [TRABAJO DEL DÍA] Reprocesa las conversaciones del día para refrescar UTM/Ad ID.
+  // Antes cada 3 min (hasta 15 páginas × 4 sedes por ciclo). Ahora cada 15 min: el
+  // dato del día no cambia cada 3 minutos y el costo era desproporcionado.
+  if (envOn('TRABAJO_DIA_ENABLED', true)) {
+    const intervaloDia = Math.max(parseInt(process.env.TRABAJO_DIA_MS || String(15 * 60 * 1000), 10) || 900000, 60000);
+    timers.push(setInterval(() => {
+      reprocesarConversacionesDesde(inicioDiaLima())
+        .then(r => {
+          if (r.totalConversaciones > 0) {
+            console.log(`[TRABAJO-DIA] Reprocesadas ${r.totalConversaciones} conversaciones de hoy (${r.totalProcesados} contactos actualizados).`);
+          }
+        })
+        .catch(err => console.error("Error en reprocesar-dia:", err));
+    }, intervaloDia));
+  }
 
-  // Guardián de bandejas sin asignar (multi-sede)
-  timers.push(setInterval(runUnassignedConversationsGuardian, 60000));
+  // ==========================================================================
+  // [GUARDIÁN DE BANDEJAS — RETIRADO POR DEFECTO]
+  //
+  // Recorría conversaciones "sin asignar" cada 60 s y las re-ruteaba. Con el
+  // sistema de DUEÑOS DISUELTO (assignedTo = null por diseño), "sin asignar" es el
+  // estado NORMAL de todos los contactos: el guardián re-ruteaba trabajo ya hecho
+  // (20 ruteos/hora medidos). Se apaga por defecto; se reactiva con
+  // GUARDIAN_BANDEJAS_ENABLED=true si se vuelve al modelo de dueños.
+  // ==========================================================================
+  if (envOn('GUARDIAN_BANDEJAS_ENABLED', false)) {
+    timers.push(setInterval(runUnassignedConversationsGuardian, 60000));
+  }
 
   // [GUARDIÁN DE PROPIETARIO — DISUELTO 2026-11-19]
   // El sistema de dueños (assignedTo) se desvaneció: el Nivel 1 trabaja por
@@ -3240,10 +3494,81 @@ export function registerBackgroundSchedulers() {
   // asignaba contactos huérfanos a un dueño; ya no aplica y queda desactivado.
   // (Si en el futuro se reactiva el sistema de dueños, restaurar este bloque.)
 
-  // Demonio inverso: sincroniza cambios de vTiger -> GHL cada 3 minutos
-  timers.push(setInterval(() => {
-    runVTigerToGHLPoller(4).catch(err => console.error("Error en Reverse Sync:", err));
-  }, 180000));
+  // ==========================================================================
+  // [NIVEL 3 — SINCRONIZACIÓN REACTIVA vTiger → GHL] Reemplaza al demonio inverso.
+  //
+  // ANTES: `runVTigerToGHLPoller` cada 3 min aplicaba un PUT parcial con su propio
+  // vocabulario de etiquetas (creaba `vtiger`, `vtiger-sincronizado`, `canal-fb-msgr`)
+  // y competía con el dual sync. Medición: 92,9% de los compradores de Roosevelt
+  // quedaron con ese ruido.
+  //
+  // AHORA: cada 60 s se buscan los contactos modificados en vTiger desde el último
+  // cursor y se encolan como jobs de Nivel 3, que sincronizan la FICHA COMPLETA con
+  // el mismo contrato de campos/etiquetas del dual sync. Idempotente por
+  // `sede:id:modifiedtime` y con cuota propia por sede.
+  //
+  // El demonio viejo queda disponible (no se borra) detrás de un flag explícito:
+  //   VTIGER_REVERSE_SYNC_ENABLED=true  → vuelve el comportamiento anterior.
+  // ==========================================================================
+  const reverseSyncViejo = String(process.env.VTIGER_REVERSE_SYNC_ENABLED || 'false').toLowerCase() === 'true';
+
+  // [CONTROL POR SUBCUENTA] Se levantan los 4 workers (uno por sede) ANTES del tail
+  // del Nivel 3: el tail detecta cambios y los deposita en la cola de la subcuenta
+  // que corresponde; el worker de esa sede los ejecuta con SU cuota.
+  setProcesadorControl(procesarCambioVtiger);
+  hidratarControl()
+    .then(() => arrancarControladores({ vigilanciaMs: envInt('CONTROL_VIGILANCIA_MS', 15000) }))
+    .then(() => console.log(`[CONTROL] 4 workers independientes activos (${VTIGER_SEDES_VALIDAS.join(', ')}).`))
+    .catch(err => console.warn(`[CONTROL] No se pudieron arrancar los workers: ${err.message}`));
+
+  if (reverseSyncViejo) {
+    timers.push(setInterval(() => {
+      runVTigerToGHLPoller(4).catch(err => console.error('Error en Reverse Sync (modo legacy):', err));
+    }, 180000));
+    console.warn('[NIVEL3] [LEGACY] VTIGER_REVERSE_SYNC_ENABLED=true: corre el demonio inverso antiguo EN LUGAR del Nivel 3.');
+  } else {
+    let nivel3Corriendo = false;
+    timers.push(setInterval(() => {
+      if (nivel3Corriendo) return;
+      nivel3Corriendo = true;
+      runNivel3Tail({
+        limite: envInt('NIVEL3_LOTE', 10),
+        // El tail sólo DETECTA; la ejecución va a la cola de cada subcuenta.
+        deps: {
+          encolar: (p) => encolarContacto({
+            sede: p.sede,
+            vtigerId: p.id,
+            modifiedtime: p.modifiedtime,
+            prioridad: 1,
+            origen: 'nivel3'
+          })
+        }
+      })
+        .then(r => {
+          if (r.encolados > 0) {
+            console.log(`[NIVEL3] ${r.encolados} cambios de vTiger encolados (${Object.entries(r.sedes).map(([s, v]) => `${s}:${v.encolados ?? 0}`).join(', ')}).`);
+          }
+          if (r.sinCuota?.length) {
+            console.log(`[NIVEL3] Sin cuota de fondo en: ${r.sinCuota.join(', ')}. Se reintenta en el próximo ciclo.`);
+          }
+          if (r.saltos?.length) {
+            console.warn(`[NIVEL3] Cursor saltado al presente por atraso: ${r.saltos.map(s => `${s.sede}(${s.atrasoMin}min)`).join(', ')}.`);
+          }
+        })
+        .catch(err => console.warn(`[NIVEL3] ${err.message}`))
+        .finally(() => { nivel3Corriendo = false; });
+
+      // [NIVEL 3 — ÓRDENES] Una venta nueva puede no tocar el `modifiedtime` del
+      // contacto en el mismo instante; este carril vigila SalesOrder y encola el
+      // contacto de la orden (compras, fechas, monto, recompra).
+      runNivel3OrderTail({ limite: envInt('NIVEL3_LOTE_ORDENES', 20) })
+        .then(o => {
+          if (o.encolados > 0) console.log(`[NIVEL3-ORDENES] ${o.encolados} ventas encoladas al contacto (${o.ordenes} órdenes leídas).`);
+          if (o.saltos?.length) console.warn(`[NIVEL3-ORDENES] Cursor saltado por atraso de ${o.saltos[0].atrasoMin} min.`);
+        })
+        .catch(err => console.warn(`[NIVEL3-ORDENES] ${err.message}`));
+    }, envInt('NIVEL3_INTERVALO_MS', 60000)));
+  }
 
   // [AUDITORÍA TÉCNICA AUTOMÁTICA — VIGILANCIA DE FUNCIONES]
   // Se ejecuta sola cada 15 minutos y deja constancia en la auditoría cuando detecta
@@ -3296,7 +3621,7 @@ export function registerBackgroundSchedulers() {
   // Esta pasada los RELLENA. Va en lotes pequeños cada 20 minutos y el propio
   // servicio se detiene si la cuota real no da margen para la atencion en vivo.
   timers.push(setInterval(() => {
-    if (!tomarTurno('refill-comercial')) return; // nivel 2 secuencial
+    if (!tomarTurno('refill-comercial', CARRILES_N2.RECONCILIACION)) return; // carril N2B: completitud
     const sedesActivas = getActiveSedes().filter(s => !s.isPaused).map(s => s.sedeId);
     if (sedesActivas.length === 0) { liberarTurno('refill-comercial'); return; }
     // Prioridad Palacios (la regla de negocio), luego el resto.
@@ -3318,7 +3643,7 @@ export function registerBackgroundSchedulers() {
   // ningún contacto quede "a medias". Delegado a `hayCuotaRealDeFondo`: si el fondo
   // no tiene margen en la franja, la curación se pausa sola sin tocar la atención.
   timers.push(setInterval(() => {
-    if (!tomarTurno('curador-estandar')) return; // nivel 2 secuencial
+    if (!tomarTurno('curador-estandar', CARRILES_N2.RECONCILIACION)) return; // carril N2B: completitud
     const sedeCur = getActiveSedes().some(s => s.sedeId === 'PALACIOS' && !s.isPaused) ? 'PALACIOS'
       : (getActiveSedes().find(s => !s.isPaused)?.sedeId || null);
     if (!sedeCur) { liberarTurno('curador-estandar'); return; }
@@ -3410,7 +3735,7 @@ export function registerBackgroundSchedulers() {
   // en 45 min: mas del doble del ciclo normal, para NO disparar falsamente.
   const guardaSalesBridge = crearGuardaConWatchdog('Sales Bridge', 45 * 60 * 1000);
   timers.push(setInterval(() => {
-    if (!tomarTurno('sales-bridge')) return; // nivel 2 secuencial
+    if (!tomarTurno('sales-bridge', CARRILES_N2.HISTORICO)) return; // carril N2A: cobertura (crea compradores que faltan)
     if (!guardaSalesBridge.tomar()) { liberarTurno('sales-bridge'); return; }
     runVtigerSalesBridge({ horasAtras: 6, soloCompradores: true, limitePorSede: 20 })
       .catch(err => console.error('[Sales Bridge] Error en ciclo programado:', err.message))
@@ -3423,7 +3748,7 @@ export function registerBackgroundSchedulers() {
   // ~27 min (50 x 2 por sede); tope de 60 min = mas del doble, sin falsos positivos.
   const guardaOrderHistory = crearGuardaConWatchdog('Order Backfill', 60 * 60 * 1000);
   timers.push(setInterval(() => {
-    if (!tomarTurno('order-history')) return; // nivel 2 secuencial
+    if (!tomarTurno('order-history', CARRILES_N2.RECONCILIACION)) return; // carril N2B: completa órdenes de lo ya sincronizado
     if (!guardaOrderHistory.tomar()) { liberarTurno('order-history'); return; }
     getBackfillStatus()
       .then(estado => {
@@ -3442,7 +3767,7 @@ export function registerBackgroundSchedulers() {
   // cuello de OFFSET de vTiger). Completa la base al 100% en las 4 subcuentas.
   const guardaLeadsBackfill = crearGuardaConWatchdog('Leads Backfill', 60 * 60 * 1000);
   timers.push(setInterval(() => {
-    if (!tomarTurno('leads-backfill')) return; // nivel 2 secuencial
+    if (!tomarTurno('leads-backfill', CARRILES_N2.HISTORICO)) return; // carril N2A: cobertura
     if (!guardaLeadsBackfill.tomar()) { liberarTurno('leads-backfill'); return; }
     runLeadsBackfill({ tamanoLote: 30, maxLotes: 1, pausaMs: 250 })
       .catch(err => console.error('[Leads Backfill] Error en ciclo programado:', err.message))
@@ -3538,6 +3863,14 @@ export function registerBackgroundSchedulers() {
     buyersBackfillCorriendo = true;
     buyersBackfillIniciadoEn = Date.now();
 
+    // [NIVEL 2A] El backfill histórico toma el turno de SU carril. Antes corría
+    // fuera del ciclo operativo y competía con el refill/curador por la misma cuota;
+    // ahora el carril B (reconciliación) cede ante él y el trabajo se reparte.
+    if (!tomarTurno('backfill-compradores', CARRILES_N2.HISTORICO)) {
+      buyersBackfillCorriendo = false;
+      return;
+    }
+
     // ======================================================================
     // [MULTISISTEMATICO, NO "FILA INDIA"]
     //
@@ -3581,7 +3914,7 @@ export function registerBackgroundSchedulers() {
         return runBuyersBackfill({ tamanoLote: tamano, maxLotes: lotes, pausaMs: pausa, concurrencia, sedes: sedesDelCiclo });
       })
       .catch(err => console.error('[Buyers Backfill] Error en ciclo programado:', err.message))
-      .finally(() => { buyersBackfillCorriendo = false; });
+      .finally(() => { buyersBackfillCorriendo = false; liberarTurno('backfill-compradores'); });
   }, 10 * 60 * 1000));
 
   // ==========================================================================
