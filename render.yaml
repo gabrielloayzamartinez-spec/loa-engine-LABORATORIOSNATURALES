@@ -61,6 +61,38 @@ services:
       - key: DATABASE_URL
         sync: false
 
+      # ── NIVELES: operación por día ─────────────────────────────────────────
+      # N1 trabaja SOLO el día de hoy; N2 el histórico hasta ayer.
+      - key: N2_HASTA_AYER
+        value: "true"
+      # Espejo: se publica el estado ACTUAL de vTiger (incluye correcciones).
+      - key: GHL_MODO_ESPEJO
+        value: "true"
+      # Radar: red de seguridad, no el mecanismo principal (el webhook manda).
+      - key: RADAR_ENABLED
+        value: "true"
+      - key: RADAR_INTERVALO_MS
+        value: "60000"
+      - key: TRABAJO_DIA_MS
+        value: "900000"
+      # Nivel 3 (reactivo por cambio en vTiger)
+      - key: NIVEL3_LOTE
+        value: "10"
+      - key: NIVEL3_MAX_DIA
+        value: "20000"
+      - key: NIVEL3_MAX_ATRASO_MIN
+        value: "45"
+      - key: NIVEL3_SOLO_COMPRADORES
+        value: "false"
+      - key: NIVEL3_COOLDOWN_MIN
+        value: "10"
+      # Las ventas de HOY las publica el N2 al día siguiente.
+      - key: ORDER_HISTORY_SOLO_COMPRADORES
+        value: "true"
+      # Cuenta Empresa (réplica analítica): pausada mientras se opera por sede.
+      - key: PAUSE_CUENTA_EMPRESA
+        value: "true"
+
       # vTiger CRM Connection
       - key: VTIGER_URL
         value: https://ventascallcenter.com
