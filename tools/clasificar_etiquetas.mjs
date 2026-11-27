@@ -9,7 +9,7 @@
 import 'dotenv/config';
 import { SEDES_GATEWAY } from '../src/config/index.js';
 import { PAGE_MATRIX } from '../src/config/page_matrix.js';
-import { etiquetaPagina, etiquetaProveedor, TAGS_PROTEGIDAS, TAGS_ESTADO } from '../src/domain/ghl_tags.js';
+import { etiquetaPagina, etiquetaProveedor, TAGS_PROTEGIDAS, TAGS_ESTADO, PROVEEDORES_VALIDOS } from '../src/domain/ghl_tags.js';
 
 const op = {};
 for (const a of process.argv.slice(2)) {
@@ -48,7 +48,10 @@ const tags = (data.tags || []).map(t => ({ id: t.id || t._id, name: String(t.nam
 const conservar = [], protegidas = [], basura = [];
 for (const t of tags) {
   const low = t.name.toLowerCase();
-  if (paginasReales.has(low) || provsReales.has(low) || estadoReales.has(low)) { conservar.push(t); continue; }
+  // [FIX 27/11] Un proveedor es válido si está en la lista del contrato (matriz +
+  // vTiger), no solo si aparece en la matriz de páginas de esta sede.
+  if (paginasReales.has(low) || estadoReales.has(low)) { conservar.push(t); continue; }
+  if (low.startsWith('prov-') && PROVEEDORES_VALIDOS.has(low.slice(5))) { conservar.push(t); continue; }
   if (TAGS_PROTEGIDAS.has(low)) { protegidas.push(t); continue; }
   basura.push(t);
 }
