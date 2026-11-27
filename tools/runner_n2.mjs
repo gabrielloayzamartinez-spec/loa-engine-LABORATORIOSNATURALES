@@ -32,6 +32,7 @@ import { query, VTIGER_CONTACT_SELECT, VTIGER_FIELDS, VTIGER_SEDES_VALIDAS } fro
 import { syncVtigerContactDual } from '../src/services/dual_sync_service.js';
 import { hayCuotaRealDeFondo } from '../src/utils/ghl_http_client.js';
 import { estaPausado } from './runner_control.mjs';
+import { leerJornada } from './jornada.mjs';
 
 const op = {};
 for (const a of process.argv.slice(2)) {
@@ -165,10 +166,14 @@ while (estado.idx < plan.length && !cortado) {
   }
 
   let ok = 0, fallidos = 0, omitidos = 0;
-  // [CONCURRENCIA] Se procesan `CONC` fichas a la vez: la latencia por ficha
+  // [JORNADA] El ritmo no es fijo: de día va lento (N1 prioritario) y de noche a full.
+  const jornada = leerJornada();
+  const conc = Math.max(1, Math.min(CONC, jornada.concurrencia || CONC));
+  const pausaMs = Number.isFinite(jornada.pausaMs) ? jornada.pausaMs : Math.round(1000 / RATE);
+  // [CONCURRENCIA] Se procesan `conc` fichas a la vez: la latencia por ficha
   // (2-3 llamadas) era el cuello de botella, no la cuota.
-  for (let i = 0; i < filas.length && !cortado; i += CONC) {
-    const grupo = filas.slice(i, i + CONC);
+  for (let i = 0; i < filas.length && !cortado; i += conc) {
+    const grupo = filas.slice(i, i + conc);
     const resultados = await Promise.all(grupo.map(async (v) => {
       try {
         const r = await syncVtigerContactDual(v, { permitirLead: true });
@@ -180,7 +185,7 @@ while (estado.idx < plan.length && !cortado) {
     for (const r of resultados) {
       if (r === 'ok') ok++; else if (r === 'omit') omitidos++; else fallidos++;
     }
-    await pausa();
+    await sleep(pausaMs);
   }
 
   estado.offset += filas.length;
