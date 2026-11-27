@@ -3529,6 +3529,8 @@ export function registerBackgroundSchedulers() {
   } else {
     let nivel3Corriendo = false;
     timers.push(setInterval(() => {
+      // [FASE 1 — SOLO N1] NIVEL3_ENABLED=false apaga el reactivo de vTiger.
+      if (String(process.env.NIVEL3_ENABLED || 'true').toLowerCase() === 'false') return;
       if (nivel3Corriendo) return;
       nivel3Corriendo = true;
       runNivel3Tail({
@@ -3621,6 +3623,8 @@ export function registerBackgroundSchedulers() {
   // Esta pasada los RELLENA. Va en lotes pequeños cada 20 minutos y el propio
   // servicio se detiene si la cuota real no da margen para la atencion en vivo.
   timers.push(setInterval(() => {
+    // [FASE 1 — SOLO N1] N2_MANTENIMIENTO_ENABLED=false apaga la completitud de CF.
+    if (String(process.env.N2_MANTENIMIENTO_ENABLED || 'true').toLowerCase() === 'false') return;
     if (!tomarTurno('refill-comercial', CARRILES_N2.RECONCILIACION)) return; // carril N2B: completitud
     const sedesActivas = getActiveSedes().filter(s => !s.isPaused).map(s => s.sedeId);
     if (sedesActivas.length === 0) { liberarTurno('refill-comercial'); return; }
@@ -3643,6 +3647,7 @@ export function registerBackgroundSchedulers() {
   // ningún contacto quede "a medias". Delegado a `hayCuotaRealDeFondo`: si el fondo
   // no tiene margen en la franja, la curación se pausa sola sin tocar la atención.
   timers.push(setInterval(() => {
+    if (String(process.env.N2_MANTENIMIENTO_ENABLED || 'true').toLowerCase() === 'false') return;
     if (!tomarTurno('curador-estandar', CARRILES_N2.RECONCILIACION)) return; // carril N2B: completitud
     const sedeCur = getActiveSedes().some(s => s.sedeId === 'PALACIOS' && !s.isPaused) ? 'PALACIOS'
       : (getActiveSedes().find(s => !s.isPaused)?.sedeId || null);
@@ -3752,6 +3757,7 @@ export function registerBackgroundSchedulers() {
   // ~27 min (50 x 2 por sede); tope de 60 min = mas del doble, sin falsos positivos.
   const guardaOrderHistory = crearGuardaConWatchdog('Order Backfill', 60 * 60 * 1000);
   timers.push(setInterval(() => {
+    if (String(process.env.N2_MANTENIMIENTO_ENABLED || 'true').toLowerCase() === 'false') return;
     if (!tomarTurno('order-history', CARRILES_N2.RECONCILIACION)) return; // carril N2B: completa órdenes de lo ya sincronizado
     if (!guardaOrderHistory.tomar()) { liberarTurno('order-history'); return; }
     getBackfillStatus()

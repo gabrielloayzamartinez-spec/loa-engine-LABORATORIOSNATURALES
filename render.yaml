@@ -70,6 +70,13 @@ services:
       #   "false" → arranque "solo hoy + reactivo" (no toca el histórico)
       - key: N2_HISTORICO_ENABLED
         value: "false"
+      # FASE 1 (solo N1): la completitud de CF (refill, curador, órdenes) queda apagada
+      # hasta que el etiquetado esté estable.
+      - key: N2_MANTENIMIENTO_ENABLED
+        value: "false"
+      # FASE 1 (solo N1): el reactivo de vTiger se enciende en el commit siguiente.
+      - key: NIVEL3_ENABLED
+        value: "false"
       # Espejo: se publica el estado ACTUAL de vTiger (incluye correcciones).
       - key: GHL_MODO_ESPEJO
         value: "true"
